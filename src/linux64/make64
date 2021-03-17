@@ -1,0 +1,17 @@
+# Compile the Prefactor source files for X86_64 architecture
+
+CC = gcc
+CFLAGS = -I.. -I../gwnum -DX86_64 -O2
+
+CPP = g++
+CPPFLAGS = -I.. -I../gwnum -DX86_64 -O2
+
+COMPOBJS = prefactor.o
+
+compile: $(COMPOBJS)
+
+prefactor.o: ../prefactor.c
+	$(CC) $(CFLAGS) -c ../prefactor.c
+
+.cpp.o:
+	$(CPP) $(CPPFLAGS) -c $<
