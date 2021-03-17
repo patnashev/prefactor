@@ -519,7 +519,7 @@ int main(int argc, char	*argv[])
     double pairing;
     get_stage2_params(B1, B2, maxSize, &D, &A, &L, &pairing);
     int cost = get_stage1_cost(B1, minus1 ? 0 : plus1 ? 1 : K) + get_stage2_cost(B1, B2, D, A, L, pairing);
-    int size = get_stage2_size(B1, B2, D, A, L);
+    int size = get_stage2_size(D, A, L);
     if (edecm && size < get_edecm_stage1_size(K))
         size = get_edecm_stage1_size(K);
     printf("Running at 1/%.0f cost of a primality test, using %.0f MB.\n", primalityCost/cost, gwnum_size(gwdata)/1048576.0*size);

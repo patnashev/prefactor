@@ -86,7 +86,7 @@ int get_edecm_stage1_size(int K)
     return 5 + 5*(1 << (K - 2));
 }
 
-int get_stage2_size(int B1, int B2, int D, int A, int L)
+int get_stage2_size(int D, int A, int L)
 {
     int i, j;
     int size = 0;
@@ -443,7 +443,7 @@ void do_stage2_params(int B1, int B2)
                     continue;
 
                 memcpy(plist, primes, sizeof(int)*totalp);
-                int size = get_stage2_size(B1, B2, D, A, L);
+                int size = get_stage2_size(D, A, L);
                 if (size > 1000)
                     continue;
                 double pairing = 1.0;
