@@ -13,7 +13,7 @@ P-1 is exceptionally good for Mersennes and GFNs, because *p-1* is divisible by 
 ## P+1
 P+1 name is a little misleading, because it not always targets *p+1*. It targets either *p-1* or *p+1* depending on properties of *p*. So, if it is run after P-1, it can find only a half of factors, because the other half is already found. But P+1 takes in a parameter, which means P+1 can be run several times to cover most of *p+1*. But that strategy is not optimal for sieving.
 
-There are special parameters of P+1, which guarantee that *p±1* has a divisor. *2/7* guarantees that *p±1* is divisible by 6. It "chooses" either *p-1* or *p+1* depending on which is divisible by 6. The same way *6/5* makes *p±1* divisible by 4. Those two parameters produce more factors than others, and more factors than P-1. It'd almost makes sense to run P+1(*2/7*) as a preferred sieving method for general numbers, if not for its stage1 to be twice as slow compared to P-1. Higher probability of a factor does not compensate slower stage1. P-1 is still better as a sieve, it speeds up search for primes more.
+There are special parameters of P+1, which guarantee that *pÂ±1* has a divisor. *2/7* guarantees that *pÂ±1* is divisible by 6. It "chooses" either *p-1* or *p+1* depending on which is divisible by 6. The same way *6/5* makes *pÂ±1* divisible by 4. Those two parameters produce more factors than others, and more factors than P-1. It'd almost makes sense to run P+1(*2/7*) as a preferred sieving method for general numbers, if not for its stage1 to be twice as slow compared to P-1. Higher probability of a factor does not compensate slower stage1. P-1 is still better as a sieve, it speeds up search for primes more.
 
 ## EdECM
 Edwards elliptic curve method builds a sequence with *p+1+m* period. The main advantage of the method is that *m* is different for each curve we choose. If both *p-1* and *p+1* have a large prime among their factors, we'll never find them with P-1 and P+1 methods. But with EdECM we can run factorization multiple times with different curves and wait until we get *m* such that *p+1+m* is smooth enough for us to find it.
@@ -24,5 +24,7 @@ As for the probability of success, curves can have known divisors of their perio
 
 # Command line
 
-```Usage: prefactor {-B1 10000 -B2 100000 | -S sievingDepth [-B1 10000] [-B2 100000]} [-minus1] [-plus1] [-edecm] options {"K*B^N+C" | file}
-Options: [-M maxMemory] [-t Threads] [-P 2/7] [-curve {curve2x8 | curve12 | random | seed 123 | xy 17/19 17/33}]```
+```
+Usage: prefactor {-B1 10000 -B2 100000 | -S sievingDepth [-B1 10000] [-B2 100000]} [-minus1] [-plus1] [-edecm] options {"K*B^N+C" | file}
+Options: [-M maxMemory] [-t Threads] [-P 2/7] [-curve {curve2x8 | curve12 | random | seed 123 | xy 17/19 17/33}]
+```
