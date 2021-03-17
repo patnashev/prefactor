@@ -16,7 +16,7 @@ uint32_t fingerprint;
 // Bitlen of base
 double log2_b = 1;
 // Human-readable representation
-char Nstr[100];
+char Nstr[128];
 // Gwnum handle
 gwhandle* gwdata = NULL;
 // Returns giant for operations modulo N
@@ -126,18 +126,35 @@ int initKBNCstrings(int threadCount, unsigned int k, unsigned int b, unsigned in
     }
     must_norm = gwdata->EXTRA_BITS < 2.0;
 
+    int len;
+    char kbuf[45];
+    char bbuf[45];
+    kbuf[0] = 0;
     if (k != 1)
-        sprintf(Nstr, "%d*", k);
+        sprintf(kbuf, "%d*", k);
     if (k == 0)
-        snprintf(Nstr, 50, "%s*", sk);
-    int len = strlen(Nstr);
+    {
+        if ((len = strlen(sk)) > 40)
+        {
+            snprintf(kbuf, 21, "%s", sk);
+            sprintf(kbuf + 20, "...%s*", sk + len - 20);
+        }
+        else
+            sprintf(kbuf, "%s*", sk);
+    }
     if (b != 0)
-        snprintf(Nstr + len, 50 - len, "%d^", b);
+        sprintf(bbuf, "%d^", b);
     else
-        snprintf(Nstr + len, 50 - len, "%s^", sb);
-    len += strlen(Nstr + len);
-    if (len + snprintf(Nstr + len, 50 - len, "%d%c%d", n, c < 0 ? '-' : '+', abs(c) >= 50))
-        strcat(Nstr + len, "...");
+    {
+        if ((len = strlen(sb)) > 40)
+        {
+            snprintf(bbuf, 21, "%s", sb);
+            sprintf(bbuf + 20, "...%s^", sb + len - 20);
+        }
+        else
+            sprintf(bbuf, "%s^", sb);
+    }
+    sprintf(Nstr, "%s%s%d%c%d", kbuf, bbuf, n, c < 0 ? '-' : '+', abs(c));
 
     printf("Starting factoring of %s\n", Nstr);
     char buf[200];
