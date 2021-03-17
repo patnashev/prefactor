@@ -129,12 +129,15 @@ int initKBNCstrings(int threadCount, unsigned int k, unsigned int b, unsigned in
     if (k != 1)
         sprintf(Nstr, "%d*", k);
     if (k == 0)
-        snprintf(Nstr, 100, "%s*", sk);
+        snprintf(Nstr, 50, "%s*", sk);
+    int len = strlen(Nstr);
     if (b != 0)
-        snprintf(Nstr, 100, "%s%d^", Nstr, b);
+        snprintf(Nstr + len, 50 - len, "%d^", b);
     else
-        snprintf(Nstr, 100, "%s%s^", Nstr, sb);
-    snprintf(Nstr, 100, "%s%d%c%d", Nstr, n, c < 0 ? '-' : '+', abs(c));
+        snprintf(Nstr + len, 50 - len, "%s^", sb);
+    len += strlen(Nstr + len);
+    if (len + snprintf(Nstr + len, 50 - len, "%d%c%d", n, c < 0 ? '-' : '+', abs(c) >= 50))
+        strcat(Nstr + len, "...");
 
     printf("Starting factoring of %s\n", Nstr);
     char buf[200];
@@ -301,11 +304,11 @@ int main(int argc, char	*argv[])
     char *s;
 
     int ThreadCount = 1;
-    int B1 = 10000;
-    int B2 = 10000;
+    int B1 = 0;
+    int B2 = 0;
     int minus1 = 0;
     int plus1 = 0;
-    int edecm = 1;
+    int edecm = 0;
     int gfn = 0;
     double sievingDepth = 0;
     int maxMem = 2048;
