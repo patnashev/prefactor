@@ -249,7 +249,7 @@ int parseKBNC(const char *s, int *type, int *num, char *sk, char *sb, int max_in
     }
     else
         num[0] = 1;
-    if (s[j] == '^' || !s[j])
+    if (s[j] == '^' || s[j] == '"' || !s[j])
     {
         strncpy(sb, s, j);
         sb[j] = 0;
@@ -263,7 +263,7 @@ int parseKBNC(const char *s, int *type, int *num, char *sk, char *sb, int max_in
     }
     else
         return FALSE;
-    if (s[j])
+    if (s[j] == '^')
     {
         s += j + 1;
         j = 0;
