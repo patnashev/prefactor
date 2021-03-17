@@ -66,10 +66,18 @@ int initKBNC(int threadCount, double k, unsigned int b, unsigned int n, int c)
     }
     must_norm = gwdata->EXTRA_BITS < 2.0;
 
+    char *s = Nstr;
+    s[0] = 0;
     if ((int)k != 1)
-        snprintf(Nstr, 100, "%d*%d^%d%c%d", (int)k, b, n, c < 0 ? '-' : '+', abs(c));
-    else
-        snprintf(Nstr, 100, "%d^%d%c%d", b, n, c < 0 ? '-' : '+', abs(c));
+        sprintf(s, "%d*", (int)k);
+    s += strlen(s);
+    sprintf(s, "%d", b);
+    s += strlen(s);
+    if (n != 1)
+        sprintf(s, "^%d", n);
+    s += strlen(s);
+    if (c != 0)
+        sprintf(s, "%c%d", c < 0 ? '-' : '+', abs(c));
 
     printf("Starting factoring of %s\n", Nstr);
     char buf[200];
@@ -127,34 +135,39 @@ int initKBNCstrings(int threadCount, unsigned int k, unsigned int b, unsigned in
     must_norm = gwdata->EXTRA_BITS < 2.0;
 
     int len;
-    char kbuf[45];
-    char bbuf[45];
-    kbuf[0] = 0;
+    char *s = Nstr;
+    s[0] = 0;
     if (k != 1)
-        sprintf(kbuf, "%d*", k);
+        sprintf(s, "%d*", k);
     if (k == 0)
     {
         if ((len = strlen(sk)) > 40)
         {
-            snprintf(kbuf, 21, "%s", sk);
-            sprintf(kbuf + 20, "...%s*", sk + len - 20);
+            snprintf(s, 21, "%s", sk);
+            sprintf(s + 20, "...%s*", sk + len - 20);
         }
         else
-            sprintf(kbuf, "%s*", sk);
+            sprintf(s, "%s*", sk);
     }
+    s += strlen(s);
     if (b != 0)
-        sprintf(bbuf, "%d^", b);
+        sprintf(s, "%d", b);
     else
     {
         if ((len = strlen(sb)) > 40)
         {
-            snprintf(bbuf, 21, "%s", sb);
-            sprintf(bbuf + 20, "...%s^", sb + len - 20);
+            snprintf(s, 21, "%s", sb);
+            sprintf(s + 20, "...%s", sb + len - 20);
         }
         else
-            sprintf(bbuf, "%s^", sb);
+            sprintf(s, "%s", sb);
     }
-    sprintf(Nstr, "%s%s%d%c%d", kbuf, bbuf, n, c < 0 ? '-' : '+', abs(c));
+    s += strlen(s);
+    if (n != 1)
+        sprintf(s, "^%d", n);
+    s += strlen(s);
+    if (c != 0)
+        sprintf(s, "%c%d", c < 0 ? '-' : '+', abs(c));
 
     printf("Starting factoring of %s\n", Nstr);
     char buf[200];
@@ -236,7 +249,7 @@ int parseKBNC(const char *s, int *type, int *num, char *sk, char *sb, int max_in
     }
     else
         num[0] = 1;
-    if (s[j] == '^')
+    if (s[j] == '^' || !s[j])
     {
         strncpy(sb, s, j);
         sb[j] = 0;
@@ -250,30 +263,38 @@ int parseKBNC(const char *s, int *type, int *num, char *sk, char *sb, int max_in
     }
     else
         return FALSE;
-    s += j + 1;
-    j = 0;
-    while (s[j] && isdigit(s[j]))
-        j++;
-    if (!j || j > 9)
-        return FALSE;
-    strncpy(buf, s, j);
-    buf[j] = 0;
-    num[2] = atoi(buf);
-    if (s[j] == '+')
-        num[3] = 1;
-    else if (s[j] == '-')
-        num[3] = -1;
+    if (s[j])
+    {
+        s += j + 1;
+        j = 0;
+        while (s[j] && isdigit(s[j]))
+            j++;
+        if (!j || j > 9)
+            return FALSE;
+        strncpy(buf, s, j);
+        buf[j] = 0;
+        num[2] = atoi(buf);
+        if (s[j] == '+')
+            num[3] = 1;
+        else if (s[j] == '-')
+            num[3] = -1;
+        else
+            return FALSE;
+        s += j + 1;
+        j = 0;
+        while (s[j] && isdigit(s[j]))
+            j++;
+        if (!j || j > 9)
+            return FALSE;
+        strncpy(buf, s, j);
+        buf[j] = 0;
+        num[3] *= atoi(buf);
+    }
     else
-        return FALSE;
-    s += j + 1;
-    j = 0;
-    while (s[j] && isdigit(s[j]))
-        j++;
-    if (!j || j > 9)
-        return FALSE;
-    strncpy(buf, s, j);
-    buf[j] = 0;
-    num[3] *= atoi(buf);
+    {
+        num[2] = 1;
+        num[3] = 0;
+    }
 
     *type = ret_type;
     return TRUE;
