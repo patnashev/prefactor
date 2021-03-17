@@ -415,8 +415,6 @@ void get_stage2_cost_and_pairing(int* primes, int B1, int B2, int D, int A, int 
     *pairing = 2*paired/(double)j;
 }
 
-#include <omp.h>
-
 void do_stage2_params(int B1, int B2)
 {
     int i, j, k;
@@ -428,12 +426,9 @@ void do_stage2_params(int B1, int B2)
     for (num_primes = 0; primes[totalp] <= B2; totalp++, num_primes++);
     totalp++;
 
-    omp_set_num_threads(50);
-
     int Ds[] = {66, 294, 588};
 
     int D;
-    #pragma omp parallel for schedule(static, 1) default(none) private(i,j,k) shared(best,totalp)
     for (D = 30; D < 2150; D += 6)
     {
         int *plist = malloc(sizeof(int)*totalp);
@@ -454,7 +449,6 @@ void do_stage2_params(int B1, int B2)
                 double pairing = 1.0;
                 int cost = get_stage2_cost_best(B1, B2, D, A, L, num_primes);
                 int bad = 0;
-                #pragma omp critical
                 while (1)
                 {
                     for (i = 0; i < 100 && best[i][0] != 0 && ((best[i][0] > size && best[i][1] < cost) || (best[i][0] < size && best[i][1] > cost)); i++);
@@ -469,7 +463,6 @@ void do_stage2_params(int B1, int B2)
 
                 get_stage2_cost_and_pairing(plist, B1, B2, D, A, L, &cost, &pairing);
 
-                #pragma omp critical
                 while (1)
                 {
                     for (i = 0; i < 100 && best[i][0] != 0 && ((best[i][0] > size && best[i][1] < cost) || (best[i][0] < size && best[i][1] > cost)); i++);

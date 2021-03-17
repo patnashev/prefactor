@@ -1,6 +1,6 @@
 
-int cmp(const int *a, const int *b) { return *a - *b; }
-int cmpu64(const uint64_t *a, const uint64_t *b) { return *a > *b ? 1 : *a == *b ? 0 : -1; }
+int cmp(const void *a, const void *b) { return *(int*)a - *(int*)b; }
+int cmpu64(const void *a, const void *b) { return *(uint64_t*)a > *(uint64_t*)b ? 1 : *(uint64_t*)a == *(uint64_t*)b ? 0 : -1; }
 
 int gcd(int a, int b)
 {
