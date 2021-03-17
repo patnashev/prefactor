@@ -16,7 +16,7 @@ P+1 name is a little misleading, because it not always targets *p+1*. It targets
 There are special parameters of P+1, which guarantee that *p±1* has a divisor. *2/7* guarantees that *p±1* is divisible by 6. It "chooses" either *p-1* or *p+1* depending on which is divisible by 6. The same way *6/5* makes *p±1* divisible by 4. Those two parameters produce more factors than others, and more factors than P-1. It'd almost makes sense to run P+1(*2/7*) as a preferred sieving method for general numbers, if not for its stage1 to be twice as slow compared to P-1. Higher probability of a factor does not compensate slower stage1. P-1 is still better as a sieve, it speeds up search for primes more.
 
 ## EdECM
-Edwards elliptic curve method builds a sequence with *p+1+m* period. The main advantage of the method is that *m* is different for each curve we choose. If both *p-1* and *p+1* have a large prime among their factors, we'll never find them with P-1 and P+1 methods. But with EdECM we can run factorization multiple times with different curves and wait until we get *m* such that *p+1+m* is smooth enough for us to find it.
+Elliptic curve method (ECM) builds a sequence with *p+1+m* period. The main advantage of the method is that *m* is different for each curve we choose. If both *p-1* and *p+1* have a large prime among their factors, we'll never find them with P-1 and P+1 methods. But with ECM we can run factorization multiple times with different curves and wait until we get *m* such that *p+1+m* is smooth enough for us to find it.
 
 Operations with [Edwards curves](https://en.wikipedia.org/wiki/Edwards_curve) are faster than with any other curve type, that's why they're preferred for ECM.
 
