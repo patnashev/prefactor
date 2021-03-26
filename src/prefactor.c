@@ -629,7 +629,7 @@ int main(int argc, char	*argv[])
         else
             printf("Curve j-invariant RES64: %08X%08X\n", 0, 0);
         if (do_edecm_stage1(B1, K, EdP) && B2 > B1)
-            do_edecm_stage2(B1, B2, EdP, 210, 5, 2);
+            do_edecm_stage2(B1, B2, EdP, 630, 1, 10);
         ed_free(EdP);
     }
     freeg();

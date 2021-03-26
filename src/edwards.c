@@ -39,10 +39,12 @@ void ed_mul2_addsmall(int xa, int xb, int ya, int yb, ed_point p, int options);
 #define ED_SIGNED_SUB 0x400000
 // Option to get the full set of coordinates. Necessary if the result is used for addition.
 #define ED_MUL_FULL 0x800000
+// Option to enable precalculations during normalization.
+#define ED_NORM_FORADD 0x100000
 // Pooled normalization.
-giant ed_normalize_pool(ed_point *pool, int count);
+giant ed_normalize_pool(ed_point *pool, int count, int options);
 // Normalizes Edwards curve point.
-#define ed_normalize(p) ed_normalize_pool(&(p), 1)
+#define ed_normalize(p) ed_normalize_pool(&(p), 1, 0)
 // Multiplies Edwards curve point by a giant scalar.
 void ed_mul_giant_add(giant g, ed_point p, ed_point pres, ed_point pres1);
 // Multiplies Edwards curve point by a scalar.
@@ -326,6 +328,8 @@ void ed_mul2(ed_point p, int options)
     gwsquare(gwdata, p->X); // A = X1^2
     gwsquare(gwdata, p->Y); // B = Y1^2
     force_normalize(p->Y);
+    //gwsquare2(gwdata, p->X, p->X, GWMUL_STARTNEXTFFT); // A = X1^2
+    //gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT); // B = Y1^2
     gwaddsub(gwdata, p->Y, p->X); // G = B + A, H = B - A
     //gwsub(gwdata, p->Y, p->Z); // F = C - G
     gwnum tmp = NULL;
@@ -394,8 +398,6 @@ void ed_mul2_carefully(ed_point p)
 
 void ed_add(ed_point padd, ed_point p, int options)
 {
-    if (p->T == NULL)
-        p->T = gwalloc(gwdata);
     if (p->YpX != NULL)
         gwfree(gwdata, p->YpX);
     p->YpX = NULL;
@@ -415,6 +417,11 @@ void ed_add(ed_point padd, ed_point p, int options)
             gwunfft(gwdata, padd->T, p->Z);
         else
             gwcopy(gwdata, padd->T, p->Z);
+        if (p->T == NULL)
+        {
+            p->T = gwalloc(gwdata);
+            gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | (padd->Z != NULL || !must_norm ? GWMUL_STARTNEXTFFT : 0));
+        }
     }
     if (padd->Z != NULL)
     {
@@ -593,7 +600,7 @@ void ed_mul2_addsmall(int xa, int xb, int ya, int yb, ed_point p, int options)
     gwfree(gwdata, tmp);
 }
 
-giant ed_normalize_pool(ed_point* pool, int count)
+giant ed_normalize_pool(ed_point* pool, int count, int options)
 {
     int i;
     int first = -1;
@@ -605,6 +612,11 @@ giant ed_normalize_pool(ed_point* pool, int count)
         if (first < 0)
             first = i;
         last = i;
+        if (pool[i]->Z == NULL)
+        {
+            pool[i]->Z = gwalloc(gwdata);
+            dbltogw(gwdata, 1, pool[i]->Z);
+        }
         if (pool[i]->T == NULL)
             pool[i]->T = gwalloc(gwdata);
         if (pool[i]->YpX != NULL)
@@ -650,12 +662,12 @@ giant ed_normalize_pool(ed_point* pool, int count)
         else
             prev = -1;
         if (pool[i]->X != NULL)
-            gwmul3(gwdata, pool[i]->T, pool[i]->X, pool[i]->X, 0);
+            gwmul3(gwdata, pool[i]->T, pool[i]->X, pool[i]->X, options);
         if (pool[i]->Y != NULL)
-            gwmul3(gwdata, pool[i]->T, pool[i]->Y, pool[i]->Y, 0);
+            gwmul3(gwdata, pool[i]->T, pool[i]->Y, pool[i]->Y, options);
         gwswap(pool[i]->YpX, pool[i]->Z);
         pool[i]->Z = NULL;
-        if (pool[i]->X != NULL && pool[i]->Y != NULL)
+        if (pool[i]->X != NULL && pool[i]->Y != NULL && (options & ED_NORM_FORADD))
         {
             if (pool[i]->YmX == NULL)
                 pool[i]->YmX = gwalloc(gwdata);
@@ -768,7 +780,11 @@ void ed_y_inc(ed_point pinc, ed_point pprev, ed_point pcur, ed_point pnext)
     else
         gwcopy(gwdata, pinc->Y, pnext->Y);
     if (must_norm || pinc->Z == NULL || pcur->Z == NULL)
+    {
+        gwunfft(gwdata, pnext->Z, pnext->Z);
+        gwunfft(gwdata, pnext->Y, pnext->Y);
         force_normalize(pnext->Z);
+    }
     gwaddsub(gwdata, pnext->Z, pnext->Y);
     gwsquare2(gwdata, pnext->Z, pnext->Z, GWMUL_STARTNEXTFFT);
     gwsquare2(gwdata, pnext->Y, pnext->Y, GWMUL_STARTNEXTFFT);
@@ -809,7 +825,7 @@ void ed_mul_giant_add(giant g, ed_point p, ed_point pres, ed_point pres1)
         }
     }
     //if (tmp == NULL)
-    //    tmp = ed_normalize_pool(u, 1 << (K - 1));
+    //    tmp = ed_normalize_pool(u, 1 << (K - 1), ED_NORM_FORADD);
 
     if (tmp == NULL)
     {
@@ -849,7 +865,10 @@ void ed_mul_giant_add(giant g, ed_point p, ed_point pres, ed_point pres1)
         if (pres1 != NULL)
         {
             ed_copy(pres, pres1);
-            ed_add(p, pres1, 0);
+            if (!isone(g))
+                ed_add(p, pres1, 0);
+            else
+                ed_mul2(pres1, ED_MUL_FULL);
         }
     }
 
@@ -865,6 +884,8 @@ void ed_mul_int_add(int x, ed_point p, ed_point pres, ed_point pres1)
     ed_mul_giant_add(g, p, pres, pres1);
     free(g);
 }
+
+//#include <xmmintrin.h>
 
 giant ed_mul_nafw(int W, short *nafw, int len, ed_point P)
 {
@@ -888,7 +909,7 @@ giant ed_mul_nafw(int W, short *nafw, int len, ed_point P)
         }
     }
     if (factor == NULL)
-        factor = ed_normalize_pool(u, 1 << (W - 2));
+        factor = ed_normalize_pool(u, 1 << (W - 2), ED_NORM_FORADD);
 
     if (factor == NULL)
     {
@@ -897,12 +918,25 @@ giant ed_mul_nafw(int W, short *nafw, int len, ed_point P)
         for (i = len - 2; i >= 0; i--)
         {
             if (nafw[i] != 0)
+            {
+                int ui = abs(nafw[i])/2;
+                /*_mm_prefetch(u[ui]->X, _MM_HINT_T0);
+                _mm_prefetch(u[ui]->Y, _MM_HINT_T0);
+                _mm_prefetch(u[ui]->T, _MM_HINT_T0);
+                _mm_prefetch(u[ui]->YpX, _MM_HINT_T0);
+                _mm_prefetch(u[ui]->YmX, _MM_HINT_T0);*/
+                /*gwtouch(gwdata, u[ui]->X);
+                gwtouch(gwdata, u[ui]->Y);
+                gwtouch(gwdata, u[ui]->T);
+                gwtouch(gwdata, u[ui]->YpX);
+                gwtouch(gwdata, u[ui]->YmX);*/
                 for (j = 1; j < W; j++)
                     ed_mul2(P, GWMUL_STARTNEXTFFT);
-            if (nafw[i] > 0)
-                ed_mul2_add(u[nafw[i]/2], P, (i > 0 ? GWMUL_STARTNEXTFFT : ED_MUL_FULL) | ED_SIGNED_ADD);
-            else if (nafw[i] < 0)
-                ed_mul2_add(u[-nafw[i]/2], P, (i > 0 ? GWMUL_STARTNEXTFFT : ED_MUL_FULL) | ED_SIGNED_SUB);
+                if (nafw[i] > 0)
+                    ed_mul2_add(u[ui], P, (i > 0 ? GWMUL_STARTNEXTFFT : ED_MUL_FULL) | ED_SIGNED_ADD);
+                else
+                    ed_mul2_add(u[ui], P, (i > 0 ? GWMUL_STARTNEXTFFT : ED_MUL_FULL) | ED_SIGNED_SUB);
+            }
             else
                 ed_mul2(P, i > 0 ? GWMUL_STARTNEXTFFT : ED_MUL_FULL);
         }
@@ -962,6 +996,7 @@ void get_j_invariant(giant res)
         gianttogw(gwdata, res, R);
         gwmul_carefully(gwdata, R, M);
         gwtogiant(gwdata, M, res);
+        modg(N, res);
     }
 
     gwfree(gwdata, R);

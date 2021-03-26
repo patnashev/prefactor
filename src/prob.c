@@ -1,7 +1,8 @@
 
-#define F_len 1000
+#define F_len 3000
 double F_val[F_len + 1];
 int F_inited = 0;
+double rho_val[] = { 1, 1, 3.0685282e-1, 4.8608388e-2, 4.9109256e-3, 3.5472470e-4, 1.9649696e-5, 8.7456700e-7, 3.2320693e-8, 1.0162483e-9, 2.7701718e-11, 0.664480e-12, 0.141971e-13, 0.272918e-15, 0.476063e-17, 0.758990e-19 };
 
 double F(double x)
 {
@@ -14,14 +15,24 @@ double F(double x)
 
 void F_init()
 {
-    for (int i = F_len; i > 0; i--)
+    int i, j;
+    for (i = F_len; i >= F_len/3; i--)
     {
         F_val[i] = 1.0;
         for (int j = i; j < F_len; j++)
             F_val[i] -= F(j/(double)(F_len - j))/j;
-        if (F_val[i] < 0)
-            F_val[i] = 0;
     }
+    double a = 0;
+    double b = log(F_val[F_len/3]);
+    for (j = 4; j <= 15; j++)
+    {
+        a = b;
+        b = log(rho_val[j]);
+        for (; i >= (double)F_len/j; i--)
+            F_val[i] = exp(a + (b - a)*((double)F_len/i - (j - 1)));
+    }
+    for (; i > 0; i--)
+        F_val[i] = exp(a + (b - a)*((double)F_len/i - (j - 2)));
     F_val[0] = 0.0;
     F_inited = 1;
 }
@@ -3742,3 +3753,100 @@ void get_optimal_B2(int B1, int *B2, int maxSize, double sievingDepth, double kn
     b2 = b2max;
     *B2 = b2;
 }
+
+int get_edecm_stage2_size(int D, int L, int LR)
+{
+    int i, j;
+    int size = 0;
+
+    size++;
+    size++;
+    size += 4;
+    size += 4;
+    size += 2;
+    size += 2;
+    char *precomp_V = malloc(D/2*L);
+    memset(precomp_V, 0, D/2*L);
+
+    size += 1;
+    int dist = 1;
+    for (i = 1; i < D/2*L; i++)
+    {
+        if (gcd(2*i + 1, 2*dist) != 1)
+            continue;
+        precomp_V[i] = 1;
+        size += 1;
+        if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
+        {
+            dist = i + 1;
+            for (j = 0; j < i; j++)
+                if (precomp_V[j] != 0 && gcd(2*j + 1, 2*dist) != 1)
+                {
+                    precomp_V[j] = 0;
+                    size -= 1;
+                }
+        }
+    }
+
+    if (LR > 0)
+        size += L + LR;
+    else
+        size += 2*L;
+
+    free(precomp_V);
+    return size;
+}
+
+int get_edecm_stage2_cost(int B1, int B2, int D, int L, int LR, double pairing)
+{
+    int i, j;
+    int stage2cost = 0;
+    double num_primes = Ei(log(B2)) - Ei(log(B1));
+
+    if (primes == NULL)
+        sieve(B2/B1 + 100);
+    for (i = 0; primes[i]*B1 < B2; i++)
+        if (D%primes[i] != 0)
+        {
+            B1 = B2/primes[i];
+            break;
+        }
+
+    stage2cost++;
+    stage2cost++;
+    int dist = 1;
+    //stage2cost += D/2*L/2;
+    for (i = 1; i < D/2*L; i++)
+    {
+        if (gcd(2*i + 1, 2*dist) != 1)
+            continue;
+        stage2cost++;
+        if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
+        {
+            stage2cost++;
+            stage2cost++;
+            dist = i + 1;
+        }
+    }
+
+    if (D/2/dist != 1)
+    {
+        int pd = D/2/dist;
+        for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
+        if (pd > 1)
+            stage2cost++;
+        stage2cost += j;
+    }
+
+    int v = B1/D;
+
+    if (v > 0)
+        stage2cost += 2*(int)(log(v)/log(2.0));
+
+    stage2cost += L;
+    stage2cost += (int)(num_primes - num_primes*pairing/2);
+    stage2cost += (B2 - B1)/D;
+
+    return stage2cost;
+}
+

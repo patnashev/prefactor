@@ -426,7 +426,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
 }
 
 // EdECM factoring stage 2.
-void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
+void do_edecm_stage2(int B1, int B2, ed_point P, int D, int L, int LR)
 {
     int i, j;
     int p, it;
@@ -441,11 +441,6 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
     int transforms = -(int)gwdata->fft_count;
 
     // p = (v+1)*D - u
-    if (A > 1)
-    {
-        D /= A;
-        L = L*A + 1;
-    }
 
     for (i = 0; primes[i]*B1 < B2; i++)
         if (D%primes[i] != 0)
@@ -469,18 +464,7 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
     int precomp_size = D/2*L + 2;
     ed_point *precomp_P = malloc(sizeof(ed_point)*precomp_size);
     memset(precomp_P, 0, sizeof(ed_point)*precomp_size);
-    ed_point* PL = malloc(sizeof(ed_point)*(L/A + 1));
-    ed_point Pa = NULL;
-    ed_point Pa1 = NULL;
-    ed_point Wa = NULL;
-    ed_point* PA = NULL;
-    if (A > 1)
-    {
-        Pa = ed_alloc();
-        Pa1 = ed_alloc();
-        Wa = ed_alloc();
-        PA = malloc(sizeof(ed_point)*(L/A + 1));
-    }
+    ed_point* PL = malloc(sizeof(ed_point)*(L + LR));
 
     // Precomputation of V_u(V_n) where gcd(u,D)=1
     ed_copy(P, Pn);
@@ -517,21 +501,6 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
                 }
         }
     }
-    // V_{D/A}
-    /*if (A > 1)
-    {
-        gwcopy(gwdata, Vn, Va);
-        if (D/2/dist != 1)
-        {
-            int pd = D/2/dist;
-            for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
-            if (pd > 1)
-                lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, Va, 0);
-            lucas_V_shiftleft(j, Va);
-        }
-        D *= A;
-        L /= A;
-    }*/
     // W = V_D
     /*ed_swap(W, Pn);
     if (D/2/dist != 1)
@@ -542,94 +511,35 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
             ed_y_add(precomp_P[dist*(pd - 1)/2 - 1], precomp_P[dist*(pd + 1)/2], Pn1, W);
         ed_y_shiftleft(j, W, GWMUL_STARTNEXTFFT1);
     }*/
-    if (A > 1)
-    {
-        ed_mul_int_add(D, P, Wa, NULL);
-        precomp_P[precomp_size - 2] = Wa;
-        ed_mul_int_add(A, Wa, W, NULL);
-        D *= A;
-        L /= A;
-    }
-    else
-        ed_mul_int_add(D, P, W, NULL);
-    /*{
-        ed_normalize(W);
-        ed_point T = ed_alloc();
-        ed_mul_int_add(D, P, T, NULL);
-        ed_normalize(T);
-        giant t1 = getg();
-        gwunfft(gwdata, W->Y, W->Y);
-        gwtogiant(gwdata, W->Y, t1);
-        giant t2 = getg();
-        gwunfft(gwdata, T->Y, T->Y);
-        gwtogiant(gwdata, T->Y, t2);
-        printf("1");
-    }*/
+    ed_mul_int_add(D, P, W, NULL);
     precomp_P[precomp_size - 1] = W;
-    ed_normalize_pool(precomp_P, precomp_size);
+    ed_normalize_pool(precomp_P, precomp_size, ED_NORM_FORADD);
     precomp_P[precomp_size - 1] = NULL;
     precomp_P[precomp_size - 2] = NULL;
 
     int v = p/D;
 
-    if (A > 1)
-    {
-        ed_zero(Pa);
-        ed_copy(Wa, Pa1);
-        if (v > 0)
-            ed_mul_int_add(v*A, Wa, Pa, Pa1);
-        ed_swap(Pn1, Pa);
-        ed_copy(Pn1, Pn);
-        ed_copy(Pa1, Pa);
-        ed_add(W, Pn1, GWMUL_STARTNEXTFFT1);
-        ed_add(W, Pa1, GWMUL_STARTNEXTFFT1);
-
-        PA[0] = ed_alloc();
-        ed_y_optimize(Pa, PA[0]);
-        PA[1] = ed_alloc();
-        ed_y_optimize(Pa1, PA[1]);
-        for (i = 2; i <= L; i++)
-        {
-            ed_y_inc(W, Pa, PA[i - 1], Ptmp);
-            ed_swap(Pa, Pa1);
-            ed_swap(Pa1, Ptmp);
-            PA[i] = ed_alloc();
-            ed_y_optimize(Pa1, PA[i]);
-        }
-    }
-    else
-    {
-        // V_{v*D} V_{(v+1)*D}
-        ed_zero(Pn);
-        ed_copy(W, Pn1);
-        if (v > 0)
-            ed_mul_int_add(v, W, Pn, Pn1);
-    }
+    // V_{v*D} V_{(v+1)*D}
+    ed_zero(Pn);
+    ed_copy(W, Pn1);
+    if (v > 0)
+        ed_mul_int_add(v, W, Pn, Pn1);
 
     PL[0] = ed_alloc();
     ed_copy(Pn1, PL[0]);
-    for (i = 1; i <= L; i++)
-    {
-        ed_y_inc(W, Pn, PL[i - 1], Ptmp);
-        ed_swap(Pn, Pn1);
-        ed_swap(Pn1, Ptmp);
+    int PL_len = 1;
+    for (i = 1; i < L + LR; i++)
         PL[i] = ed_alloc();
-        ed_y_optimize(Pn1, PL[i]);
-    }
 
     int paired = 0;
-    short* distances;
-    if (A > 1)
-        distances = get_distances_A(primes, B1, B2, D, A, L);
-    else
-        distances = get_distances_simple(primes, B1, B2, D, L);
+    short* distances = get_distances_simple(primes, B1, B2, D, L);
     for (j = 0; distances[j] != -1; j++)
         if (distances[j] == 0)
             paired++;
     transforms += (int)gwdata->fft_count;
     printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp, transforms, (200*paired + j/2)/j, D, L);
-    if (A > 1)
-        printf(", A = %d.\n", A);
+    if (LR > 0)
+        printf(", LR = %d.\n", LR);
     else
         printf(".\n");
 
@@ -642,42 +552,38 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
         while (v < p/D)
         {
             // n += w
-            ed_y_inc(W, Pn, Pn1, Ptmp);
-            ed_swap(Pn, Pn1);
-            ed_swap(Pn1, Ptmp);
-            for (i = 1; i <= L; i++)
-                ed_swap(PL[i - 1], PL[i]);
-            ed_y_optimize(Pn1, PL[L]);
-            // nA += w
-            if (A > 1)
-            {
-                ed_y_inc(W, Pa, Pa1, Ptmp);
-                ed_swap(Pa, Pa1);
-                ed_swap(Pa1, Ptmp);
-                for (i = 1; i <= L; i++)
-                    ed_swap(PA[i - 1], PA[i]);
-                ed_y_optimize(Pa1, PA[L]);
-            }
             v++;
+            for (i = 1; i < PL_len; i++)
+                ed_swap(PL[i - 1], PL[i]);
+            PL_len--;
+        }
+        if (PL_len < L)
+        {
+            for (i = PL_len; i < L + LR; i++)
+            {
+                if (v + i == 1)
+                {
+                    ed_copy(W, Ptmp);
+                    ed_mul2(Ptmp, 0);
+                }
+                else
+                    ed_y_inc(W, Pn, Pn1, Ptmp);
+                ed_swap(Pn, Pn1);
+                ed_swap(Pn1, Ptmp);
+                if (i >= 0)
+                    ed_y_optimize(Pn1, PL[i]);
+            }
+            if (PL_len < 0)
+                PL_len = 0;
+            if (LR > 0)
+                ed_normalize_pool(PL + PL_len, L + LR - PL_len, 0);
+            PL_len = L + LR;
         }
 
         if (distances[j] != 0)
         {
             int d = distances[j] + p%D;
-            /*{
-                //ed_normalize(W);
-                ed_point T = ed_alloc();
-                ed_mul_int_add(distances[j], P, T, NULL);
-                ed_normalize(T);
-                giant t1 = getg();
-                gwunfft(gwdata, precomp_P[distances[j]/2]->Y, precomp_P[distances[j]/2]->Y);
-                gwtogiant(gwdata, precomp_P[distances[j]/2]->Y, t1);
-                giant t2 = getg();
-                gwunfft(gwdata, T->Y, T->Y);
-                gwtogiant(gwdata, T->Y, t2);
-                printf("1");
-            }*/
-            ed_point PD = d%D == 0 ? PL[d/D - 1] : PA[d/D];
+            ed_point PD = PL[d/D - 1];
             if (PD->Z != NULL)
             {
                 gwmul3(gwdata, precomp_P[distances[j]/2]->Y, PD->Z, TG, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
@@ -703,6 +609,7 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
     }
     else if (!isone(tmp))
     {
+        printf("Transforms: %d, time: %d s.\n", transforms, (int)timer);
         report_factor(tmp);
     }
     else
@@ -715,18 +622,9 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int A, int L)
         if (precomp_P[i] != NULL)
             ed_free(precomp_P[i]);
     free(precomp_P);
-    for (i = 0; i <= L; i++)
+    for (i = 0; i < L + LR; i++)
         ed_free(PL[i]);
     free(PL);
-    if (A > 1)
-    {
-        for (i = 0; i <= L; i++)
-            ed_free(PA[i]);
-        free(PA);
-        ed_free(Wa);
-        ed_free(Pa);
-        ed_free(Pa1);
-    }
     ed_free(Ptmp);
     ed_free(Pn);
     ed_free(Pn1);

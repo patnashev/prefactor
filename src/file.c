@@ -235,6 +235,24 @@ int io_write_uint32(iohandle fd, uint32_t val, uint32_t* sum)
     return TRUE;
 }
 
+int io_read_uint64(iohandle fd, uint64_t* val, uint32_t* sum)
+{
+    if (io_read(fd, val, sizeof(uint64_t)) != sizeof(uint64_t))
+        return FALSE;
+    *sum += *((uint32_t *)val);
+    *sum += *(((uint32_t *)val) + 1);
+    return TRUE;
+}
+
+int io_write_uint64(iohandle fd, uint64_t val, uint32_t* sum)
+{
+    if (io_write(fd, &val, sizeof(uint64_t)) != sizeof(uint64_t))
+        return FALSE;
+    *sum += *((uint32_t *)&val);
+    *sum += *(((uint32_t *)&val) + 1);
+    return TRUE;
+}
+
 int io_read_giant(iohandle fd, giant g, uint32_t *sum)
 {
     uint32_t i, len, bytes;
@@ -426,4 +444,5 @@ void report_factor(giant f)
         fprintf(fp, "%s | %s\n", buf, Nstr);
         fclose(fp);
     }
+    free(buf);
 }
