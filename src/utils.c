@@ -99,6 +99,7 @@ void sieve(int B)
         }
     if (primes != NULL)
         free(primes);
+    primeCount = k + 1;
     primes = malloc(sizeof(int)*(k + 1));
     primes[0] = 2;
     k = 1;
@@ -108,6 +109,56 @@ void sieve(int B)
             primes[k] = i*2 + 1;
             k++;
         }
+    free(bitmap);
+}
+
+double Ei(double x)
+{
+    double res = 0.57721566490153286 + log(x);
+    double t = x;
+    for (int i = 1; t > i; i++, t = t*x/i)
+        res += t/i;
+    return res;
+}
+
+void sieveRange(int start, int end, int **list, int *count)
+{
+    int i, j;
+    if (!(start & 1))
+        start++;
+    int bitmapLen = (end - start)/2;
+    char *bitmap = malloc(bitmapLen);
+    memset(bitmap, 0, bitmapLen);
+    for (i = 1; i < primeCount && primes[i]*primes[i] < end; i++)
+    {
+        j = (primes[i] - start%primes[i])%primes[i];
+        for (j = ((j & 1) != 0 ? (j + primes[i]) : j)/2; j < bitmapLen; j += primes[i])
+            bitmap[j] = 1;
+    }
+    *count = (Ei(log(end)) - Ei(log(start)))*1.1 + 100;
+    *list = malloc(sizeof(int)*(*count));
+    i = 0;
+    if (start < sqrt(end))
+    {
+        for (j = 0; primes[j] < start; j++);
+        for (; primes[j]*primes[j] < end; j++)
+        {
+            (*list)[i] = primes[j];
+            i++;
+        }
+    }
+    for (j = 0; j < bitmapLen; j++)
+        if (!bitmap[j])
+        {
+            if (i >= *count)
+            {
+                printf("error\n");
+                break;
+            }
+            (*list)[i] = start + j*2;
+            i++;
+        }
+    *count = i;
     free(bitmap);
 }
 

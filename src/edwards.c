@@ -312,12 +312,18 @@ void ed_mul2(ed_point p, int options)
     if (p->YmX != NULL)
         gwfree(gwdata, p->YmX);
     p->YmX = NULL;
+    gwnum tmp = NULL;
+    if (options & ED_MUL_FULL)
+        tmp = gwalloc(gwdata);
 
+    int safe21 = mul_safe(gwdata, 2, 1);
+    int safe11 = mul_safe(gwdata, 1, 1);
+    int save_write = safe11 && gwdata->PASS2_SIZE;
     gwsetmulbyconst(gwdata, 2);
-    gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
+    gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
     if (p->Z != NULL)
     {
-        gwsquare2(gwdata, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // C = 2Z1^2
+        gwsquare2(gwdata, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT_IF(safe21 || !safe11 || save_write)); // C = 2Z1^2
         costAdd(1);
     }
     else
@@ -325,30 +331,79 @@ void ed_mul2(ed_point p, int options)
         p->Z = gwalloc(gwdata);
         dbltogw(gwdata, 2, p->Z);
     }
-    gwsquare(gwdata, p->X); // A = X1^2
-    gwsquare(gwdata, p->Y); // B = Y1^2
-    force_normalize(p->Y);
-    //gwsquare2(gwdata, p->X, p->X, GWMUL_STARTNEXTFFT); // A = X1^2
-    //gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT); // B = Y1^2
-    gwaddsub(gwdata, p->Y, p->X); // G = B + A, H = B - A
-    //gwsub(gwdata, p->Y, p->Z); // F = C - G
+    if (save_write)
+    {
+        gwmulmuladd5(gwdata, p->Y, p->Y, p->X, p->X, p->Y, GWMUL_STARTNEXTFFT); // G = Y1^2 + X1^2 
+        gwsquare2(gwdata, p->X, p->X, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // G - H = 2X1^2
+        if (options & ED_MUL_FULL)
+            gwsubmul4(gwdata, p->Y, p->X, p->T, tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | options); // H = G - (G - H), T3 = E * H
+        gwsubmul4(gwdata, p->Z, p->Y, p->T, p->T, options); // F = C - G, X3 = F * E
+        gwsubmul4(gwdata, p->Z, p->Y, p->Y, p->Z, options); // F = C - G, Z3 = F * G
+        gwsubmul4(gwdata, p->Y, p->X, p->Y, p->Y, options); // H = G - (G - H), Y3 = H * G
+    }
+    else
+    {
+        gwsquare2(gwdata, p->X, p->X, GWMUL_STARTNEXTFFT_IF(safe21)); // A = X1^2
+        gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT_IF(safe21)); // B = Y1^2
+        gwaddsub4o(gwdata, p->Y, p->X, p->Y, p->X, GWADD_DELAYNORM_IF(safe21 || safe11)); // G = B + A, H = B - A
+        if (options & ED_MUL_FULL)
+            gwmul3(gwdata, p->X, p->T, tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | options); // T3 = E * H
+        gwsub3o(gwdata, p->Z, p->Y, p->Z, GWADD_DELAYNORM_IF(safe21 || !safe11)); // F = C - G
+        gwmul3(gwdata, p->Z, p->T, p->T, options); // X3 = F * E
+        gwmul3(gwdata, p->Y, p->Z, p->Z, options); // Z3 = G * F
+        gwmul3(gwdata, p->X, p->Y, p->Y, options); // Y3 = G * H
+    }
+    gwswap(p->X, p->T);
+/*    int fma = !safe21 && safe11 && gwdata->PASS2_SIZE;
+    gwsetmulbyconst(gwdata, 2);
+    gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
+    gwsquare2(gwdata, p->X, p->X, GWMUL_STARTNEXTFFT_IF(safe21 || fma)); // A = X1^2
+    gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT_IF(safe21 || fma)); // B = Y1^2
+    gwaddsub4o(gwdata, p->Y, p->X, p->Y, p->X, GWADD_DELAYNORM_IF(safe21 || (safe11 && !save_write) || fma)); // G = B + A, H = B - A
+    if (p->Z != NULL)
+    {
+        if (fma)
+            gwmulsub4(gwdata, p->Z, p->Z, p->Y, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);
+        else
+            gwsquare2(gwdata, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT_IF(safe21 || !safe11 || save_write)); // C = 2Z1^2
+        costAdd(1);
+    }
+    else
+    {
+        p->Z = gwalloc(gwdata);
+        dbltogw(gwdata, 2, p->Z);
+        if (fma)
+        {
+            gwunfft(gwdata, p->Y, p->Y);
+            gwsub3o(gwdata, p->Z, p->Y, p->Z, GWADD_FORCE_NORMALIZE); // F = C - G
+        }
+    }
     gwnum tmp = NULL;
     if (options & ED_MUL_FULL)
     {
         tmp = gwalloc(gwdata);
-        gwmul3(gwdata, p->X, p->T, tmp, GWMUL_FFT_S1 | (options & (~ED_MUL_FULL))); // T3 = E * H
+        gwmul3(gwdata, p->X, p->T, tmp, GWMUL_FFT_S1 | options); // T3 = E * H
+        costAdd(1);
     }
-    //gwmul3(gwdata, p->Z, p->T, p->T, options & (~ED_MUL_FULL)); // X3 = E * F
-    //gwmul3(gwdata, p->Y, p->Z, p->Z, options & (~ED_MUL_FULL)); // Z3 = F * G
-    gwsubmul4(gwdata, p->Z, p->Y, p->T, p->T, options & (~ED_MUL_FULL)); // F = C - G, X3 = F * E
-    gwsubmul4(gwdata, p->Z, p->Y, p->Y, p->Z, options & (~ED_MUL_FULL)); // F = C - G, Z3 = F * G
-    gwmul3(gwdata, p->X, p->Y, p->Y, options & (~ED_MUL_FULL)); // Y3 = G * H
-    gwswap(p->X, p->T);
+    if (save_write && !fma)
+    {
+        gwsubmul4(gwdata, p->Z, p->Y, p->T, p->T, options); // F = C - G, X3 = F * E
+        gwsubmul4(gwdata, p->Z, p->Y, p->Y, p->Z, options); // F = C - G, Z3 = F * G
+    }
+    else
+    {
+        if (!fma)
+            gwsub3o(gwdata, p->Z, p->Y, p->Z, GWADD_DELAYNORM_IF(safe21 || !safe11)); // F = C - G
+        gwmul3(gwdata, p->Z, p->T, p->T, options); // X3 = F * E
+        gwmul3(gwdata, p->Y, p->Z, p->Z, options); // Z3 = G * F
+    }
+    gwmul3(gwdata, p->X, p->Y, p->Y, options); // Y3 = G * H
+    gwswap(p->X, p->T);*/
     if (options & ED_MUL_FULL)
     {
         gwswap(p->T, tmp);
-        costAdd(1);
         gwfree(gwdata, tmp);
+        costAdd(1);
     }
     else
     {
@@ -383,10 +438,8 @@ void ed_mul2_carefully(ed_point p)
     gwsetnormroutine(gwdata, 0, 0, 0);
     gwsquare_carefully(gwdata, p->X); // A = X1^2
     gwsquare_carefully(gwdata, p->Y); // B = Y1^2
-    force_normalize(p->Y);
-    gwaddsub(gwdata, p->Y, p->X); // G = B + A, H = B - A
-    force_normalize(p->Z);
-    gwsub(gwdata, p->Y, p->Z); // F = C - G
+    gwaddsub4o(gwdata, p->Y, p->X, p->Y, p->X, GWADD_FORCE_NORMALIZE); // G = B + A, H = B - A
+    gwsub3o(gwdata, p->Z, p->Y, p->Z, GWADD_FORCE_NORMALIZE); // F = C - G
     gwmul_carefully(gwdata, p->Z, p->T); // X3 = E * F
     gwmul_carefully(gwdata, p->Y, p->Z); // Z3 = F * G
     gwmul_carefully(gwdata, p->X, p->Y); // Y3 = G * H
@@ -405,32 +458,32 @@ void ed_add(ed_point padd, ed_point p, int options)
         gwfree(gwdata, p->YmX);
     p->YmX = NULL;
 
+    int safe21 = mul_safe(gwdata, 2, 1);
+    int safe11 = mul_safe(gwdata, 1, 1);
     if (p->Z != NULL)
     {
-        gwmul3(gwdata, padd->T, p->Z, p->Z, !must_norm ? GWMUL_STARTNEXTFFT : 0); // C = Z1 * T2
+        gwmul3(gwdata, padd->T, p->Z, p->Z, GWMUL_STARTNEXTFFT_IF(safe11)); // C = Z1 * T2
         costAdd(1);
     }
     else
     {
         p->Z = gwalloc(gwdata);
-        if (must_norm)
+        if (!safe11)
             gwunfft(gwdata, padd->T, p->Z);
         else
             gwcopy(gwdata, padd->T, p->Z);
         if (p->T == NULL)
         {
             p->T = gwalloc(gwdata);
-            gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | (padd->Z != NULL || !must_norm ? GWMUL_STARTNEXTFFT : 0));
+            gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT_IF(padd->Z != NULL || safe11));
         }
     }
     if (padd->Z != NULL)
     {
-        gwmul3(gwdata, padd->Z, p->T, p->T, !must_norm ? GWMUL_STARTNEXTFFT : 0); // D = T1 * Z2
+        gwmul3(gwdata, padd->Z, p->T, p->T, GWMUL_STARTNEXTFFT_IF(safe11)); // D = T1 * Z2
         costAdd(1);
     }
-    if (must_norm)
-        force_normalize(p->T);
-    gwaddsub(gwdata, p->T, p->Z); // E = D + C, H = D - C
+    gwaddsub4o(gwdata, p->T, p->Z, p->T, p->Z, GWADD_DELAYNORM_IF(safe11)); // E = D + C, H = D - C
     gwnum tmp = gwalloc(gwdata);
     gwswap(tmp, p->X);
     gwsub3(gwdata, tmp, p->Y, p->X); // X1 - Y1
@@ -438,18 +491,14 @@ void ed_add(ed_point padd, ed_point p, int options)
     {
         padd->YpX = gwalloc(gwdata);
         gwcopy(gwdata, padd->X, padd->YpX);
-        force_normalize(padd->YpX);
-        gwadd(gwdata, padd->Y, padd->YpX);
+        gwadd3o(gwdata, padd->YpX, padd->Y, padd->YpX, GWADD_FORCE_NORMALIZE);
     }
-    gwmul3(gwdata, padd->YpX, p->X, p->X, 0); // (X1 - Y1) * (X2 + Y2)
-    gwmul3(gwdata, padd->X, tmp, tmp, 0); // A = X1 * X2
-    gwmul3(gwdata, padd->Y, p->Y, p->Y, 0); // B = Y1 * Y2
-    if (must_norm)
-        force_normalize(p->Y);
-    gwaddsub(gwdata, p->Y, tmp); // G = B + A, B - A
-    force_normalize(p->X);
-    gwadd(gwdata, tmp, p->X); // F = (X1 - Y1) * (X2 + Y2) + B - A
-    gwmul3(gwdata, p->Z, p->T, tmp, GWMUL_FFT_S1 | (!must_norm ? options : 0)); // T3 = E * H
+    gwmul3(gwdata, padd->YpX, p->X, p->X, GWMUL_STARTNEXTFFT); // (X1 - Y1) * (X2 + Y2)
+    gwmul3(gwdata, padd->X, tmp, tmp, GWMUL_STARTNEXTFFT_IF(safe21)); // A = X1 * X2
+    gwmul3(gwdata, padd->Y, p->Y, p->Y, GWMUL_STARTNEXTFFT_IF(safe21)); // B = Y1 * Y2
+    gwaddsub4o(gwdata, p->Y, tmp, p->Y, tmp, GWADD_DELAYNORM_IF(safe21)); // G = B + A, B - A
+    gwadd3o(gwdata, p->X, tmp, p->X, GWADD_DELAY_NORMALIZE); // F = (X1 - Y1) * (X2 + Y2) + B - A
+    gwmul3(gwdata, p->Z, p->T, tmp, GWMUL_FFT_S1 | (padd->Z != NULL || safe11 ? options : 0)); // T3 = E * H
     gwmul3(gwdata, p->X, p->T, p->T, options); // X3 = E * F
     gwmul3(gwdata, p->Y, p->Z, p->Z, options); // Y3 = G * H
     gwmul3(gwdata, p->X, p->Y, p->Y, options); // Z3 = F * G
@@ -471,11 +520,14 @@ void ed_mul2_add(ed_point padd, ed_point p, int options)
         gwfree(gwdata, p->YmX);
     p->YmX = NULL;
 
+    int safe21 = mul_safe(gwdata, 2, 1);
+    int safe11 = mul_safe(gwdata, 1, 1);
+    int save_write = gwdata->PASS2_SIZE;
     gwsetmulbyconst(gwdata, 2);
     gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
     if (p->Z != NULL)
     {
-        gwsquare2(gwdata, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // C = 2Z1^2
+        gwsquare2(gwdata, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT_IF(safe21 || save_write)); // C = 2Z1^2
         costAdd(1);
     }
     else
@@ -483,36 +535,37 @@ void ed_mul2_add(ed_point padd, ed_point p, int options)
         p->Z = gwalloc(gwdata);
         dbltogw(gwdata, 2, p->Z);
     }
-    gwsquare(gwdata, p->X); // A = X1^2
-    gwsquare(gwdata, p->Y); // B = Y1^2
-    force_normalize(p->Y);
-    gwaddsub(gwdata, p->Y, p->X); // G = B + A, H = B - A
-    gwsub(gwdata, p->Y, p->Z); // F = C - G
+    gwsquare2(gwdata, p->X, p->X, GWMUL_STARTNEXTFFT_IF(safe21)); // A = X1^2
+    gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT_IF(safe21)); // B = Y1^2
+    gwaddsub4o(gwdata, p->Y, p->X, p->Y, p->X, GWADD_DELAYNORM_IF(safe21 || (safe11 && !save_write))); // G = B + A, H = B - A
     gwnum tmp = gwalloc(gwdata);
-    gwmul3(gwdata, p->Z, p->T, tmp, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT); // X3 = E * F
-    gwmul3(gwdata, p->Y, p->Z, p->Z, GWMUL_STARTNEXTFFT); // Z3 = F * G
+    if (save_write)
+    {
+        gwsubmul4(gwdata, p->Z, p->Y, p->T, tmp, GWMUL_STARTNEXTFFT); // F = C - G, X3 = F * E
+        gwsubmul4(gwdata, p->Z, p->Y, p->Y, p->Z, GWMUL_STARTNEXTFFT); // F = C - G, Z3 = F * G
+    }
+    else
+    {
+        gwsub3o(gwdata, p->Z, p->Y, p->Z, GWADD_DELAYNORM_IF(safe21)); // F = C - G
+        gwmul3(gwdata, p->Z, p->T, tmp, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT); // X3 = F * E
+        gwmul3(gwdata, p->Y, p->Z, p->Z, GWMUL_STARTNEXTFFT); // Z3 = G * F
+    }
     if (options & ED_SIGNED_SUB)
         gwsetmulbyconst(gwdata, -1);
-    gwmul3(gwdata, padd->T, p->Z, p->Z, ((options & ED_SIGNED_SUB) ? GWMUL_MULBYCONST : 0) | ((options & ED_MUL_FULL) ? GWMUL_STARTNEXTFFT1 : GWMUL_STARTNEXTFFT)); // C = Z1 * T2
-    gwmul3(gwdata, p->X, p->T, p->T, (options & ED_MUL_FULL) && padd->Z == NULL ? GWMUL_STARTNEXTFFT1 : GWMUL_STARTNEXTFFT); // T3 = E * H
+    gwmul3(gwdata, padd->T, p->Z, p->Z, ((options & ED_SIGNED_SUB) ? GWMUL_MULBYCONST : 0) | GWMUL_STARTNEXTFFT_IF(safe11 || !(options & ED_MUL_FULL))); // C = Z1 * T2
+    gwmul3(gwdata, p->X, p->T, p->T, GWMUL_STARTNEXTFFT_IF(padd->Z != NULL || safe11 || !(options & ED_MUL_FULL))); // T3 = E * H
     if (padd->Z != NULL)
     {
-        gwmul3(gwdata, padd->Z, p->T, p->T, (options & ED_MUL_FULL) ? GWMUL_STARTNEXTFFT1 : GWMUL_STARTNEXTFFT); // D = T1 * Z2
+        gwmul3(gwdata, padd->Z, p->T, p->T, GWMUL_STARTNEXTFFT_IF(safe11 || !(options & ED_MUL_FULL))); // D = T1 * Z2
         costAdd(1);
     }
-    if ((options & ED_MUL_FULL) && must_norm)
-        force_normalize(p->T);
-    gwaddsub(gwdata, p->T, p->Z); // E = D + C, H = D - C
+    gwaddsub4o(gwdata, p->T, p->Z, p->T, p->Z, GWADD_DELAYNORM_IF(safe11 || !(options & ED_MUL_FULL))); // E = D + C, H = D - C
     gwmul3(gwdata, p->X, p->Y, p->Y, GWMUL_STARTNEXTFFT); // Y3 = G * H
-    gwfft(gwdata, tmp, tmp);
-    gwfft(gwdata, p->Y, p->Y);
-    gwsub3(gwdata, tmp, p->Y, p->X); // X1 - Y1
     if (!(options & (ED_SIGNED_ADD | ED_SIGNED_SUB)) && padd->YpX == NULL)
     {
         padd->YpX = gwalloc(gwdata);
         gwcopy(gwdata, padd->X, padd->YpX);
-        force_normalize(padd->YpX);
-        gwadd(gwdata, padd->Y, padd->YpX);
+        gwadd3o(gwdata, padd->YpX, padd->Y, padd->YpX, GWADD_FORCE_NORMALIZE);
     }
     if ((options & (ED_SIGNED_ADD | ED_SIGNED_SUB)) && padd->YpX == NULL)
     {
@@ -521,25 +574,34 @@ void ed_mul2_add(ed_point padd, ed_point p, int options)
             padd->YmX = gwalloc(gwdata);
         gwcopy(gwdata, padd->Y, padd->YpX);
         gwcopy(gwdata, padd->X, padd->YmX);
-        force_normalize(padd->YpX);
-        gwaddsub(gwdata, padd->YpX, padd->YmX);
+        gwaddsub4o(gwdata, padd->YpX, padd->YmX, padd->YpX, padd->YmX, GWADD_FORCE_NORMALIZE);
     }
-    if (options & ED_SIGNED_SUB)
-        gwmul3(gwdata, padd->YmX, p->X, p->X, 0); // (X1 - Y1) * (-X2 + Y2)
-    else
-        gwmul3(gwdata, padd->YpX, p->X, p->X, 0); // (X1 - Y1) * (X2 + Y2)
-    gwmul3(gwdata, padd->X, tmp, tmp, (options & ED_SIGNED_SUB) ? GWMUL_MULBYCONST : 0); // A = X1 * X2
+    //gwfft(gwdata, tmp, tmp);
+    //gwfft(gwdata, p->Y, p->Y);
+    //gwsub3o(gwdata, tmp, p->Y, p->X, GWADD_DELAY_NORMALIZE); // X1 - Y1
+    //gwmul3(gwdata, (options & ED_SIGNED_SUB) ? padd->YmX : padd->YpX, p->X, p->X, 0); // (X1 - Y1) * ([-]X2 + Y2)
+    /*gwsubmul4(gwdata, tmp, p->Y, (options & ED_SIGNED_SUB) ? padd->YmX : padd->YpX, p->X, GWMUL_FFT_S3); // (X1 - Y1) * ([-]X2 + Y2)
+    // FFT(tmp) is not needed
+    gwmul3(gwdata, padd->X, tmp, tmp, (options & ED_SIGNED_SUB) ? GWMUL_MULBYCONST : 0); // A = X1 * [-]X2
     gwmul3(gwdata, padd->Y, p->Y, p->Y, 0); // B = Y1 * Y2
-    if (must_norm)
-        force_normalize(p->Y);
-    gwaddsub(gwdata, p->Y, tmp); // G = B + A, B - A
-    force_normalize(p->X);
-    gwadd(gwdata, tmp, p->X); // F = (X1 - Y1) * (X2 + Y2) + B - A
+    gwaddsub4o(gwdata, p->Y, tmp, p->Y, tmp, GWADD_DELAY_NORMALIZE); // G = B + A, B - A
+    gwadd3o(gwdata, p->X, tmp, p->X, GWADD_DELAYNORM_IF(safe21)); // F = (X1 - Y1) * (X2 + Y2) + B - A*/
+    if (options & ED_SIGNED_SUB)
+    {
+        gwmulmuladd5(gwdata, tmp, padd->Y, p->Y, padd->X, p->X, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // F = X1*Y2 - Y1*[-]X2
+        gwmulmulsub5(gwdata, p->Y, padd->Y, tmp, padd->X, p->Y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*[-]X2
+    }
+    else
+    {
+        gwmulmulsub5(gwdata, tmp, padd->Y, p->Y, padd->X, p->X, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // F = X1*Y2 - Y1*X2
+        gwmulmuladd5(gwdata, p->Y, padd->Y, tmp, padd->X, p->Y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*X2
+    }
+    //gwmuladd4(gwdata, (options & ED_SIGNED_SUB) ? padd->YmX : padd->YpX, p->X, tmp, p->X, GWMUL_STARTNEXTFFT); // (X1 - Y1) * ([-]X2 + Y2)
     if (options & ED_MUL_FULL)
-        gwmul3(gwdata, p->Z, p->T, tmp, GWMUL_FFT_S1 | (options & (~ED_MUL_FULL))); // T3 = E * H
-    gwmul3(gwdata, p->X, p->T, p->T, options & (~ED_MUL_FULL)); // X3 = E * F
-    gwmul3(gwdata, p->Y, p->Z, p->Z, options & (~ED_MUL_FULL)); // Y3 = G * H
-    gwmul3(gwdata, p->X, p->Y, p->Y, options & (~ED_MUL_FULL)); // Z3 = F * G
+        gwmul3(gwdata, p->Z, p->T, tmp, GWMUL_FFT_S1 | options); // T3 = E * H
+    gwmul3(gwdata, p->Y, p->Z, p->Z, options); // Y3 = G * H
+    gwmul3(gwdata, p->X, p->T, p->T, options); // X3 = E * F
+    gwmul3(gwdata, p->X, p->Y, p->Y, options); // Z3 = F * G
     gwswap(p->Y, p->Z);
     gwswap(p->X, p->T);
     if (options & ED_MUL_FULL)
@@ -561,36 +623,28 @@ void ed_mul2_addsmall(int xa, int xb, int ya, int yb, ed_point p, int options)
     GWASSERT(xa*ya <= gwdata->maxmulbyconst);
     GWASSERT(xb*yb <= gwdata->maxmulbyconst);
 
-    gwsetnormroutine(gwdata, 0, 0, 1);
     gwsetmulbyconst(gwdata, 2);
-    gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_GLOBALMULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
+    gwmul3(gwdata, p->X, p->Y, p->T, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
     gwsetmulbyconst(gwdata, -2);
-    gwsquare2(gwdata, p->Z, p->Z, GWMUL_GLOBALMULBYCONST | GWMUL_STARTNEXTFFT); // -C = -2Z1^2
-    gwsetnormroutine(gwdata, 0, 0, 0);
+    gwsquare2(gwdata, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // -C = -2Z1^2
     gwsquare(gwdata, p->X); // A = X1^2
     gwsquare(gwdata, p->Y); // B = Y1^2
-    force_normalize(p->X);
-    gwaddsub(gwdata, p->X, p->Y); // G = A + B, H = A - B
+    gwaddsub4o(gwdata, p->X, p->Y, p->X, p->Y, GWADD_FORCE_NORMALIZE); // G = A + B, H = A - B
     gwadd(gwdata, p->X, p->Z); // F = G - C
     gwnum tmp = gwalloc(gwdata);
     gwmul3(gwdata, p->Z, p->T, tmp, 0); // X3 = E * F
-    gwsetnormroutine(gwdata, 0, 0, 1);
     gwsetmulbyconst(gwdata, xa*ya);
-    gwmul3(gwdata, p->X, p->Z, p->Z, GWMUL_GLOBALMULBYCONST | GWMUL_STARTNEXTFFT); // Z3 = F * G, C = Z1 * T2
+    gwmul3(gwdata, p->X, p->Z, p->Z, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // Z3 = F * G, C = Z1 * T2
     gwsetmulbyconst(gwdata, xb*yb);
-    gwmul3(gwdata, p->Y, p->T, p->T, GWMUL_GLOBALMULBYCONST | GWMUL_STARTNEXTFFT); // T3 = E * H, D = T1 * Z2
-    gwsetnormroutine(gwdata, 0, 0, 0);
+    gwmul3(gwdata, p->Y, p->T, p->T, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // T3 = E * H, D = T1 * Z2
     gwaddsub(gwdata, p->T, p->Z); // E = D + C, H = D - C
     gwmul3(gwdata, p->X, p->Y, p->Y, 0); // Y3 = G * H
     gwsub3quick(gwdata, tmp, p->Y, p->X); // X1 - Y1
     gwsmallmul(gwdata, xa*yb + ya*xb, p->X); // (X1 - Y1) * (X2 + Y2)
     gwsmallmul(gwdata, xa*yb, tmp); // A = X1 * X2
     gwsmallmul(gwdata, ya*xb, p->Y); // B = Y1 * Y2
-    if (must_norm)
-        force_normalize(p->Y);
-    gwaddsub(gwdata, p->Y, tmp); // G = B + A, B - A
-    force_normalize(p->X);
-    gwadd(gwdata, tmp, p->X); // F = (X1 - Y1) * (X2 + Y2) + B - A
+    gwaddsub4o(gwdata, p->Y, tmp, p->Y, tmp, GWADD_SQUARE_INPUT); // G = B + A, B - A
+    gwadd3o(gwdata, p->X, tmp, p->X, GWADD_FORCE_NORMALIZE); // F = (X1 - Y1) * (X2 + Y2) + B - A
     gwmul3(gwdata, p->X, p->T, p->T, options); // X3 = E * F
     gwmul3(gwdata, p->Y, p->Z, p->Z, options); // Y3 = G * H
     gwmul3(gwdata, p->X, p->Y, p->Y, options); // Z3 = F * G
@@ -673,8 +727,7 @@ giant ed_normalize_pool(ed_point* pool, int count, int options)
                 pool[i]->YmX = gwalloc(gwdata);
             gwcopy(gwdata, pool[i]->Y, pool[i]->YpX);
             gwcopy(gwdata, pool[i]->X, pool[i]->YmX);
-            force_normalize(pool[i]->YpX);
-            gwaddsub(gwdata, pool[i]->YpX, pool[i]->YmX);
+            gwaddsub4o(gwdata, pool[i]->YpX, pool[i]->YmX, pool[i]->YpX, pool[i]->YmX, GWADD_FORCE_NORMALIZE);
             gwmul3(gwdata, pool[i]->X, pool[i]->Y, pool[i]->T, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
             costAdd(3);
         }
@@ -694,6 +747,7 @@ giant ed_normalize_pool(ed_point* pool, int count, int options)
     return NULL;
 }
 
+#define NOTYET 0
 void ed_y_mul2(ed_point p)
 {
     if (p->X != NULL)
@@ -713,20 +767,16 @@ void ed_y_mul2(ed_point p)
     if (p->ZmY == NULL)
         p->ZmY = gwalloc(gwdata);
 
-    gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT1);
-    gwsquare2(gwdata, p->Z, p->Z, GWMUL_STARTNEXTFFT1);
+    gwsquare2(gwdata, p->Y, p->Y, GWMUL_STARTNEXTFFT_IF(NOTYET));
+    gwsquare2(gwdata, p->Z, p->Z, GWMUL_STARTNEXTFFT_IF(NOTYET));
     gwcopy(gwdata, p->Z, p->ZmY);
-    if (must_norm)
-        force_normalize(p->ZmY);
-    gwsub(gwdata, p->Y, p->ZmY);
+    gwsub3o(gwdata, p->ZmY, p->Y, p->ZmY, GWADD_DELAYNORM_IF(NOTYET));
     gwmul3(gwdata, EdD, p->Y, p->ZpY, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
-    gwsubmul4(gwdata, p->Z, p->ZpY, p->ZmY, p->ZmY, GWMUL_STARTNEXTFFT1);
-    gwsubmul4(gwdata, p->Y, p->ZpY, p->Z, p->Z, GWMUL_STARTNEXTFFT1);
+    gwsubmul4(gwdata, p->Z, p->ZpY, p->ZmY, p->ZmY, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT_IF(NOTYET));
+    gwsubmul4(gwdata, p->Y, p->ZpY, p->Z, p->Z, GWMUL_STARTNEXTFFT_IF(NOTYET));
     gwcopy(gwdata, p->ZmY, p->Y);
     gwcopy(gwdata, p->Z, p->ZpY);
-    if (must_norm)
-        force_normalize(p->Z);
-    gwaddsub(gwdata, p->Z, p->Y);
+    gwaddsub4o(gwdata, p->Z, p->Y, p->Z, p->Y, GWADD_DELAYNORM_IF(NOTYET));
 }
 
 void ed_y_inc(ed_point pinc, ed_point pprev, ed_point pcur, ed_point pnext)
@@ -766,35 +816,30 @@ void ed_y_inc(ed_point pinc, ed_point pprev, ed_point pcur, ed_point pnext)
         else
             dbltogw(gwdata, 1, pprev->ZpY);
         gwcopy(gwdata, pprev->Y, pprev->ZmY);
-        if (must_norm)
-            force_normalize(pprev->ZpY);
-        gwaddsub(gwdata, pprev->ZpY, pprev->ZmY);
+        gwaddsub4o(gwdata, pprev->ZpY, pprev->ZmY, pprev->ZpY, pprev->ZmY, GWADD_DELAYNORM_IF(NOTYET));
     }
 
+    int force_norm = pinc->Z == NULL && gwdata->EXTRA_BITS < EB_GWMUL_SAVINGS + 2*(EB_FIRST_ADD + EB_SECOND_ADD);
     if (pinc->Z != NULL)
-        gwmul3(gwdata, pcur->Y, pinc->Z, pnext->Z, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT1);
+        gwmul3(gwdata, pcur->Y, pinc->Z, pnext->Z, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT_IF(NOTYET));
     else
         gwcopy(gwdata, pcur->Y, pnext->Z);
     if (pcur->Z != NULL)
-        gwmul3(gwdata, pcur->Z, pinc->Y, pnext->Y, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT1);
+        gwmul3(gwdata, pcur->Z, pinc->Y, pnext->Y, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT_IF(NOTYET));
     else
         gwcopy(gwdata, pinc->Y, pnext->Y);
-    if (must_norm || pinc->Z == NULL || pcur->Z == NULL)
-    {
-        gwunfft(gwdata, pnext->Z, pnext->Z);
-        gwunfft(gwdata, pnext->Y, pnext->Y);
-        force_normalize(pnext->Z);
-    }
-    gwaddsub(gwdata, pnext->Z, pnext->Y);
+    gwaddsub4o(gwdata, pnext->Z, pnext->Y, pnext->Z, pnext->Y, GWADD_DELAYNORM_IF(NOTYET));
     gwsquare2(gwdata, pnext->Z, pnext->Z, GWMUL_STARTNEXTFFT);
     gwsquare2(gwdata, pnext->Y, pnext->Y, GWMUL_STARTNEXTFFT);
-    gwmul3(gwdata, pprev->ZmY, pnext->Z, pnext->Z, GWMUL_STARTNEXTFFT1);
-    gwmul3(gwdata, pprev->ZpY, pnext->Y, pnext->Y, GWMUL_STARTNEXTFFT1);
+    gwmul3(gwdata, pprev->ZmY, pnext->Z, pnext->Z, !force_norm ? GWMUL_STARTNEXTFFT_IF(NOTYET) : 0);
+    gwmul3(gwdata, pprev->ZpY, pnext->Y, pnext->Y, !force_norm ? GWMUL_STARTNEXTFFT_IF(NOTYET) : 0);
+    if (gwnum_is_partially_ffted(gwdata, pnext->Z))
+        gwfft(gwdata, pnext->Z, pnext->Z);
+    if (gwnum_is_partially_ffted(gwdata, pnext->Y))
+        gwfft(gwdata, pnext->Y, pnext->Y);
     gwcopy(gwdata, pnext->Z, pnext->ZpY);
     gwcopy(gwdata, pnext->Y, pnext->ZmY);
-    if (must_norm)
-        force_normalize(pnext->Z);
-    gwaddsub(gwdata, pnext->Z, pnext->Y);
+    gwaddsub4o(gwdata, pnext->Z, pnext->Y, pnext->Z, pnext->Y, !force_norm ? GWADD_DELAYNORM_IF(NOTYET) : GWADD_FORCE_NORMALIZE);
 }
 
 void ed_mul_giant_add(giant g, ed_point p, ed_point pres, ed_point pres1)
@@ -977,15 +1022,13 @@ void get_j_invariant(giant res)
     gwsmalladd(gwdata, 14, M);
     gwmul_carefully(gwdata, EdD, M);
     dbltogw(gwdata, 1, R);
-    force_normalize(M);
-    gwadd(gwdata, R, M);
+    gwadd3o(gwdata, M, R, M, GWADD_FORCE_NORMALIZE);
     gwcopy(gwdata, M, R);
     gwsquare_carefully(gwdata, M);
     gwmul_carefully(gwdata, R, M);
     gwsmallmul(gwdata, 16, M);
     dbltogw(gwdata, 1, R);
-    force_normalize(R);
-    gwsub(gwdata, EdD, R);
+    gwsub3o(gwdata, R, EdD, R, GWADD_FORCE_NORMALIZE);
     gwsquare_carefully(gwdata, R);
     gwsquare_carefully(gwdata, R);
     gwmul_carefully(gwdata, EdD, R);
@@ -1046,13 +1089,11 @@ int gen_ed_curve(int seed, ed_point P)
         gwcopy(gwdata, M, X);
         gwsquare_carefully(gwdata, X);
         gwsub(gwdata, S, X);
-        force_normalize(X);
-        gwsub(gwdata, S, X);
+        gwsub3o(gwdata, X, S, X, GWADD_FORCE_NORMALIZE);
         gwcopy(gwdata, S, Y);
         gwsub(gwdata, X, Y);
         gwmul_carefully(gwdata, M, Y);
-        force_normalize(Y);
-        gwsub(gwdata, T, Y);
+        gwsub3o(gwdata, Y, T, Y, GWADD_FORCE_NORMALIZE);
         gwswap(S, X);
         gwswap(T, Y);
 
@@ -1071,13 +1112,11 @@ int gen_ed_curve(int seed, ed_point P)
             gwcopy(gwdata, M, X);
             gwsquare_carefully(gwdata, X);
             gwsmalladd(gwdata, -12, X);
-            force_normalize(X);
-            gwsub(gwdata, S, X);
+            gwsub3o(gwdata, X, S, X, GWADD_FORCE_NORMALIZE);
             gwcopy(gwdata, S, Y);
             gwsub(gwdata, X, Y);
             gwmul_carefully(gwdata, M, Y);
-            force_normalize(Y);
-            gwsub(gwdata, T, Y);
+            gwsub3o(gwdata, Y, T, Y, GWADD_FORCE_NORMALIZE);
             gwswap(S, X);
             gwswap(T, Y);
         }
@@ -1136,10 +1175,8 @@ int gen_ed_curve(int seed, ed_point P)
     gwcopy(gwdata, A, R);
     gwsquare_carefully(gwdata, R);
     gwsmallmul(gwdata, 8, R);
-    force_normalize(X);
-    gwadd(gwdata, R, X);
-    force_normalize(Y);
-    gwadd(gwdata, R, Y);
+    gwadd3o(gwdata, X, R, X, GWADD_FORCE_NORMALIZE);
+    gwadd3o(gwdata, Y, R, Y, GWADD_FORCE_NORMALIZE);
     gwsquare_carefully(gwdata, Y);
     gwsmalladd(gwdata, -1, R);
     gwmul_carefully(gwdata, R, X);
@@ -1166,7 +1203,6 @@ int gen_ed_curve(int seed, ed_point P)
     // 1/(SqrD * x8)
     gwcopy(gwdata, B, A);
     gwsmallmul(gwdata, 2, A);
-    //force_normalize(A);
     gwsmalladd(gwdata, -1, A);
     gwtogiant(gwdata, A, x8);
     gwmul_carefully(gwdata, A, Y);
@@ -1195,12 +1231,10 @@ int gen_ed_curve(int seed, ed_point P)
     gwcopy(gwdata, S, M);
     gwsmallmul(gwdata, 3, M);
     gwsmalladd(gwdata, -2, M);
-    force_normalize(M);
-    gwadd(gwdata, T, M);
+    gwadd3o(gwdata, M, T, M, GWADD_FORCE_NORMALIZE);
     gwcopy(gwdata, S, R);
     gwsmalladd(gwdata, 16, R);
-    force_normalize(R);
-    gwadd(gwdata, T, R);
+    gwadd3o(gwdata, R, T, R, GWADD_FORCE_NORMALIZE);
     gwmul_carefully(gwdata, M, R);
     gwtogiant(gwdata, R, r);
     invg(N, r);
@@ -1216,7 +1250,7 @@ int gen_ed_curve(int seed, ed_point P)
     gwcopy(gwdata, T, Y);
     gwsmalladd(gwdata, 50, Y);
     gwmul_carefully(gwdata, T, Y);
-    gwadd(gwdata, M, Y);
+    gwadd3o(gwdata, Y, M, Y, GWADD_FORCE_NORMALIZE);
     gwmul_carefully(gwdata, R, Y);
     gwmul_carefully(gwdata, A, Y);
 

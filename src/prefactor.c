@@ -28,8 +28,11 @@ int must_norm = 1;
 int maxSize = 0;
 // All primes for the test
 int *primes = NULL;
+int primeCount = 0;
 // Edwards curve d parameter
 gwnum EdD = NULL;
+
+#include "precompute.h"
 
 #include "md5.c"
 #include "utils.c"
@@ -336,7 +339,7 @@ int parseFraction(char *s, giant res)
     return TRUE;
 }
 
-int main(int argc, char	*argv[])
+int main(int argc, char *argv[])
 {
     int i, j;
     char *s;
@@ -589,7 +592,7 @@ int main(int argc, char	*argv[])
             printf("Invalid P+1 parameter.\n");
             return 1;
         }
-        if (do_plus1stage1(0, B1, P, sP, P) && B2 > B1)
+        if (do_plus1stage1(0, B1, gfn, P, sP, P) && B2 > B1)
             do_pm1stage2(B1, B2, P, 0, D, A, L);
     }
     if (edecm)

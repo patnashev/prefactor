@@ -222,7 +222,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
     lucas_V_mul_2(Vn); // V_2
     gwcopy(gwdata, Vn, Vn1);
     lucas_V_mul_2(Vn1); // V_4
-    gwfft(gwdata, Vn, Vtmp);
+    lucas_V_optimize(Vn, Vtmp);
     int dist = 1;
     int precomp = 1;
     for (i = 1; i < D/2*L; i++)
@@ -239,7 +239,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
             gwswap(Vn, Vtmp);
             lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, Vn, GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2);
             lucas_V_add(precomp_V[dist*(pd - 1)/2], precomp_V[dist*(pd + 1)/2], Vtmp, Vn1, GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2);
-            gwfft(gwdata, Vn, Vtmp);
+            lucas_V_optimize(Vn, Vtmp);
             dist = i + 1;
             for (j = 0; j < i; j++)
                 if (precomp_V[j] != NULL && gcd(2*j + 1, 2*dist) != 1)
@@ -296,16 +296,16 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         }
 
         VA[0] = gwalloc(gwdata);
-        gwfft(gwdata, Va, VA[0]);
+        lucas_V_optimize(Va, VA[0]);
         VA[1] = gwalloc(gwdata);
-        gwfft(gwdata, Va1, VA[1]);
+        lucas_V_optimize(Va1, VA[1]);
         for (i = 2; i <= L; i++)
         {
             lucas_V_inc(W, Va, VA[i - 1], Vtmp, 0);
             gwswap(Va, Va1);
             gwswap(Va1, Vtmp);
             VA[i] = gwalloc(gwdata);
-            gwfft(gwdata, Va1, VA[i]);
+            lucas_V_optimize(Va1, VA[i]);
         }
     }
     else
@@ -318,14 +318,14 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
     }
 
     VL[0] = gwalloc(gwdata);
-    gwfft(gwdata, Vn1, VL[0]);
+    lucas_V_optimize(Vn1, VL[0]);
     for (i = 1; i <= L; i++)
     {
         lucas_V_inc(W, Vn, VL[i - 1], Vtmp, 0);
         gwswap(Vn, Vn1);
         gwswap(Vn1, Vtmp);
         VL[i] = gwalloc(gwdata);
-        gwfft(gwdata, Vn1, VL[i]);
+        lucas_V_optimize(Vn1, VL[i]);
     }
 
     int paired = 0;
@@ -358,7 +358,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
             gwswap(Vn1, Vtmp);
             for (i = 1; i <= L; i++)
                 gwswap(VL[i - 1], VL[i]);
-            gwfft(gwdata, Vn1, VL[L]);
+            lucas_V_optimize(Vn1, VL[L]);
             // nA += w
             if (A > 1)
             {
@@ -367,7 +367,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
                 gwswap(Va1, Vtmp);
                 for (i = 1; i <= L; i++)
                     gwswap(VA[i - 1], VA[i]);
-                gwfft(gwdata, Va1, VA[L]);
+                lucas_V_optimize(Va1, VA[L]);
             }
             v++;
         }
@@ -430,6 +430,7 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int L, int LR)
 {
     int i, j;
     int p, it;
+    giant tmp = NULL;
 
     if (B2 <= B1)
         return;
@@ -502,104 +503,114 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int L, int LR)
         }
     }
     // W = V_D
-    /*ed_swap(W, Pn);
-    if (D/2/dist != 1)
-    {
-        int pd = D/2/dist;
-        for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
-        if (pd > 1)
-            ed_y_add(precomp_P[dist*(pd - 1)/2 - 1], precomp_P[dist*(pd + 1)/2], Pn1, W);
-        ed_y_shiftleft(j, W, GWMUL_STARTNEXTFFT1);
-    }*/
+    //ed_swap(W, Pn);
+    //if (D/2/dist != 1)
+    //{
+    //    int pd = D/2/dist;
+    //    for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
+    //    if (pd > 1)
+    //        ed_y_add(precomp_P[dist*(pd - 1)/2 - 1], precomp_P[dist*(pd + 1)/2], Pn1, W);
+    //    ed_y_shiftleft(j, W, GWMUL_STARTNEXTFFT1);
+    //}
     ed_mul_int_add(D, P, W, NULL);
     precomp_P[precomp_size - 1] = W;
-    ed_normalize_pool(precomp_P, precomp_size, ED_NORM_FORADD);
+    tmp = ed_normalize_pool(precomp_P, precomp_size, ED_NORM_FORADD);
     precomp_P[precomp_size - 1] = NULL;
     precomp_P[precomp_size - 2] = NULL;
 
-    int v = p/D;
-
-    // V_{v*D} V_{(v+1)*D}
-    ed_zero(Pn);
-    ed_copy(W, Pn1);
-    if (v > 0)
-        ed_mul_int_add(v, W, Pn, Pn1);
-
-    PL[0] = ed_alloc();
-    ed_copy(Pn1, PL[0]);
-    int PL_len = 1;
-    for (i = 1; i < L + LR; i++)
-        PL[i] = ed_alloc();
-
-    int paired = 0;
-    short* distances = get_distances_simple(primes, B1, B2, D, L);
-    for (j = 0; distances[j] != -1; j++)
-        if (distances[j] == 0)
-            paired++;
-    transforms += (int)gwdata->fft_count;
-    printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp, transforms, (200*paired + j/2)/j, D, L);
-    if (LR > 0)
-        printf(", LR = %d.\n", LR);
-    else
-        printf(".\n");
-
-    transforms = -(int)gwdata->fft_count;
-    dbltogw(gwdata, 1, G);
-    int last;
-    for (last = j - 1; distances[last] == 0; last--);
-    for (j = 0; j <= last; j++)
+    if (tmp == NULL)
     {
-        while (v < p/D)
+        int v = p/D;
+
+        // V_{v*D} V_{(v+1)*D}
+        ed_zero(Pn);
+        ed_copy(W, Pn1);
+        if (v > 0)
+            ed_mul_int_add(v, W, Pn, Pn1);
+
+        PL[0] = ed_alloc();
+        ed_copy(Pn1, PL[0]);
+        int PL_len = 1;
+        for (i = 1; i < L + LR; i++)
+            PL[i] = ed_alloc();
+
+        int paired = 0;
+        short* distances = get_distances_simple(primes, B1, B2, D, L);
+        for (j = 0; distances[j] != -1; j++)
+            if (distances[j] == 0)
+                paired++;
+        transforms += (int)gwdata->fft_count;
+        printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp, transforms, (200*paired + j/2)/j, D, L);
+        if (LR > 0)
+            printf(", LR = %d.\n", LR);
+        else
+            printf(".\n");
+
+        transforms = -(int)gwdata->fft_count;
+        dbltogw(gwdata, 1, G);
+        int last;
+        for (last = j - 1; distances[last] == 0; last--);
+        for (j = 0; j <= last && tmp == NULL; j++)
         {
-            // n += w
-            v++;
-            for (i = 1; i < PL_len; i++)
-                ed_swap(PL[i - 1], PL[i]);
-            PL_len--;
-        }
-        if (PL_len < L)
-        {
-            for (i = PL_len; i < L + LR; i++)
+            while (v < p/D)
             {
-                if (v + i == 1)
+                // n += w
+                v++;
+                for (i = 1; i < PL_len; i++)
+                    ed_swap(PL[i - 1], PL[i]);
+                PL_len--;
+            }
+            if (PL_len < L)
+            {
+                for (i = PL_len; i < L + LR; i++)
                 {
-                    ed_copy(W, Ptmp);
-                    ed_mul2(Ptmp, 0);
+                    if (v + i == 1)
+                    {
+                        ed_copy(W, Ptmp);
+                        ed_mul2(Ptmp, 0);
+                    }
+                    else
+                        ed_y_inc(W, Pn, Pn1, Ptmp);
+                    ed_swap(Pn, Pn1);
+                    ed_swap(Pn1, Ptmp);
+                    if (i >= 0)
+                        ed_y_optimize(Pn1, PL[i]);
+                }
+                if (PL_len < 0)
+                    PL_len = 0;
+                if (LR > 0)
+                    tmp = ed_normalize_pool(PL + PL_len, L + LR - PL_len, 0);
+                PL_len = L + LR;
+            }
+
+            if (distances[j] != 0)
+            {
+                int d = distances[j] + p%D;
+                ed_point PD = PL[d/D - 1];
+                if (PD->Z != NULL)
+                {
+                    gwmul3(gwdata, precomp_P[distances[j]/2]->Y, PD->Z, TG, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+                    gwsubmul4(gwdata, PD->Y, TG, G, G, j < last ? GWMUL_STARTNEXTFFT : 0);
                 }
                 else
-                    ed_y_inc(W, Pn, Pn1, Ptmp);
-                ed_swap(Pn, Pn1);
-                ed_swap(Pn1, Ptmp);
-                if (i >= 0)
-                    ed_y_optimize(Pn1, PL[i]);
+                    gwsubmul4(gwdata, PD->Y, precomp_P[distances[j]/2]->Y, G, G, j < last ? GWMUL_STARTNEXTFFT : 0);
+                costAdd(1);
             }
-            if (PL_len < 0)
-                PL_len = 0;
-            if (LR > 0)
-                ed_normalize_pool(PL + PL_len, L + LR - PL_len, 0);
-            PL_len = L + LR;
+
+            p = primes[it++];
         }
 
-        if (distances[j] != 0)
+        free(distances);
+        for (i = 0; i < L + LR; i++)
+            ed_free(PL[i]);
+
+        if (tmp == NULL)
         {
-            int d = distances[j] + p%D;
-            ed_point PD = PL[d/D - 1];
-            if (PD->Z != NULL)
-            {
-                gwmul3(gwdata, precomp_P[distances[j]/2]->Y, PD->Z, TG, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
-                gwsubmul4(gwdata, PD->Y, TG, G, G, j < last ? GWMUL_STARTNEXTFFT : 0);
-            }
-            else
-                gwsubmul4(gwdata, PD->Y, precomp_P[distances[j]/2]->Y, G, G, j < last ? GWMUL_STARTNEXTFFT : 0);
-            costAdd(1);
+            tmp = getg();
+            gwtogiant(gwdata, G, tmp);
+            gcdg(N, tmp);
         }
-
-        p = primes[it++];
     }
-
-    giant tmp = getg();
-    gwtogiant(gwdata, G, tmp);
-    gcdg(N, tmp);
 
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
     transforms += (int)gwdata->fft_count;
@@ -617,13 +628,10 @@ void do_edecm_stage2(int B1, int B2, ed_point P, int D, int L, int LR)
         printf("No factors found, transforms: %d, time: %d s.\n", transforms, (int)timer);
     }
 
-    free(distances);
     for (i = 0; i < precomp_size; i++)
         if (precomp_P[i] != NULL)
             ed_free(precomp_P[i]);
     free(precomp_P);
-    for (i = 0; i < L + LR; i++)
-        ed_free(PL[i]);
     free(PL);
     ed_free(Ptmp);
     ed_free(Pn);

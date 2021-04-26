@@ -1,3 +1,22 @@
+
+#ifdef NETPF
+#include "net.h"
+nethandle* net = NULL;
+#define io_open(a) net_open(a,net)
+#define io_create(a) net_create(a,net)
+#define io_error(fd) (fd == NULL)
+#define io_read net_read
+#define io_write net_write
+#define io_commit net_commit
+#define io_close net_close
+#define io_reset(a) net_reset(a,net)
+#define io_report_init net_report_init
+#define io_report_progress net_report_progress
+int SAVE_MD5_HASH = FALSE;
+unsigned int SAVE_MD5_SIZE = 0;
+int SAVE_MD5_SUCCESS = TRUE;
+int CHECK_MD5_HASH = FALSE;
+#else
 typedef struct
 {
     FILE *fd;
@@ -199,6 +218,7 @@ void io_close(iohandle handle)
 #define io_reset remove
 #define io_report(a,b,c,d,e,f,g)
 
+#endif
 
 /*void tempFileName (
     char	*buf, char c, giant NN)
