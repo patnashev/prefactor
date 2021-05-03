@@ -9,10 +9,10 @@ void lucas_V_shiftleft(int x, gwnum V)
     gwsetaddin(gwdata, 0);
 }
 
-void lucas_V_inc(gwnum Vinc, gwnum Vprev, gwnum Vcur, gwnum Vnext, int options)
+void lucas_V_inc(gwnum Vinc, gwnum Vprev, gwnum Vcur, gwnum Vnext)
 {
 #ifdef GW_FMA
-    gwmulsub4(gwdata, Vinc, Vcur, Vprev, Vnext, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+    gwmulsub4(gwdata, Vinc, Vcur, Vprev, Vnext, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT);
 #else
     gwmul3(gwdata, Vinc, Vcur, Vnext, GWMUL_FFT_S1 | options);
     gwsub3o(gwdata, Vnext, Vprev, Vnext, GWADD_FORCE_NORMALIZE);
@@ -21,7 +21,7 @@ void lucas_V_inc(gwnum Vinc, gwnum Vprev, gwnum Vcur, gwnum Vnext, int options)
 }
 
 #define lucas_V_mul_2(V) lucas_V_shiftleft(1, V)
-#define lucas_V_add(Va, Vb, Vbma, Vbpa, options) lucas_V_inc(Va, Vbma, Vb, Vbpa, options)
+#define lucas_V_add(Va, Vb, Vbma, Vbpa) lucas_V_inc(Va, Vbma, Vb, Vbpa)
 
 void lucas_V_mul_giant(giant g, gwnum V, gwnum Vres, gwnum Vres1)
 {
@@ -254,7 +254,7 @@ int get_DAC_M_d(int e, int start, int end, int *maxlen)
 
 void precompute_DAC_S_d()
 {
-    for (int i = 1; i < primeCount; i++)
+    for (int i = 1000; i < primeCount; i++)
     {
         int Slen = 60;
         int Sd = get_DAC_S_d(primes[i], 1, primes[i]/2 + 1, &Slen);
@@ -321,6 +321,7 @@ void lucas_V_mul_prime(int index, gwnum *V)
     gwsetaddin(gwdata, -2);
     gwmul3(gwdata, Vd, Vd, Ve, GWMUL_FFT_S1 | GWMUL_ADDINCONST | GWMUL_STARTNEXTFFT);
     gwsetaddin(gwdata, 0);
+    costAdd(1);
     gwcopy(gwdata, Vd, Ved);
     for (i = len - 3; i >= 0; i--)
     {
@@ -352,13 +353,4 @@ void lucas_V_mul_prime(int index, gwnum *V)
     *V = Ve;
     gwfree(gwdata, Vd);
     gwfree(gwdata, Ved);
-}
-
-void lucas_V_optimize(gwnum V, gwnum Vres)
-{
-#ifdef GW_FMA
-    gwcopy(gwdata, V, Vres);
-#else
-    gwfft(gwdata, V, Vres);
-#endif
 }

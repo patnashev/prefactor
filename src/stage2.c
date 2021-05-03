@@ -204,7 +204,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
     gwnum Vtmp = gwalloc(gwdata);
     gwnum *precomp_V = malloc(sizeof(gwnum)*D/2*L);
     memset(precomp_V, 0, sizeof(gwnum)*D/2*L);
-    gwnum* VL = malloc(sizeof(gwnum)*(L/A + 1));
+    gwnum* VL = malloc(sizeof(gwnum)*(L/A + 2));
     gwnum Va = NULL;
     gwnum Va1 = NULL;
     gwnum* VA = NULL;
@@ -212,7 +212,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
     {
         Va = gwalloc(gwdata);
         Va1 = gwalloc(gwdata);
-        VA = malloc(sizeof(gwnum)*(L/A + 1));
+        VA = malloc(sizeof(gwnum)*(L/A + 2));
     }
 
     // Precomputation of V_u(V_n) where gcd(u,D)=1
@@ -222,7 +222,6 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
     lucas_V_mul_2(Vn); // V_2
     gwcopy(gwdata, Vn, Vn1);
     lucas_V_mul_2(Vn1); // V_4
-    lucas_V_optimize(Vn, Vtmp);
     int dist = 1;
     int precomp = 1;
     for (i = 1; i < D/2*L; i++)
@@ -232,14 +231,13 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         // V_{2i+1}
         precomp_V[i] = gwalloc(gwdata);
         precomp++;
-        lucas_V_inc(Vtmp, precomp_V[i >= 2*dist ? i - 2*dist : 2*dist - i - 1], precomp_V[i - dist], precomp_V[i], GWMUL_PRESERVE_S2);
+        lucas_V_inc(Vn, precomp_V[i >= 2*dist ? i - 2*dist : 2*dist - i - 1], precomp_V[i - dist], precomp_V[i]);
         if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
         {
             int pd = (i + 1)/dist;
             gwswap(Vn, Vtmp);
-            lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, Vn, GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2);
-            lucas_V_add(precomp_V[dist*(pd - 1)/2], precomp_V[dist*(pd + 1)/2], Vtmp, Vn1, GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2);
-            lucas_V_optimize(Vn, Vtmp);
+            lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, Vn);
+            lucas_V_add(precomp_V[dist*(pd - 1)/2], precomp_V[dist*(pd + 1)/2], Vtmp, Vn1);
             dist = i + 1;
             for (j = 0; j < i; j++)
                 if (precomp_V[j] != NULL && gcd(2*j + 1, 2*dist) != 1)
@@ -259,7 +257,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
             int pd = D/2/dist;
             for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
             if (pd > 1)
-                lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, Va, 0);
+                lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, Va);
             lucas_V_shiftleft(j, Va);
         }
         D *= A;
@@ -272,7 +270,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         int pd = D/2/dist;
         for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
         if (pd > 1)
-            lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, W, 0);
+            lucas_V_add(precomp_V[dist*(pd - 1)/2 - 1], precomp_V[dist*(pd + 1)/2], Vn1, W);
         lucas_V_shiftleft(j, W);
     }
 
@@ -290,22 +288,17 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         gwcopy(gwdata, Va1, Va);
         for (i = 0; i < A; i++)
         {
-            lucas_V_inc(G, Vn1, Va1, Vtmp, GWMUL_PRESERVE_S2);
+            lucas_V_inc(G, Vn1, Va1, Vtmp);
             gwswap(Vn1, Va1);
             gwswap(Va1, Vtmp);
         }
 
-        VA[0] = gwalloc(gwdata);
-        lucas_V_optimize(Va, VA[0]);
-        VA[1] = gwalloc(gwdata);
-        lucas_V_optimize(Va1, VA[1]);
-        for (i = 2; i <= L; i++)
+        VA[0] = Va;
+        VA[1] = Va1;
+        for (i = 2; i <= L + 1; i++)
         {
-            lucas_V_inc(W, Va, VA[i - 1], Vtmp, 0);
-            gwswap(Va, Va1);
-            gwswap(Va1, Vtmp);
             VA[i] = gwalloc(gwdata);
-            lucas_V_optimize(Va1, VA[i]);
+            lucas_V_inc(W, VA[i - 2], VA[i - 1], VA[i]);
         }
     }
     else
@@ -317,15 +310,12 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
             lucas_V_mul_int(v, W, Vn, Vn1);
     }
 
-    VL[0] = gwalloc(gwdata);
-    lucas_V_optimize(Vn1, VL[0]);
-    for (i = 1; i <= L; i++)
+    VL[0] = Vn;
+    VL[1] = Vn1;
+    for (i = 2; i <= L + 1; i++)
     {
-        lucas_V_inc(W, Vn, VL[i - 1], Vtmp, 0);
-        gwswap(Vn, Vn1);
-        gwswap(Vn1, Vtmp);
         VL[i] = gwalloc(gwdata);
-        lucas_V_optimize(Vn1, VL[i]);
+        lucas_V_inc(W, VL[i - 2], VL[i - 1], VL[i]);
     }
 
     int paired = 0;
@@ -353,21 +343,15 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         while (v < p/D)
         {
             // n += w
-            lucas_V_inc(W, Vn, VL[L], Vtmp, 0);
-            gwswap(Vn, Vn1);
-            gwswap(Vn1, Vtmp);
-            for (i = 1; i <= L; i++)
+            for (i = 1; i <= L + 1; i++)
                 gwswap(VL[i - 1], VL[i]);
-            lucas_V_optimize(Vn1, VL[L]);
+            lucas_V_inc(W, VL[L - 1], VL[L], VL[L + 1]);
             // nA += w
             if (A > 1)
             {
-                lucas_V_inc(W, Va, VA[L], Vtmp, 0);
-                gwswap(Va, Va1);
-                gwswap(Va1, Vtmp);
-                for (i = 1; i <= L; i++)
+                for (i = 1; i <= L + 1; i++)
                     gwswap(VA[i - 1], VA[i]);
-                lucas_V_optimize(Va1, VA[L]);
+                lucas_V_inc(W, VA[L - 1], VA[L], VA[L + 1]);
             }
             v++;
         }
@@ -375,7 +359,7 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         if (distances[j] != 0)
         {
             int d = distances[j] + p%D;
-            gwsubmul4(gwdata, d%D == 0 ? VL[d/D - 1] : VA[d/D], precomp_V[distances[j]/2], G, G, j < last ? GWMUL_STARTNEXTFFT : 0);
+            gwsubmul4(gwdata, d%D == 0 ? VL[d/D] : VA[d/D], precomp_V[distances[j]/2], G, G, j < last ? GWMUL_STARTNEXTFFT : 0);
             costAdd(1);
         }
 
@@ -414,13 +398,9 @@ void do_pm1stage2(int B1, int B2, giant P, int minus1, int D, int A, int L)
         for (i = 0; i <= L; i++)
             gwfree(gwdata, VA[i]);
         free(VA);
-        gwfree(gwdata, Va);
-        gwfree(gwdata, Va1);
     }
     gwfree(gwdata, G);
     gwfree(gwdata, Vtmp);
-    gwfree(gwdata, Vn);
-    gwfree(gwdata, Vn1);
     gwfree(gwdata, W);
     freeg();
 }
