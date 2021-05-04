@@ -6,9 +6,12 @@ CFLAGS = -I.. -I../gwnum -DX86_64 -O2 -std=c99
 CPP = g++
 CPPFLAGS = -I.. -I../gwnum -DX86_64 -O2
 
-COMPOBJS = prefactor.o
+COMPOBJS = precompute.o prefactor.o
 
 compile: $(COMPOBJS)
+
+precompute.o: ../precompute.c
+	$(CC) $(CFLAGS) -c ../precompute.c
 
 prefactor.o: ../prefactor.c
 	$(CC) $(CFLAGS) -c ../prefactor.c
