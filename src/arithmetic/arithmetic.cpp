@@ -69,8 +69,8 @@ namespace arithmetic
 
     void GiantsArithmetic::init(const std::string& a, Giant& res)
     {
-        if (res._giant == nullptr || res._size < (a.length() + 8)/9)
-            alloc(res, (a.length() + 8)/9);
+        if (res._giant == nullptr || res._size < ((int)a.length() + 8)/9)
+            alloc(res, ((int)a.length() + 8)/9);
         ctog(a.data(), res._giant);
     }
 
@@ -270,12 +270,12 @@ namespace arithmetic
         if (_giant->sign ==  0)
             buffer[0] = '0';
         else if (_giant->sign >  0)
-            gtoc(_giant, buffer.data(), buffer.size());
+            gtoc(_giant, buffer.data(), (int)buffer.size());
         else
         {
             _giant->sign = -_giant->sign;
             buffer[0] = '-';
-            gtoc(_giant, buffer.data() + 1, buffer.size() - 1);
+            gtoc(_giant, buffer.data() + 1, (int)buffer.size() - 1);
             _giant->sign = -_giant->sign;
         }
         return std::string(buffer.data());

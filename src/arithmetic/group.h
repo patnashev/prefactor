@@ -40,7 +40,7 @@ namespace arithmetic
 
             // Signed window
             copy(*u[naf_w.back()/2], res);
-            for (i = naf_w.size() - 2; i >= 0; i--)
+            for (i = (int)naf_w.size() - 2; i >= 0; i--)
             {
                 if (naf_w[i] != 0)
                 {
@@ -340,7 +340,6 @@ namespace arithmetic
                 mul(a, prime, res);
                 return;
             }
-            int i;
             std::vector<int> chain;
             int len = 60;
             int e = prime;
@@ -348,7 +347,7 @@ namespace arithmetic
             if (index >= 0 && index < precomputed_DAC_S_d_len)
                 d = precomputed_DAC_S_d[index];
             else
-                d = get_DAC_S_d(e, e*2/(1 + sqrt(5)) - 100, e*2/(1 + sqrt(5)) + 100, &len);
+                d = get_DAC_S_d(e, (int)(e*2/(1 + sqrt(5))) - 100, (int)(e*2/(1 + sqrt(5))) + 100, &len);
             while (d != 0)
             {
                 if (e/2 < d)
@@ -378,7 +377,7 @@ namespace arithmetic
                 dbl(Td, Te);
             else
                 dbl(Te, Te);
-            for (i = chain.size() - 3; i >= 0; i--)
+            for (int i = (int)chain.size() - 3; i >= 0; i--)
             {
                 if (ed != e - d)
                     printf("error");

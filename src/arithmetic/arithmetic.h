@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <exception>
+#include <stdexcept>
 #include <unordered_set>
 
 namespace arithmetic
@@ -529,6 +529,7 @@ namespace arithmetic
 
     public:
         GiantsArithmetic() { }
+        virtual ~GiantsArithmetic() { }
 
         virtual void alloc(Giant& a) override;
         virtual void alloc(Giant& a, int size);
@@ -568,6 +569,7 @@ namespace arithmetic
 
     public:
         GWGiantsArithmetic(gwhandle *gwdata) : _gwdata(gwdata) { }
+        virtual ~GWGiantsArithmetic() { }
 
         virtual void alloc(Giant& a) override;
         virtual void alloc(Giant& a, int size) override;
@@ -577,7 +579,7 @@ namespace arithmetic
 
     private:
         gwhandle *_gwdata;
-        int _size;
+        int _size = 0;
     };
 
     class Giant : public FieldElement<GiantsArithmetic, Giant>
@@ -746,7 +748,7 @@ namespace arithmetic
         GWArithmetic(GWState& state, CarefulGWArithmetic *careful) : _state(state), _careful(careful) { }
     public:
         GWArithmetic(GWState& state);
-        ~GWArithmetic();
+        virtual ~GWArithmetic();
 
         virtual void alloc(GWNum& a) override;
         virtual void free(GWNum& a) override;
@@ -803,6 +805,7 @@ namespace arithmetic
     {
     public:
         CarefulGWArithmetic(GWState& state) : GWArithmetic(state, this) { }
+        virtual ~CarefulGWArithmetic() { }
 
         using GWArithmetic::add;
         using GWArithmetic::sub;
@@ -823,6 +826,7 @@ namespace arithmetic
     {
     public:
         ReliableGWArithmetic(GWState& state) : GWArithmetic(state) { }
+        virtual ~ReliableGWArithmetic() { }
 
         virtual void mul(GWNum& a, GWNum& b, GWNum& res, int options) override;
         virtual void addmul(GWNum& a, GWNum& b, GWNum& c, GWNum& res, int options) override;
@@ -946,11 +950,11 @@ namespace arithmetic
         gwnum _gwnum = nullptr;
     };
 
-    class ArithmeticException : public std::exception
+    class ArithmeticException : public std::runtime_error
     {
     public:
-        ArithmeticException() { }
-        ArithmeticException(const char *message) : std::exception(message) { }
+        ArithmeticException() : std::runtime_error("Arithmetic exception.") { }
+        ArithmeticException(const std::string& message) : std::runtime_error(message) { }
     };
 
     class InvalidFFTDataException : public ArithmeticException

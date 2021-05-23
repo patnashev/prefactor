@@ -266,7 +266,7 @@ namespace arithmetic
 
         // Signed window
         copy(*u[naf_w.back()/2], res);
-        for (i = naf_w.size() - 2; i >= 0; i--)
+        for (i = (int)naf_w.size() - 2; i >= 0; i--)
         {
             if (naf_w[i] != 0)
             {

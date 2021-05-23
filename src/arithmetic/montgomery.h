@@ -13,6 +13,7 @@ namespace arithmetic
 
     public:
         MontgomeryArithmetic(GWArithmetic& gw, GWNum& ed_d) : _gw(&gw), _ed_d(ed_d) { }
+        virtual ~MontgomeryArithmetic() { }
 
         virtual void copy(const EdY& a, EdY& res) override;
         virtual void move(EdY&& a, EdY& res) override;

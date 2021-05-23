@@ -12,6 +12,7 @@ namespace arithmetic
 
     public:
         LucasVArithmetic(GWArithmetic& gw) : _gw(&gw) { }
+        virtual ~LucasVArithmetic() { }
 
         virtual void copy(const LucasV& a, LucasV& res) override;
         virtual void move(LucasV&& a, LucasV& res) override;

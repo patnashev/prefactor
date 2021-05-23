@@ -64,9 +64,7 @@ int main(int argc, char *argv[])
             ed.add(P, P1, P, GWMUL_STARTNEXTFFT | ed.ED_PROJECTIVE);
         }
         else
-        {
             ed.dbl(P, P, GWMUL_STARTNEXTFFT | ed.ED_PROJECTIVE);
-        }
     }
 
     std::vector<int16_t> naf_w;

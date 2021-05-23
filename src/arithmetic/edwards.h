@@ -17,6 +17,7 @@ namespace arithmetic
 
     public:
         EdwardsArithmetic(GWArithmetic& gw) : _gw(&gw) { }
+        virtual ~EdwardsArithmetic() { }
 
         virtual void copy(const EdPoint& a, EdPoint& res) override;
         virtual void move(EdPoint&& a, EdPoint& res) override;
