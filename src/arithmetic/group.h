@@ -347,7 +347,7 @@ namespace arithmetic
             if (index >= 0 && index < precomputed_DAC_S_d_len)
                 d = precomputed_DAC_S_d[index];
             else
-                d = get_DAC_S_d(e, (int)(e*2/(1 + sqrt(5))) - 100, (int)(e*2/(1 + sqrt(5))) + 100, &len);
+                d = get_DAC_S_d(e, (int)(e/1.618) - 100, (int)(e/1.618) + 100, &len);
             while (d != 0)
             {
                 if (e/2 < d)

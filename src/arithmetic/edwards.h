@@ -120,8 +120,9 @@ namespace arithmetic
         }
         EdPoint& extend()
         {
-            if (!T)
-                T.reset(new GWNum(arithmetic().gw()));
+            if (T)
+                return *this;
+            T.reset(new GWNum(arithmetic().gw()));
             *T = *X * (*Y);
             if (Z)
             {

@@ -4,9 +4,10 @@ CC = gcc
 CFLAGS = -I.. -I../gwnum -DX86_64 -O2 -std=c99
 
 CPP = g++
-CPPFLAGS = -I.. -I../gwnum -DX86_64 -O2
+CPPFLAGS = -I.. -I../gwnum -I../arithmetic -DX86_64 -O2 -std=gnu++11
 
-COMPOBJS = precompute.o prefactor.o
+CPPSOURCES = arithmetic.cpp edwards.cpp group.cpp lucas.cpp montgomery.cpp
+COMPOBJS = precompute.o prefactor.o $(CPPSOURCES:.cpp=.o)
 
 compile: $(COMPOBJS)
 
@@ -17,4 +18,4 @@ prefactor.o: ../prefactor.c
 	$(CC) $(CFLAGS) -c ../prefactor.c
 
 .cpp.o:
-	$(CPP) $(CPPFLAGS) -c $<
+	$(CPP) $(CPPFLAGS) -c ../$< -o $@

@@ -6,7 +6,7 @@ LFLAGS =
 LIBELF = ../gwnum/linux64/gwnum.a
 LIBS2  = $(LIBELF) ../gwnum/linux64/gwnum.ld -lm  -lpthread -lstdc++ -static
 
-COMPOBJS = precompute.o prefactor.o
+COMPOBJS = precompute.o prefactor.o arithmetic.o edwards.o group.o lucas.o montgomery.o
 EXE2 = prefactor
 
 # insert proper dummy file to get _GWDATA data segment aligned

@@ -1,4 +1,5 @@
 
+#include <stdlib.h>
 #include "gwnum.h"
 #include "lucas.h"
 

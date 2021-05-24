@@ -1,4 +1,6 @@
 
+#include <vector>
+#include <stdlib.h>
 #include "gwnum.h"
 #include "arithmetic.h"
 
