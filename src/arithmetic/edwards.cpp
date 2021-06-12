@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "gwnum.h"
 #include "edwards.h"
+#include "exception.h"
 
 namespace arithmetic
 {
@@ -77,6 +78,42 @@ namespace arithmetic
         *res.T = T;
     }
 
+    int EdwardsArithmetic::cmp(const EdPoint& a, const EdPoint& b)
+    {
+        int ret;
+        GWNum tmp(gw());
+        GWNum tmp2(gw());
+
+        if (a.X)
+            tmp = *a.X;
+        else
+            tmp = 1;
+        if (b.Z)
+            tmp *= *b.Z;
+        if (b.X)
+            tmp2 = *b.X;
+        else
+            tmp2 = 1;
+        if (a.Z)
+            tmp2 *= *a.Z;
+        ret = gw().cmp(tmp, tmp2);
+        if (ret != 0)
+            return ret;
+        if (a.Y)
+            tmp = *a.Y;
+        else
+            tmp = 1;
+        if (b.Z)
+            tmp *= *b.Z;
+        if (b.Y)
+            tmp2 = *b.Y;
+        else
+            tmp2 = 1;
+        if (a.Z)
+            tmp2 *= *a.Z;
+        return gw().cmp(tmp, tmp2);
+    }
+
     void EdwardsArithmetic::add(EdPoint& a, EdPoint& b, EdPoint& res)
     {
         add(a, b, res, GWMUL_STARTNEXTFFT);
@@ -117,14 +154,14 @@ namespace arithmetic
         if (!a.T)
         {
             if (a.Z)
-                throw new ArithmeticException("Projective coordinates are not suitable for add, call extend().");
+                throw ArithmeticException("Projective coordinates are not suitable for add, call extend().");
             a.T.reset(new GWNum(gw()));
             gw().mul(*a.X, *a.Y, *a.T, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(b.Z || safe11 || (options & ED_PROJECTIVE)));
         }
         if (!b.T)
         {
             if (b.Z)
-                throw new ArithmeticException("Projective coordinates are not suitable for add, call extend().");
+                throw ArithmeticException("Projective coordinates are not suitable for add, call extend().");
             b.T.reset(new GWNum(gw()));
             gw().mul(*b.X, *b.Y, *b.T, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(a.Z || safe11 || (options & ED_PROJECTIVE)));
         }
@@ -296,7 +333,7 @@ namespace arithmetic
         Iter last = end;
         for (it = begin; it != end; it++)
         {
-            if (*it == nullptr)
+            if (!(*it))
                 continue;
             if (first == end)
                 first = it;
@@ -314,7 +351,7 @@ namespace arithmetic
         swap(*(*first)->T, *(*first)->Z);
         Iter prev = first;
         for ((it = first)++; it != end; it++)
-            if (*it != nullptr)
+            if (*it)
             {
                 gw().mul(*(*prev)->T, *(*it)->Z, *(*it)->T, it != last ? GWMUL_STARTNEXTFFT : 0);
                 prev = it;
@@ -328,12 +365,12 @@ namespace arithmetic
             swap(*(*first)->T, *(*first)->Z);
             throw;
         }
-        for ((it = last)++; it != first;)
+        for ((it = last)++, prev = last; it != first;)
         {
-            it--;
+            it = prev;
             if (it != first)
             {
-                for ((prev = it)--; *prev == nullptr; prev--);
+                for ((prev = it)--; !(*prev); prev--);
                 gw().mul(*(*it)->T, *(*prev)->T, *(*prev)->T, GWMUL_STARTNEXTFFT);
                 swap(*(*it)->T, *(*prev)->T);
                 gw().mul(*(*it)->Z, *(*prev)->T, *(*prev)->T, GWMUL_STARTNEXTFFT);
@@ -349,6 +386,9 @@ namespace arithmetic
                 (*it)->T.reset();
         }
     }
+
+    template void EdwardsArithmetic::normalize(std::vector<std::unique_ptr<EdPoint>>::iterator begin, std::vector<std::unique_ptr<EdPoint>>::iterator end, int options);
+    template void EdwardsArithmetic::normalize(std::vector<EdPoint*>::iterator begin, std::vector<EdPoint*>::iterator end, int options);
 
     GWNum EdwardsArithmetic::jinvariant(GWNum& ed_d)
     {

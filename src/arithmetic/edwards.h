@@ -24,6 +24,7 @@ namespace arithmetic
         virtual void init(EdPoint& res) override;
         virtual void init(const GWNum& X, const GWNum& Y, EdPoint& res);
         virtual void init(const GWNum& X, const GWNum& Y, const GWNum& Z, const GWNum& T, EdPoint& res);
+        virtual int cmp(const EdPoint& a, const EdPoint& b);
         virtual void add(EdPoint& a, EdPoint& b, EdPoint& res) override;
         virtual void sub(EdPoint& a, EdPoint& b, EdPoint& res) override;
         virtual void add(EdPoint& a, EdPoint& b, EdPoint& res, int options);
@@ -91,27 +92,11 @@ namespace arithmetic
 
         friend bool operator == (EdPoint& a, EdPoint& b)
         {
-            if (!a.Z && !b.Z)
-                return (*a.X == *b.X) && (*a.Y == *b.Y);
-            GWNum tmp = *a.X;
-            if (b.Z)
-                tmp *= *b.Z;
-            GWNum tmp2 = *b.X;
-            if (a.Z)
-                tmp2 *= *a.Z;
-            if (tmp != tmp2)
-                return false;
-            tmp = *a.X;
-            if (b.Z)
-                tmp *= *b.Z;
-            tmp2 = *b.X;
-            if (a.Z)
-                tmp2 *= *a.Z;
-            return (tmp == tmp2);
+            return a.arithmetic().cmp(a, b) == 0;
         }
         friend bool operator != (EdPoint& a, EdPoint& b)
         {
-            return !(a == b);
+            return a.arithmetic().cmp(a, b) != 0;
         }
         EdPoint& normalize()
         {

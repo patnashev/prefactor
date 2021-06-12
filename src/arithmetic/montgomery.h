@@ -19,6 +19,7 @@ namespace arithmetic
         virtual void move(EdY&& a, EdY& res) override;
         virtual void init(EdY& res) override;
         virtual void init(const EdPoint& a, EdY& res);
+        virtual int cmp(const EdY& a, const EdY& b);
         virtual void add(EdY& a, EdY& b, EdY& a_minus_b, EdY& res) override;
         virtual void dbl(EdY& a, EdY& res) override;
         virtual void optimize(EdY& a) override;
@@ -76,6 +77,14 @@ namespace arithmetic
         {
             arithmetic().init(a, *this);
             return *this;
+        }
+        friend bool operator == (const EdY& a, const EdY& b)
+        {
+            return a.arithmetic().cmp(a, b) == 0;
+        }
+        friend bool operator != (const EdY& a, const EdY& b)
+        {
+            return a.arithmetic().cmp(a, b) != 0;
         }
         EdY& normalize()
         {

@@ -1,4 +1,6 @@
 
+#include <cmath>
+
 #define F_len 10000
 double F_val[F_len + 1];
 int F_inited = 0;
@@ -67,9 +69,9 @@ int get_stage1_cost(int B1, int stage1param)
 {
     int stage1cost = (int)(B1/0.69);
     if (stage1param == 1)
-        stage1cost *= 1.5;
+        stage1cost = (int)(stage1cost*1.5);
     if (stage1param > 1)
-        stage1cost = (15 << (stage1param - 2)) + stage1cost*(7 + 7/(stage1param + 1.0));
+        stage1cost = (15 << (stage1param - 2)) + (int)(stage1cost*(7 + 7/(stage1param + 1.0)));
     return stage1cost;
 }
 
@@ -87,59 +89,19 @@ int get_edecm_stage1_size(int K)
 
 int get_stage2_size(int D, int A, int L)
 {
-    int i, j;
+    int i;
     int size = 0;
 
-    size++;
-    size++;
-    size++;
-
+    size += 4;
     if (A > 1)
-    {
-        D /= A;
-        L = L*A + 1;
-    }
-    size++;
-    size++;
-    char *precomp_V = malloc(D/2*L);
-    memset(precomp_V, 0, D/2*L);
-    size++;
-    if (A > 1)
-    {
-        size++;
-        size++;
-    }
+        size += 2;
 
-    size++;
-    int dist = 1;
-    for (i = 1; i < D/2*L; i++)
-    {
-        if (gcd(2*i + 1, 2*dist) != 1)
-            continue;
-        precomp_V[i] = 1;
-        size++;
-        if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
-        {
-            dist = i + 1;
-            for (j = 0; j < i; j++)
-                if (precomp_V[j] != 0 && gcd(2*j + 1, 2*dist) != 1)
-                {
-                    precomp_V[j] = 0;
-                    size--;
-                }
-        }
-    }
-    if (A > 1)
-    {
-        D *= A;
-        L /= A;
-    }
+    int precomp = 0;
+    for (i = 1; i < D/2; i++)
+        if (gcd(D/A, i) == 1)
+            precomp++;
+    size += precomp*L;
 
-    if (A > 1)
-        size += L + 1;
-    size += L + 1;
-
-    free(precomp_V);
     return size;
 }
 
@@ -147,37 +109,48 @@ int get_stage2_cost(int B1, int B2, int D, int A, int L, double pairing)
 {
     int i, j;
     int stage2cost = 0;
-    double num_primes = Ei(log(B2)) - Ei(log(B1));
+
+    double num_primes = std::expint(log(B2)) - std::expint(log(B1));
+    stage2cost += (int)(num_primes - pairing*num_primes/2);
+
+    PrimeList primes(B2/B1 + 100);
+    for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
+        if (D/A%(*it) != 0)
+        {
+            B1 = B2/(*it);
+            break;
+        }
 
     if (A > 1)
     {
         D /= A;
-        L = L*A + 1;
     }
-
-    if (primes == NULL)
-        sieve(B2/B1 + 100);
-    for (i = 0; primes[i]*B1 < B2; i++)
-        if (D%primes[i] != 0)
-        {
-            B1 = B2/primes[i];
-            break;
-        }
 
     stage2cost++;
     stage2cost++;
     int dist = 1;
+    int precomp = 1;
+    std::vector<char> precomp_V(D*A/2, 0);
+    precomp_V[0] = 1;
     //stage2cost += D/2*L/2;
-    for (i = 1; i < D/2*L; i++)
+    for (i = 1; i < D*A/4; i++)
     {
         if (gcd(2*i + 1, 2*dist) != 1)
             continue;
         stage2cost++;
+        precomp++;
+        precomp_V[i] = 1;
         if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
         {
             stage2cost++;
             stage2cost++;
             dist = i + 1;
+            for (j = 0; j < i; j++)
+                if (precomp_V[j] != 0 && gcd(2*j + 1, 2*dist) != 1)
+                {
+                    precomp_V[j] = 0;
+                    precomp--;
+                }
         }
     }
 
@@ -192,7 +165,6 @@ int get_stage2_cost(int B1, int B2, int D, int A, int L, double pairing)
             stage2cost += j;
         }
         D *= A;
-        L /= A;
     }
     if (D/2/dist != 1)
     {
@@ -202,6 +174,7 @@ int get_stage2_cost(int B1, int B2, int D, int A, int L, double pairing)
             stage2cost++;
         stage2cost += j;
     }
+    stage2cost += (precomp + 1)*L;
 
     int v = B1/D;
 
@@ -210,7 +183,6 @@ int get_stage2_cost(int B1, int B2, int D, int A, int L, double pairing)
         if (v > 0)
             stage2cost += 2*(int)(log(v*A)/log(2.0));
         stage2cost += A;
-        stage2cost += L - 1;
     }
     else
     {
@@ -218,8 +190,6 @@ int get_stage2_cost(int B1, int B2, int D, int A, int L, double pairing)
             stage2cost += 2*(int)(log(v)/log(2.0));
     }
 
-    stage2cost += L;
-    stage2cost += (int)(num_primes - num_primes*pairing/2);
     stage2cost += (B2 - B1)/D;
     if (A > 1)
         stage2cost += (B2 - B1)/D;
@@ -227,38 +197,52 @@ int get_stage2_cost(int B1, int B2, int D, int A, int L, double pairing)
     return stage2cost;
 }
 
-int get_stage2_cost_best(int B1, int B2, int D, int A, int L, int num_primes)
+int get_stage2_cost_best(int B1, int B2, int D, int A, int L)
 {
     int i, j;
     int stage2cost = 0;
 
+    double num_primes = std::expint(log(B2)) - std::expint(log(B1));
+    stage2cost += (int)(num_primes/2);
+
+    PrimeList primes(B2/B1 + 100);
+    for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
+        if (D/A%(*it) != 0)
+        {
+            B1 = B2/(*it);
+            break;
+        }
+
     if (A > 1)
     {
         D /= A;
-        L = L*A + 1;
     }
-
-    for (i = 0; primes[i]*B1 < B2; i++)
-        if (D%primes[i] != 0)
-        {
-            B1 = B2/primes[i];
-            break;
-        }
 
     stage2cost++;
     stage2cost++;
     int dist = 1;
+    int precomp = 1;
+    std::vector<char> precomp_V(D*A/2, 0);
+    precomp_V[0] = 1;
     //stage2cost += D/2*L/2;
-    for (i = 1; i < D/2*L; i++)
+    for (i = 1; i < D*A/4; i++)
     {
         if (gcd(2*i + 1, 2*dist) != 1)
             continue;
         stage2cost++;
+        precomp++;
+        precomp_V[i] = 1;
         if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
         {
             stage2cost++;
             stage2cost++;
             dist = i + 1;
+            for (j = 0; j < i; j++)
+                if (precomp_V[j] != 0 && gcd(2*j + 1, 2*dist) != 1)
+                {
+                    precomp_V[j] = 0;
+                    precomp--;
+                }
         }
     }
 
@@ -273,7 +257,6 @@ int get_stage2_cost_best(int B1, int B2, int D, int A, int L, int num_primes)
             stage2cost += j;
         }
         D *= A;
-        L /= A;
     }
     if (D/2/dist != 1)
     {
@@ -283,6 +266,7 @@ int get_stage2_cost_best(int B1, int B2, int D, int A, int L, int num_primes)
             stage2cost++;
         stage2cost += j;
     }
+    stage2cost += (precomp + 1)*L;
 
     int v = B1/D;
 
@@ -291,7 +275,6 @@ int get_stage2_cost_best(int B1, int B2, int D, int A, int L, int num_primes)
         if (v > 0)
             stage2cost += 2*(int)(log(v*A)/log(2.0));
         stage2cost += A;
-        stage2cost += L - 1;
     }
     else
     {
@@ -299,9 +282,6 @@ int get_stage2_cost_best(int B1, int B2, int D, int A, int L, int num_primes)
             stage2cost += 2*(int)(log(v)/log(2.0));
     }
 
-    stage2cost += L;
-
-    stage2cost += num_primes/2;
     stage2cost += (B2 - B1)/D;
     if (A > 1)
         stage2cost += (B2 - B1)/D;
@@ -309,31 +289,46 @@ int get_stage2_cost_best(int B1, int B2, int D, int A, int L, int num_primes)
     return stage2cost;
 }
 
-void get_stage2_cost_and_pairing(int* primes, int B1, int B2, int D, int A, int L, int *cost, double *pairing)
+void get_stage2_cost_and_pairing(PrimeList& primes, int B1, int B2, int D, int A, int L, int *cost, double *pairing)
 {
     int i, j;
     int stage2cost = 0;
 
+    Stage2::Pairing PP = Stage2::get_pairing(primes, B1, B2, D, A, L, false);
+    B1 = PP.first_D*D;
+    stage2cost += PP.total - PP.pairs;
+    *pairing = 2*PP.pairs/(double)PP.total;
+
     if (A > 1)
     {
         D /= A;
-        L = L*A + 1;
     }
 
     stage2cost++;
     stage2cost++;
     int dist = 1;
+    int precomp = 1;
+    std::vector<char> precomp_V(D*A/2, 0);
+    precomp_V[0] = 1;
     //stage2cost += D/2*L/2;
-    for (i = 1; i < D/2*L; i++)
+    for (i = 1; i < D*A/4; i++)
     {
         if (gcd(2*i + 1, 2*dist) != 1)
             continue;
         stage2cost++;
+        precomp++;
+        precomp_V[i] = 1;
         if ((i + 1)%dist == 0 && D%(i + 1) == 0 && gcd((i + 1)/dist, 2*dist) == 1)
         {
             stage2cost++;
             stage2cost++;
             dist = i + 1;
+            for (j = 0; j < i; j++)
+                if (precomp_V[j] != 0 && gcd(2*j + 1, 2*dist) != 1)
+                {
+                    precomp_V[j] = 0;
+                    precomp--;
+                }
         }
     }
 
@@ -348,7 +343,6 @@ void get_stage2_cost_and_pairing(int* primes, int B1, int B2, int D, int A, int 
             stage2cost += j;
         }
         D *= A;
-        L /= A;
     }
     if (D/2/dist != 1)
     {
@@ -358,44 +352,15 @@ void get_stage2_cost_and_pairing(int* primes, int B1, int B2, int D, int A, int 
             stage2cost++;
         stage2cost += j;
     }
+    stage2cost += (precomp + 1)*L;
 
-    int it = 0;
-    while (primes[it] <= B1)
-        it++;
-    if (A > 1)
-        D /= A;
-    for (i = 0; primes[i]*B1 < B2; i++)
-        if (D%primes[i] != 0)
-        {
-            for (j = it; primes[j]*primes[i] <= B2; j++)
-                while (primes[j]*primes[i] <= B2)
-                    primes[j] *= primes[i];
-            for (; primes[j] <= B2; j++);
-            qsort(primes + it, j - it, sizeof(int), cmp);
-            break;
-        }
-    if (A > 1)
-        D *= A;
-
-    int paired = 0;
-    short* distances;
-    if (A > 1)
-        distances = get_distances_A(primes, B1, B2, D, A, L);
-    else
-        distances = get_distances_simple(primes, B1, B2, D, L);
-    for (j = 0; distances[j] != -1; j++)
-        if (distances[j] == 0)
-            paired++;
-    free(distances);
-
-    int v = primes[it]/D;
+    int v = B1/D;
 
     if (A > 1)
     {
         if (v > 0)
             stage2cost += 2*(int)(log(v*A)/log(2.0));
         stage2cost += A;
-        stage2cost += L - 1;
     }
     else
     {
@@ -403,35 +368,44 @@ void get_stage2_cost_and_pairing(int* primes, int B1, int B2, int D, int A, int 
             stage2cost += 2*(int)(log(v)/log(2.0));
     }
 
-    stage2cost += L;
-
-    stage2cost += j - paired;
-    stage2cost += (B2 - primes[it])/D;
+    stage2cost += (B2 - B1)/D;
     if (A > 1)
-        stage2cost += (B2 - primes[it])/D;
+        stage2cost += (B2 - B1)/D;
 
     *cost = stage2cost;
-    *pairing = 2*paired/(double)j;
 }
 
 void do_stage2_params(int B1, int B2)
 {
     int i, j, k;
-    int best[100][6];
-    best[0][0] = 0;
+    std::vector<std::array<int,6>> best;
+    
+    PrimeList primes(B2 + 100);
     int totalp;
     for (totalp = 0; primes[totalp] <= B1; totalp++);
     int num_primes;
     for (num_primes = 0; primes[totalp] <= B2; totalp++, num_primes++);
     totalp++;
 
-    int Ds[] = {66, 294, 588};
+    std::vector<std::array<int,6>> savedCosts;
+    std::ifstream fIn("costs.txt");
+    fIn >> i >> j;
+    while (!fIn.fail())
+    {
+        std::array<int, 6> tmp;
+        fIn >> tmp[0] >> tmp[1] >> tmp[2] >> tmp[3] >> tmp[4] >> tmp[5];
+        if (i == B1 && j == B2)
+            savedCosts.push_back(tmp);
+        fIn >> i >> j;
+    }
+    fIn.close();
+
+    std::ofstream fOut("costs.txt", std::fstream::app);
 
     int D;
     for (D = 30; D < 2150; D += 6)
     {
-        int *plist = malloc(sizeof(int)*totalp);
-        for (int L = 1; L < 20 && L < 4300/D && D*(L + 1) < 16000; L++)
+        for (int L = 1; L < 15 && L < 4300/D && D*(L + 1) < 16000; L++)
         {
             for (int iA = 0; iA < 10; iA++)
             {
@@ -441,65 +415,75 @@ void do_stage2_params(int B1, int B2)
                 if (D%A != 0 || A == 2)
                     continue;
 
-                memcpy(plist, primes, sizeof(int)*totalp);
                 int size = get_stage2_size(D, A, L);
                 if (size > 1000)
                     continue;
                 double pairing = 1.0;
-                int cost = get_stage2_cost_best(B1, B2, D, A, L, num_primes);
+                int cost = get_stage2_cost_best(B1, B2, D, A, L);
                 int bad = 0;
                 while (1)
                 {
-                    for (i = 0; i < 100 && best[i][0] != 0 && ((best[i][0] > size && best[i][1] < cost) || (best[i][0] < size && best[i][1] > cost)); i++);
-                    if (i == 100)
-                        printf("overflow\n");
-                    if (best[i][0] != 0 && best[i][0] <= size && best[i][1] <= cost)
+                    for (i = 0; i < best.size() && ((best[i][0] > size && best[i][1] < cost) || (best[i][0] < size && best[i][1] > cost)); i++);
+                    if (i < best.size() && best[i][0] <= size && best[i][1] <= cost)
                         bad = 1;
                     break;
                 }
                 if (bad)
                     continue;
 
-                get_stage2_cost_and_pairing(plist, B1, B2, D, A, L, &cost, &pairing);
+                bool saved = false;
+                for (auto it = savedCosts.begin(); it != savedCosts.end() && !saved; it++)
+                    if ((*it)[2] == D && (*it)[3] == A && (*it)[4] == L)
+                    {
+                        cost = (*it)[1];
+                        pairing = 2.0*(*it)[5]/num_primes;
+                        saved = true;
+                    }
+                if (!saved)
+                    get_stage2_cost_and_pairing(primes, B1, B2, D, A, L, &cost, &pairing);
 
                 while (1)
                 {
-                    for (i = 0; i < 100 && best[i][0] != 0 && ((best[i][0] > size && best[i][1] < cost) || (best[i][0] < size && best[i][1] > cost)); i++);
-                    if (i == 100)
-                        printf("overflow\n");
-                    if (best[i][0] != 0 && best[i][0] <= size && best[i][1] <= cost)
+                    if (!saved)
+                    {
+                        fOut << B1 << " " << B2 << " " << size << " " << cost << " " << D << " " << A << " " << L << " " << (int)(num_primes*pairing/2) << std::endl;
+                        fOut.flush();
+                    }
+                    for (i = 0; i < best.size() && ((best[i][0] > size && best[i][1] < cost) || (best[i][0] < size && best[i][1] > cost)); i++);
+                    if (i < best.size() && best[i][0] <= size && best[i][1] <= cost)
                         break;
-                    if (best[i][0] == 0 && i < 100 - 1)
-                        best[i + 1][0] = 0;
-                    best[i][0] = size;
-                    best[i][1] = cost;
-                    best[i][2] = D;
-                    best[i][3] = A;
-                    best[i][4] = L;
-                    best[i][5] = (int)(pairing*1000);
+                    //printf("size=%d, D=%d, A=%d, L=%d, pairs=%d\n", size, D, A, L, (int)(num_primes*pairing/2));
+                    if (i < best.size())
+                        best[i] = { size, cost, D, A, L, (int)(pairing*1000) };
+                    else
+                        best.push_back({ size, cost, D, A, L, (int)(pairing*1000) });
                     i++;
-                    for (; i < 100 && best[i][0] != 0; i++)
+                    for (; i < best.size(); i++)
                         if (best[i][0] >= size && best[i][1] >= cost)
                         {
-                            for (j = i + 1; j < 100 && best[j][0] != 0; j++)
-                                for (k = 0; k < 6; k++)
-                                    best[j - 1][k] = best[j][k];
-                            best[j - 1][0] = 0;
+                            best.erase(best.begin() + i);
                             i--;
                         }
                     break;
                 }
             }
         }
-        free(plist);
     }
+    fOut.close();
+
+    /*std::sort(best.begin(), best.end(), [](std::array<int, 6>& a, std::array<int, 6>& b) { return a[0] < b[0]; });
+    printf("size    cost    D  A  L %%pair\n");
+    printf("---- ------- ---- -- -- -----\n");
+    for (i = 0; i < best.size(); i++)
+        printf("%4d %7d %4d %2d %2d %5d\n", best[i][0], best[i][1], best[i][2], best[i][3], best[i][4], best[i][5]);*/
+
     int prevk = -1;
     int bounds[] = { 50, 100, 150, 200, 250, 350, 450, 550, 750, 1000 };
     for (j = 0; j < 10; j++)
     {
         k = -1;
         int min = B2;
-        for (i = 0; i < 100 && best[i][0] != 0; i++)
+        for (i = 0; i < best.size(); i++)
             if (min > best[i][1] && best[i][0] < bounds[j])
             {
                 min = best[i][1];
@@ -513,20 +497,15 @@ void do_stage2_params(int B1, int B2)
 
 void precompute_stage2_params()
 {
-    if (primes != NULL)
-        free(primes);
-    sieve(100*1000000 + 1000);
-
     int b2mul[] = { 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 23, 26, 30, 35, 40, 50, 60, 75, 100 };
 
     int b1, b2;
-    /*for (b1 = 1000; b1 < 10000; b1 += 1000)
-        for (b2 = 0; b2 < 20; b2++)
-            do_stage2_params(b1, b2mul[b2]*b1);*/
-    do_stage2_params(30000, 100*30000);
-    for (b1 = 40000; b1 <= 100000; b1 += 10000)
+    for (b1 = 1000; b1 < 10000; b1 += 1000)
         for (b2 = 0; b2 < 20; b2++)
             do_stage2_params(b1, b2mul[b2]*b1);
+    /*for (b1 = 10000; b1 < 100000; b1 += 10000)
+        for (b2 = 0; b2 < 20; b2++)
+            do_stage2_params(b1, b2mul[b2]*b1);*/
     /*for (b1 = 1000000; b1 <= 1000000; b1 += 100000)
         for (b2 = 4; b2 < 20; b2 += 5)
             do_stage2_params(b1, b2mul[b2]*b1);*/
@@ -658,7 +637,7 @@ int get_edecm_stage2_size(int D, int L, int LR)
     size += 4;
     size += 2;
     size += 2;
-    char *precomp_V = malloc(D/2*L);
+    char *precomp_V = new char[D/2*L];
     memset(precomp_V, 0, D/2*L);
 
     size += 1;
@@ -686,7 +665,7 @@ int get_edecm_stage2_size(int D, int L, int LR)
     else
         size += 2*L;
 
-    free(precomp_V);
+    delete precomp_V;
     return size;
 }
 
@@ -694,14 +673,13 @@ int get_edecm_stage2_cost(int B1, int B2, int D, int L, int LR, double pairing)
 {
     int i, j;
     int stage2cost = 0;
-    double num_primes = Ei(log(B2)) - Ei(log(B1));
+    double num_primes = std::expint(log(B2)) - std::expint(log(B1));
 
-    if (primes == NULL)
-        sieve(B2/B1 + 100);
-    for (i = 0; primes[i]*B1 < B2; i++)
-        if (D%primes[i] != 0)
+    PrimeList primes(B2/B1 + 100);
+    for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
+        if (D%(*it) != 0)
         {
-            B1 = B2/primes[i];
+            B1 = B2/(*it);
             break;
         }
 

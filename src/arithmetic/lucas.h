@@ -68,8 +68,17 @@ namespace arithmetic
             arithmetic().init(P, *this);
             return *this;
         }
+        friend bool operator == (const LucasV& a, const LucasV& b)
+        {
+            return a.V() == b.V();
+        }
+        friend bool operator != (const LucasV& a, const LucasV& b)
+        {
+            return a.V() != b.V();
+        }
 
         GWNum& V() { return _V; }
+        const GWNum& V() const { return _V; }
 
     private:
         GWNum _V;

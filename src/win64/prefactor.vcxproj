@@ -11,8 +11,30 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\arithmetic\arithmetic.cpp" />
+    <ClCompile Include="..\arithmetic\edwards.cpp" />
+    <ClCompile Include="..\arithmetic\giant.cpp" />
+    <ClCompile Include="..\arithmetic\group.cpp" />
+    <ClCompile Include="..\arithmetic\lucas.cpp" />
+    <ClCompile Include="..\arithmetic\montgomery.cpp" />
+    <ClCompile Include="..\inputnum.cpp" />
     <ClCompile Include="..\precompute.c" />
-    <ClCompile Include="..\prefactor.c" />
+    <ClCompile Include="..\prefactor.cpp" />
+    <ClCompile Include="..\primelist.cpp" />
+    <ClCompile Include="..\stage2.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\arithmetic\arithmetic.h" />
+    <ClInclude Include="..\arithmetic\edwards.h" />
+    <ClInclude Include="..\arithmetic\exception.h" />
+    <ClInclude Include="..\arithmetic\field.h" />
+    <ClInclude Include="..\arithmetic\giant.h" />
+    <ClInclude Include="..\arithmetic\group.h" />
+    <ClInclude Include="..\arithmetic\lucas.h" />
+    <ClInclude Include="..\arithmetic\montgomery.h" />
+    <ClInclude Include="..\inputnum.h" />
+    <ClInclude Include="..\primelist.h" />
+    <ClInclude Include="..\stage2.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
@@ -54,8 +76,9 @@
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>X86_64;_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories></AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..;..\gwnum;..\arithmetic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DisableSpecificWarnings>4244;4267;4146;4018</DisableSpecificWarnings>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -71,8 +94,9 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories></AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..;..\gwnum;..\arithmetic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>X86_64;_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

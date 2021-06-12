@@ -1,7 +1,9 @@
 
 #include <stdlib.h>
+#include <deque>
 #include "gwnum.h"
 #include "montgomery.h"
+#include "exception.h"
 
 namespace arithmetic
 {
@@ -68,6 +70,23 @@ namespace arithmetic
         }
     }
 
+    int MontgomeryArithmetic::cmp(const EdY& a, const EdY& b)
+    {
+        if (!a.Y && !b.Y)
+            return 0;
+        if (!a.Y && b.Y)
+            return -1;
+        if (a.Y && !b.Y)
+            return 1;
+        if (!a.Z && !b.Z)
+            return gw().cmp(*a.Y, *b.Y);
+        if (!a.Z && b.Z)
+            return gw().cmp(*a.Y*(*b.Z), *b.Y);
+        if (a.Z && !b.Z)
+            return gw().cmp(*a.Y, *b.Y*(*a.Z));
+        return gw().cmp(*a.Y*(*b.Z), *b.Y*(*a.Z));
+    }
+
     void MontgomeryArithmetic::add(EdY& a, EdY& b, EdY& a_minus_b, EdY& res)
     {
         bool safe1 = square_safe(gw().gwdata(), 1);
@@ -78,6 +97,7 @@ namespace arithmetic
             dbl(a, res);
             return;
         }
+        optimize(a_minus_b);
         if (!res.Y)
             res.Y.reset(new GWNum(gw()));
         if (!res.Z)
@@ -86,31 +106,27 @@ namespace arithmetic
             res.ZpY.reset(new GWNum(gw()));
         if (!res.ZmY)
             res.ZmY.reset(new GWNum(gw()));
-        if (!a_minus_b.ZpY)
-        {
-            a_minus_b.ZpY.reset(new GWNum(gw()));
-            a_minus_b.ZmY.reset(new GWNum(gw()));
-            if (a_minus_b.Z)
-                *a_minus_b.ZpY = *a_minus_b.Z;
-            else
-                *a_minus_b.ZpY = 1;
-            *a_minus_b.ZmY = *a_minus_b.Y;
-            gw().addsub(*a_minus_b.ZpY, *a_minus_b.ZmY, *a_minus_b.ZpY, *a_minus_b.ZmY, GWADD_DELAYNORM_IF(safe11));
-        }
+        std::unique_ptr<GWNum> tmp;
+        if (&a_minus_b == &res || (b.Z && (&b == &res)))
+            tmp.reset(new GWNum(gw()));
 
-        if (b.Z)
-            gw().mul(*a.Y, *b.Z, *res.Y, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1));
-        else if (&a != &res)
-            gw().copy(*a.Y, *res.Y);
+        if (b.Z && (&b == &res))
+            swap(*tmp, *res.Z);
         if (a.Z)
             gw().mul(*a.Z, *b.Y, *res.Z, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1));
         else
             gw().copy(*b.Y, *res.Z);
+        if (b.Z)
+            gw().mul(*a.Y, (&b == &res) ? *tmp : *b.Z, *res.Y, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1));
+        else if (&a != &res)
+            gw().copy(*a.Y, *res.Y);
         gw().addsub(*res.Y, *res.Z, *res.Z, *res.Y, GWADD_DELAYNORM_IF(safe1));
         gw().square(*res.Z, *res.Z, GWMUL_STARTNEXTFFT);
         gw().square(*res.Y, *res.Y, GWMUL_STARTNEXTFFT);
-        gw().mulmuladd(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZpY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT_IF(safe11));
+        gw().mulmuladd(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, (&a_minus_b == &res) ? *tmp : *res.ZpY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT_IF(safe11));
         gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && (b.Z || safe1)));
+        if (&a_minus_b == &res)
+            swap(*res.ZpY, *tmp);
         if (gwnum_is_partially_ffted(gw().gwdata(), **res.ZpY))
             gw().fft(*res.ZpY, *res.ZpY);
         if (gwnum_is_partially_ffted(gw().gwdata(), **res.ZmY))
@@ -153,7 +169,20 @@ namespace arithmetic
 
     void MontgomeryArithmetic::optimize(EdY& a)
     {
+        bool safe11 = mul_safe(gw().gwdata(), 1, 1);
+
         //normalize(a);
+        if (!a.ZpY)
+        {
+            a.ZpY.reset(new GWNum(gw()));
+            a.ZmY.reset(new GWNum(gw()));
+            if (a.Z)
+                *a.ZpY = *a.Z;
+            else
+                *a.ZpY = 1;
+            *a.ZmY = *a.Y;
+            gw().addsub(*a.ZpY, *a.ZmY, *a.ZpY, *a.ZmY, GWADD_DELAYNORM_IF(safe11));
+        }
     }
 
     void MontgomeryArithmetic::normalize(EdY& a)
@@ -171,7 +200,7 @@ namespace arithmetic
         Iter last = end;
         for (it = begin; it != end; it++)
         {
-            if (*it == nullptr)
+            if (!(*it))
                 continue;
             if (first == end)
                 first = it;
@@ -190,7 +219,7 @@ namespace arithmetic
         swap(*(*first)->ZpY, *(*first)->Z);
         Iter prev = first;
         for ((it = first)++; it != end; it++)
-            if (*it != nullptr)
+            if (*it)
             {
                 gw().mul(*(*prev)->ZpY, *(*it)->Z, *(*it)->ZpY, it != last ? GWMUL_STARTNEXTFFT : 0);
                 prev = it;
@@ -204,12 +233,12 @@ namespace arithmetic
             swap(*(*first)->ZpY, *(*first)->Z);
             throw;
         }
-        for ((it = last)++; it != first;)
+        for ((it = last)++, prev = last; it != first;)
         {
-            it--;
+            it = prev;
             if (it != first)
             {
-                for ((prev = it)--; *prev == nullptr; prev--);
+                for ((prev = it)--; !(*prev); prev--);
                 gw().mul(*(*it)->ZpY, *(*prev)->ZpY, *(*prev)->ZpY, GWMUL_STARTNEXTFFT);
                 swap(*(*it)->ZpY, *(*prev)->ZpY);
                 gw().mul(*(*it)->Z, *(*prev)->ZpY, *(*prev)->ZpY, GWMUL_STARTNEXTFFT);
@@ -220,4 +249,8 @@ namespace arithmetic
             (*it)->ZpY.reset();
         }
     }
+
+    template void MontgomeryArithmetic::normalize(std::vector<std::unique_ptr<EdY>>::iterator begin, std::vector<std::unique_ptr<EdY>>::iterator end);
+    template void MontgomeryArithmetic::normalize(std::vector<EdY*>::iterator begin, std::vector<EdY*>::iterator end);
+    template void MontgomeryArithmetic::normalize(std::deque<std::unique_ptr<EdY>>::iterator begin, std::deque<std::unique_ptr<EdY>>::iterator end);
 }

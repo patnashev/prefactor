@@ -189,8 +189,9 @@ namespace arithmetic
         Arithmetic& _arithmetic;
     };
 
+    int gcd(int a, int b);
     int get_DAC_S_d(int e, int start, int end, int *maxlen);
-    extern const int precomputed_DAC_S_d_len;
+    extern const size_t precomputed_DAC_S_d_len;
     extern const int precomputed_DAC_S_d[];
 
     template<class Element>
@@ -219,7 +220,7 @@ namespace arithmetic
             else if (b == 3)
             {
                 Element tmp = res;
-                dbl(res, res);
+                dbl(tmp, res);
                 add(tmp, res, tmp, res);
             }
             else
@@ -245,10 +246,7 @@ namespace arithmetic
                 }
                 if (i == 2)
                 {
-                    if (&a != &res)
-                        dbl(tmp, res);
-                    else
-                        dbl(res, res);
+                    dbl(tmp, res);
                     if ((1 << len) > j)
                         add(tmp, res, tmp, res2);
                 }
@@ -333,9 +331,9 @@ namespace arithmetic
             }
         }
 
-        virtual void mul(Element& a, int32_t prime, int index, Element& res)
+        virtual void mul(Element& a, int32_t prime, size_t index, Element& res)
         {
-            if (prime < 3)
+            if (prime < 14)
             {
                 mul(a, prime, res);
                 return;
@@ -373,10 +371,7 @@ namespace arithmetic
             Element Td = a;
             Element Ted(a.arithmetic());
             Element Te = std::move(res);
-            if (&a != &res)
-                dbl(Td, Te);
-            else
-                dbl(Te, Te);
+            dbl(Td, Te);
             for (int i = (int)chain.size() - 3; i >= 0; i--)
             {
                 if (ed != e - d)

@@ -46,12 +46,12 @@ iohandle io_open(const char* filename)
             return NULL;
         fseek(fd, 0L, SEEK_END);
         int filelen = ftell(fd);
-        handle = malloc(sizeof(iohandle_s));
+        handle = new iohandle_s;
         handle->fd = NULL;
         handle->namelen = strlen(filename);
         handle->pos = handle->namelen + 5;
         handle->len = filelen + handle->pos;
-        handle->buffer = malloc(handle->len);
+        handle->buffer = new char[handle->len];
         memcpy(handle->buffer, filename, handle->namelen);
         strcpy(handle->buffer + handle->namelen, ".md5");
 
@@ -62,8 +62,8 @@ iohandle io_open(const char* filename)
         if (!fd || filelen != handle->len - handle->pos)
         {
             remove(filename);
-            free(handle->buffer);
-            free(handle);
+            delete handle->buffer;
+            delete handle;
             return NULL;
         }
 
@@ -71,13 +71,13 @@ iohandle io_open(const char* filename)
         char md5data[33];
         fread(md5file, 1, 32, fd);
         fclose(fd);
-        md5_raw_input(md5data, handle->buffer + handle->pos, handle->len - handle->pos);
+        md5_raw_input(md5data, (unsigned char*)handle->buffer + handle->pos, handle->len - handle->pos);
         if (strncmp(md5file, md5data, 32))
         {
             remove(filename);
             remove(handle->buffer);
-            free(handle->buffer);
-            free(handle);
+            delete handle->buffer;
+            delete handle;
             return NULL;
         }
 
@@ -88,7 +88,7 @@ iohandle io_open(const char* filename)
         FILE* fd = fopen(filename, "rb");
         if (!fd)
             return NULL;
-        handle = malloc(sizeof(iohandle_s));
+        handle = new iohandle_s;
         handle->fd = fd;
         handle->buffer = NULL;
         handle->len = 0;
@@ -103,12 +103,12 @@ iohandle io_create(const char *filename)
 
     if (SAVE_MD5_HASH)
     {
-        handle = malloc(sizeof(iohandle_s));
+        handle = new iohandle_s;
         handle->fd = NULL;
         handle->namelen = strlen(filename);
         handle->pos = handle->namelen + 5;
         handle->len = SAVE_MD5_SIZE + handle->pos;
-        handle->buffer = malloc(handle->len);
+        handle->buffer = new char[handle->len];
         memcpy(handle->buffer, filename, handle->namelen);
         strcpy(handle->buffer + handle->namelen, ".md5");
         SAVE_MD5_SUCCESS = TRUE;
@@ -119,7 +119,7 @@ iohandle io_create(const char *filename)
         FILE* fd = fopen(filename, "wb");
         if (!fd)
             return NULL;
-        handle = malloc(sizeof(iohandle_s));
+        handle = new iohandle_s;
         handle->fd = fd;
         handle->buffer = NULL;
         handle->len = 0;
@@ -150,11 +150,11 @@ int io_write(iohandle handle, const void *buffer, unsigned int count)
         unsigned int newlen = handle->len*2;
         if (newlen < handle->pos + count)
             newlen = handle->pos + count;
-        char *newbuf = malloc(newlen);
+        char *newbuf = new char[newlen];
         if (handle->buffer != NULL && handle->pos > 0)
             memcpy(newbuf, handle->buffer, handle->pos);
         if (handle->buffer != NULL)
-            free(handle->buffer);
+            delete handle->buffer;
         handle->buffer = newbuf;
         handle->len = newlen;
     }
@@ -199,7 +199,7 @@ void io_commit(iohandle handle)
     if (handle->buffer != NULL)
     {
         char md5hash[33];
-        md5_raw_input(md5hash, handle->buffer + handle->namelen + 5, handle->pos - handle->namelen - 5);
+        md5_raw_input(md5hash, (unsigned char*)handle->buffer + handle->namelen + 5, handle->pos - handle->namelen - 5);
         writeThrough(handle->buffer, md5hash, 32);
         handle->buffer[handle->namelen] = 0;
         writeThrough(handle->buffer, handle->buffer + handle->namelen + 5, handle->pos - handle->namelen - 5);
@@ -211,8 +211,8 @@ void io_close(iohandle handle)
     if (handle->fd != NULL)
         fclose(handle->fd);
     if (handle->buffer != NULL)
-        free(handle->buffer);
-    free(handle);
+        delete handle->buffer;
+    delete handle;
 }
 
 #define io_reset remove
@@ -273,14 +273,15 @@ int io_write_uint64(iohandle fd, uint64_t val, uint32_t* sum)
     return TRUE;
 }
 
-int io_read_giant(iohandle fd, giant g, uint32_t *sum)
+int io_read_giant(iohandle fd, Giant& g, uint32_t *sum)
 {
     uint32_t i, len, bytes;
     giant tmp;
 
     if (!io_read_uint32(fd, &len, sum))
         return FALSE;
-    if (len == 0)
+    printf("not impl\n");
+/*    if (len == 0)
     {
         if (g != NULL)
             g->sign = 0;
@@ -304,26 +305,26 @@ int io_read_giant(iohandle fd, giant g, uint32_t *sum)
     for (i = 0; i < len; i++)
         *sum += tmp->n[i];
     if (g == NULL && gwdata != NULL)
-        freeg();
+        freeg();*/
     return TRUE;
 }
 
-int io_write_giant(iohandle fd, giant g, uint32_t *sum)
+int io_write_giant(iohandle fd, Giant& g, uint32_t *sum)
 {
     uint32_t i, len, bytes;
 
-    len = g->sign;
+    len = g.size();
     if (!io_write_uint32(fd, len, sum))
         return FALSE;
     bytes = len*sizeof(uint32_t);
-    if (io_write(fd, g->n, bytes) != bytes)
+    if (io_write(fd, g.data(), bytes) != bytes)
         return FALSE;
     for (i = 0; i < len; i++)
-        *sum += g->n[i];
+        *sum += g.data()[i];
     return TRUE;
 }
 
-int writeToFile(char *filename, uint32_t fingerprint, int32_t j, giant x, giant y)
+int writeToFile(char *filename, uint32_t fingerprint, int32_t j, Giant& x, Giant& y)
 {
     iohandle fd;
     uint32_t magicnum, version;
@@ -365,7 +366,7 @@ writeerr:
     return FALSE;
 }
 
-int writeToFileSafe(char* filename, uint32_t fingerprint, int32_t j, giant x, giant y)
+int writeToFileSafe(char* filename, uint32_t fingerprint, int32_t j, Giant& x, Giant& y)
 {
     char newfilename[64];
     strcpy(newfilename, filename);
@@ -383,12 +384,12 @@ int writeToFileSafe(char* filename, uint32_t fingerprint, int32_t j, giant x, gi
     return TRUE;
 }
 
-int writeToFileMD5(char *filename, uint32_t fingerprint, int32_t j, giant x, giant y)
+int writeToFileMD5(char *filename, uint32_t fingerprint, int32_t j, Giant& x, Giant& y)
 {
     int retval = TRUE;
 
     SAVE_MD5_HASH = TRUE;
-    SAVE_MD5_SIZE = ((int)gwdata->bit_length >> 3)*(y != NULL ? 2 : 1) + 128;
+    SAVE_MD5_SIZE = x.size()*4 + y.size()*4 + 128;
     if ((retval = writeToFile(filename, fingerprint, j, x, y)))
         retval = SAVE_MD5_SUCCESS;
     SAVE_MD5_HASH = FALSE;
@@ -396,7 +397,7 @@ int writeToFileMD5(char *filename, uint32_t fingerprint, int32_t j, giant x, gia
     return retval;
 }
 
-int readFromFile(char *filename, uint32_t fingerprint, int32_t *j, giant x, giant y)
+int readFromFile(char *filename, uint32_t fingerprint, int32_t *j, Giant& x, Giant& y)
 {
     iohandle fd;
     uint32_t magicnum, version;
@@ -444,7 +445,7 @@ readerr:
     return FALSE;
 }
 
-int readFromFileMD5(char *filename, uint32_t fingerprint, int32_t* j, giant x, giant y)
+int readFromFileMD5(char *filename, uint32_t fingerprint, int32_t* j, Giant& x, Giant& y)
 {
     CHECK_MD5_HASH = TRUE;
     int retval = readFromFile(filename, fingerprint, j, x, y);
@@ -453,16 +454,14 @@ int readFromFileMD5(char *filename, uint32_t fingerprint, int32_t* j, giant x, g
 }
 
 // Writes factor to factors.txt
-void report_factor(giant f)
+void report_factor(const Giant& f, InputNum& input)
 {
-    char *buf = malloc(abs(f->sign)*10 + 10);
-    gtoc(f, buf, abs(f->sign)*10 + 10);
-    printf("Found factor %s\n", buf);
+    std::string str = f.to_string();
+    printf("Found factor %s\n", str.data());
     FILE *fp = fopen("factors.txt", "a");
     if (fp)
     {
-        fprintf(fp, "%s | %s\n", buf, Nstr);
+        fprintf(fp, "%s | %s\n", str.data(), input.input_text().data());
         fclose(fp);
     }
-    free(buf);
 }

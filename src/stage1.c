@@ -1,87 +1,83 @@
 
+#include "lucas.h"
+#include "edwards.h"
+
 // Stage 1 exponent with prime powers <= B1
-giant get_stage1_exp(int B0, int B1)
+Giant get_stage1_exp(PrimeList primes, int B0, int B1)
 {
     int j, k;
-    int p, it;
 
-    for (it = 0; primes[it] < B0; it++);
-    p = primes[it++];
+    PrimeIterator it = primes.begin();
+    for (; *it < B0; it++);
 
     int sqrtB1 = (int)sqrt(B1);
-    giant tmp = popg(&gwdata->gdata, ((int)(gwdata->bit_length > B1/0.69 ? gwdata->bit_length : B1/0.69) >> 5) + 10);
-    tmp->sign = 0;
-    giant tmp2 = popg(&gwdata->gdata, ((int)(262144 < B1/0.69 ? 262144 : B1/0.69) >> 5) + 10);
-    ultog(1, tmp2);
-    while (p <= B1)
+    Giant tmp(GiantsArithmetic::default_arithmetic(), (int)(B1/0.69/32) + 10);
+    Giant tmp2(GiantsArithmetic::default_arithmetic(), tmp.capacity() < 8192 ? tmp.capacity() : 8192);
+    tmp2 = 1;
+    while (*it <= B1)
     {
         // Building exponent with prime powers <= B1
-        j = p;
-        if (p <= sqrtB1)
+        j = *it;
+        if (*it <= sqrtB1)
         {
-            k = B1/p;
+            k = B1/(*it);
             while (j <= k)
-                j *= p;
+                j *= *it;
         }
-        ulmulg(j, tmp2);
-        p = primes[it++];
-        if (p > B1 || tmp2->sign > 8192)
+        tmp2 *= j;
+        it++;
+        if (*it > B1 || tmp2.size() > 8190)
         {
-            if (tmp->sign == 0)
-                gtog(tmp2, tmp);
+            if (tmp == 0)
+                tmp = tmp2;
             else
-                mulg(tmp2, tmp);
-            ultog(1, tmp2);
+                tmp *= tmp2;
+            tmp2 = 1;
         }
     }
-    freeg();
 
     return tmp;
 }
 
 // P-1 factoring stage 1.
-int do_minus1stage1(int B1, int gfn, giant res)
+int do_minus1stage1(PrimeList primes, InputNum& input, GWArithmetic& gw, int B1, Giant& res)
 {
     int i, j;
     int len;
     int retval = TRUE;
 
-    gwnum X = gwalloc(gwdata);
+    GWNum X(gw);
 
-    printf("%s, P-1 stage 1, B1 = %d%s\n", Nstr, B1, gfn != 0 ? ", GFN" : "");
+    printf("%s, P-1 stage 1, B1 = %d%s\n", input.display_text().data(), B1, input.gfn() != 0 ? ", GFN" : "");
     double timer = getHighResTimer();
-    int transforms = -(int)gwdata->fft_count;
+    int transforms = -(int)gw.gwdata()->fft_count;
 
-    giant tmp = get_stage1_exp(3, B1);
-    gwsetmulbyconst(gwdata, 3);
-    dbltogw(gwdata, 3, X);
-    len = bitlen(tmp) - 1;
-    gwset_carefully_count(gwdata, 30);
-    for (i = 1; i <= len; i++, costAdd(1))
-        gwsquare2(gwdata, X, X, (bitval(tmp, len - i) ? GWMUL_MULBYCONST : 0) | (i < len ? GWMUL_STARTNEXTFFT : 0));
-    for (j = 2; j <= B1; j <<= 1, costAdd(1))
-        gwsquare_carefully(gwdata, X);
-    for (j = 2; j <= gfn; j <<= 1, costAdd(1))
-        gwsquare_carefully(gwdata, X);
+    Giant tmp = get_stage1_exp(primes, 3, B1);
+    gw.setmulbyconst(3);
+    X = 3;
+    len = tmp.bitlen() - 1;
+    gwset_carefully_count(gw.gwdata(), 30);
+    for (i = 1; i <= len; i++)
+        gw.square(X, X, (tmp.bit(len - i) ? GWMUL_MULBYCONST : 0) | (i < len ? GWMUL_STARTNEXTFFT : 0));
+    for (j = 2; j <= B1; j <<= 1)
+        gw.carefully().square(X, X, 0);
+    for (j = 0; j < input.gfn(); j++)
+        gw.carefully().square(X, X, 0);
 
-    gwtogiant(gwdata, X, tmp);
-    gtog(tmp, res);
-    invg(N, res);
-    if (res->sign > 0)
-        addg(tmp, res);
-    ulsubg(1, tmp);
-    gcdg(N, tmp);
+    tmp = X;
+    res = tmp + inv(tmp, gw.N());
+    tmp = gcd(std::move(tmp) - 1, gw.N());
 
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    transforms += (int)gwdata->fft_count;
-    if (isZero(tmp) || gcompg(tmp, N) == 0)
+    transforms += (int)gw.gwdata()->fft_count;
+    if (tmp == 0 || tmp == gw.N())
     {
         printf("All divisors of N < B1.\n");
         retval = FALSE;
     }
-    else if (!isone(tmp))
+    else if (tmp != 1)
     {
-        report_factor(tmp);
+        report_factor(tmp, input);
         retval = FALSE;
     }
     else
@@ -89,78 +85,69 @@ int do_minus1stage1(int B1, int gfn, giant res)
         printf("No factors found, transforms: %d, time: %d s.\n", transforms, (int)timer);
     }
 
-    gwfree(gwdata, X);
-    freeg();
     return retval;
 }
 
 // P+1 factoring stage 1.
-int do_plus1stage1(int B0, int B1, int gfn, giant P, char *sP, giant res)
+int do_plus1stage1(PrimeList primes, InputNum& input, GWArithmetic& gw, int B0, int B1, Giant& P, std::string& sP, Giant& res)
 {
     int j, k;
-    int p, it;
     int retval = TRUE;
-    giant tmp = NULL;
+    Giant tmp;
 
-    gwnum V = gwalloc(gwdata);
-
-    printf("%s, P+1 stage 1, B1 = %d, P = %s%s.\n", Nstr, B1, sP, gfn != 0 ? ", GFN" : "");
+    printf("%s, P+1 stage 1, B1 = %d, P = %s%s.\n", input.display_text().data(), B1, sP.data(), input.gfn() != 0 ? ", GFN" : "");
     double timer = getHighResTimer();
-    int transforms = -(int)gwdata->fft_count;
+    int transforms = -(int)gw.gwdata()->fft_count;
 
-
+    LucasVArithmetic lucas(gw.carefully());
+    LucasV V(lucas);
     // V_tmp with careful start
-    gianttogw(gwdata, P, V);
+    V.V() = P;
     if (B0 <= 2)
     {
-        int power2 = 0;
         for (j = 2; j <= B1; j <<= 1)
-            power2++;
-        for (j = 2; j <= gfn; j <<= 1)
-            power2++;
-        gwset_carefully_count(gwdata, power2);
-        lucas_V_shiftleft(power2, V);
+            lucas.dbl(V, V);
+        for (j = 0; j < input.gfn(); j++)
+            lucas.dbl(V, V);
     }
     if (B0 < 3)
         B0 = 3;
 
-    for (it = 0; primes[it] < B0; it++);
-    p = primes[it];
+    PrimeIterator it = primes.begin();
+    for (; *it < B0; it++);
 
+    lucas.set_gw(gw);
     int sqrtB1 = (int)sqrt(B1);
-    while (p <= B1)
+    while (*it <= B1)
     {
-        j = p;
-        lucas_V_mul_prime(it, &V);
-        if (p <= sqrtB1)
+        j = *it;
+        lucas.mul(V, *it, it.pos(), V);
+        if (*it <= sqrtB1)
         {
-            k = B1/p;
+            k = B1/(*it);
             while (j <= k)
             {
-                lucas_V_mul_prime(it, &V);
-                j *= p;
+                lucas.mul(V, *it, it.pos(), V);
+                j *= *it;
             }
         }
         it++;
-        p = primes[it];
     }
 
-    tmp = getg();
-    gwtogiant(gwdata, V, tmp);
-    gtog(tmp, res);
-    ulsubg(2, tmp);
-    gcdg(N, tmp);
+    tmp = V.V();
+    res = tmp;
+    tmp = gcd(std::move(tmp) - 2, gw.N());
 
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    transforms += (int)gwdata->fft_count;
-    if (isZero(tmp) || gcompg(tmp, N) == 0)
+    transforms += (int)gw.gwdata()->fft_count;
+    if (tmp == 0 || tmp == gw.N())
     {
         printf("All divisors of N < B1.\n");
         retval = FALSE;
     }
-    else if (!isone(tmp))
+    else if (tmp != 1)
     {
-        report_factor(tmp);
+        report_factor(tmp, input);
         retval = FALSE;
     }
     else
@@ -168,116 +155,53 @@ int do_plus1stage1(int B0, int B1, int gfn, giant P, char *sP, giant res)
         printf("No factors found, transforms: %d, time: %d s.\n", transforms, (int)timer);
     }
 
-    gwfree(gwdata, V);
-    freeg();
-    return retval;
-}
-
-// EdECM factoring stage 1, mul&add small point.
-int do_edecm_stage1_simple(int B1)
-{
-    int i;
-    int len;
-    int retval = TRUE;
-
-    ///int xa = 5;
-    //int xb = 23;
-    //int ya = -1;
-    //int yb = 7;
-    int xa = 17;
-    int xb = 19;
-    int ya = 17;
-    int yb = 33;
-
-    ed_point P = ed_alloc();
-    ed_from_small(xa, xb, ya, yb, P);
-
-    printf("%s, EdECM stage 1, B1 = %d.\n", Nstr, B1);
-    double timer = getHighResTimer();
-
-    gwset_carefully_count(gwdata, 50);
-    giant tmp = get_stage1_exp(2, B1);
-    len = bitlen(tmp) - 1;
-    for (i = 1; i <= len; i++)
-        if (bitval(tmp, len - i))
-            ed_mul2_addsmall(xa, xb, ya, yb, P, i < len ? GWMUL_STARTNEXTFFT : 0);
-        else
-            ed_mul2(P, i < len ? GWMUL_STARTNEXTFFT : 0);
-
-    gwtogiant(gwdata, P->X, tmp);
-    gcdg(N, tmp);
-
-    timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    if (isZero(tmp) || gcompg(tmp, N) == 0)
-    {
-        printf("All divisors of N < B1.\n");
-        retval = FALSE;
-    }
-    else if (!isone(tmp))
-    {
-        report_factor(tmp);
-        retval = FALSE;
-    }
-    else
-    {
-        printf("No factors found, time: %d s.\n", (int)timer);
-    }
-
-    ed_free(P);
-    freeg();
     return retval;
 }
 
 // EdECM factoring stage 1 using signed window.
-int do_edecm_stage1(int B1, int W, ed_point P)
+int do_edecm_stage1(PrimeList primes, InputNum& input, GWArithmetic& gw, int B1, int W, EdPoint& P)
 {
     int j;
-    int len;
     int retval = TRUE;
-    giant tmp = NULL;
-    short *nafw = NULL;
+    Giant tmp;
+    std::vector<int16_t> naf_w;
 
     if (W > 16)
         W = 16;
-    tmp = get_stage1_exp(3, B1);
-    get_nafw(tmp, W, &nafw, &len);
-    freeg();
-    tmp = NULL;
+    tmp = get_stage1_exp(primes, 3, B1);
+    get_NAF_W(W, tmp, naf_w);
 
-    printf("%s, EdECM stage 1, B1 = %d, W = %d.\n", Nstr, B1, W);
+    printf("%s, EdECM stage 1, B1 = %d, W = %d.\n", input.display_text().data(), B1, W);
     double timer = getHighResTimer();
-    int transforms = -(int)gwdata->fft_count;
+    int transforms = -(int)gw.gwdata()->fft_count;
 
+    EdwardsArithmetic& ed = P.arithmetic();
+    ed.set_gw(gw.carefully());
     for (j = 2; j <= B1; j <<= 1)
-        ed_mul2_carefully(P);
-    ed_mul2(P, ED_MUL_FULL);
+        ed.dbl(P, P, ed.ED_PROJECTIVE);
+    ed.dbl(P, P, 0);
+    ed.set_gw(gw);
+    ed.mul(P, W, naf_w, P);
 
-    tmp = ed_mul_nafw(W, nafw, len, P);
-    free(nafw);
+    tmp = *P.X;
+    tmp = gcd(std::move(tmp), gw.N());
 
-    if (tmp == NULL)
-    {
-        tmp = getg();
-        gwtogiant(gwdata, P->X, tmp);
-        gcdg(N, tmp);
-    }
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    transforms += (int)gwdata->fft_count;
-    if (isZero(tmp) || gcompg(tmp, N) == 0)
+    transforms += (int)gw.gwdata()->fft_count;
+    if (tmp == 0 || tmp == gw.N())
     {
         printf("All divisors of N < B1.\n");
         retval = FALSE;
     }
-    else if (!isone(tmp))
+    else if (tmp != 1)
     {
-        report_factor(tmp);
+        report_factor(tmp, input);
         retval = FALSE;
     }
     else
     {
-        printf("No factors found, transforms: %d, time: %.3f s.\n", transforms, timer);
+        printf("No factors found, transforms: %d, time: %d s.\n", transforms, (int)timer);
     }
 
-    freeg();
     return retval;
 }

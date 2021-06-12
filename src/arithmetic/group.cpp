@@ -8,8 +8,9 @@ namespace arithmetic
     void get_NAF_W(int W, Giant& a, std::vector<int16_t>& res)
     {
         giant exp = allocgiant(a.size());
-        gtog(a.to_giant(), exp);
         uint32_t* giant_n = exp->n;
+        memcpy(giant_n, a.data(), a.size()*sizeof(uint32_t));
+        exp->sign = a.size();
 
         int i, len;
         len = bitlen(exp);
@@ -174,7 +175,7 @@ namespace arithmetic
     }
 #endif
 
-extern const int precomputed_DAC_S_d_len = 78498;
+extern const size_t precomputed_DAC_S_d_len = 78498;
 
 extern const int precomputed_DAC_S_d[] = {
 1,

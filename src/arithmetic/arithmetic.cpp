@@ -6,305 +6,6 @@
 
 namespace arithmetic
 {
-    GiantsArithmetic _defaultGiantsArithmetic;
-    GiantsArithmetic& GiantsArithmetic::default_arithmetic()
-    {
-        return _defaultGiantsArithmetic;
-    }
-
-    void GiantsArithmetic::alloc(Giant& a)
-    {
-        a._size = 0;
-        a._giant = nullptr;
-    }
-
-    void GiantsArithmetic::free(Giant& a)
-    {
-        ::free(a._giant);
-        a._size = 0;
-        a._giant = nullptr;
-    }
-
-    void GiantsArithmetic::alloc(Giant& a, int size)
-    {
-        giant tmp = allocgiant(size);
-        tmp->sign = 0;
-        if (a._giant != nullptr)
-        {
-            gtog(a._giant, tmp);
-            ::free(a._giant);
-        }
-        a._size = size;
-        a._giant = tmp;
-    }
-
-    void GiantsArithmetic::copy(const Giant& a, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign))
-            alloc(res, abs(a._giant->sign));
-        gtog(a._giant, res._giant);
-    }
-
-    void GiantsArithmetic::move(Giant&& a, Giant& res)
-    {
-        if (res._giant != nullptr)
-            free(res);
-        res._size = a._size;
-        res._giant = a._giant;
-        a._size = 0;
-        a._giant = nullptr;
-    }
-
-    void GiantsArithmetic::init(int32_t a, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < 1)
-            alloc(res, 1);
-        itog(a, res._giant);
-    }
-
-    void GiantsArithmetic::init(uint32_t a, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < 1)
-            alloc(res, 1);
-        ultog(a, res._giant);
-    }
-
-    void GiantsArithmetic::init(const std::string& a, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < ((int)a.length() + 8)/9)
-            alloc(res, ((int)a.length() + 8)/9);
-        ctog(a.data(), res._giant);
-    }
-
-    void GiantsArithmetic::add(Giant& a, Giant& b, Giant& res)
-    {
-        int size = abs(a._giant->sign) + 1;
-        if (size < abs(b._giant->sign) + 1)
-            size = abs(b._giant->sign) + 1;
-        if (res._giant == nullptr || res._size < size)
-            alloc(res, size);
-        if (res._giant != a._giant)
-            copy(a, res);
-        if (a._giant != b._giant)
-            addg(b._giant, res._giant);
-        else
-            gshiftleft(1, res._giant);
-    }
-
-    void GiantsArithmetic::add(Giant& a, int32_t b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign) + 1)
-            alloc(res, abs(a._giant->sign) + 1);
-        if (res._giant != a._giant)
-            copy(a, res);
-        sladdg(b, res._giant);
-    }
-
-    void GiantsArithmetic::sub(Giant& a, Giant& b, Giant& res)
-    {
-        int size = abs(a._giant->sign) + 1;
-        if (size < abs(b._giant->sign) + 1)
-            size = abs(b._giant->sign) + 1;
-        if (res._giant == nullptr || res._size < size)
-            alloc(res, size);
-        if (res._giant != a._giant)
-            copy(a, res);
-        subg(b._giant, res._giant);
-    }
-
-    void GiantsArithmetic::sub(Giant& a, int32_t b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign) + 1)
-            alloc(res, abs(a._giant->sign) + 1);
-        if (res._giant != a._giant)
-            copy(a, res);
-        sladdg(-b, res._giant);
-    }
-
-    void GiantsArithmetic::neg(Giant& a, Giant& res)
-    {
-        if (res._giant != a._giant)
-            copy(a, res);
-        res._giant->sign = -res._giant->sign;
-    }
-
-    void GiantsArithmetic::mul(Giant& a, Giant& b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign) + abs(b._giant->sign))
-            alloc(res, abs(a._giant->sign) + abs(b._giant->sign));
-        if (res._giant != a._giant)
-            copy(a, res);
-        if (a._giant != b._giant)
-            mulg(b._giant, res._giant);
-        else
-            squareg(res._giant);
-    }
-
-    void GiantsArithmetic::mul(Giant& a, int32_t b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign) + 1)
-            alloc(res, abs(a._giant->sign) + 1);
-        if (res._giant != a._giant)
-            copy(a, res);
-        imulg(b, res._giant);
-    }
-
-    void GiantsArithmetic::mul(Giant& a, uint32_t b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign) + 1)
-            alloc(res, abs(a._giant->sign) + 1);
-        if (res._giant != a._giant)
-            copy(a, res);
-        ulmulg(b, res._giant);
-    }
-
-    void GiantsArithmetic::shiftleft(Giant& a, int b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign) + (b + 31)/32)
-            alloc(res, abs(a._giant->sign) + (b + 31)/32);
-        if (res._giant != a._giant)
-            copy(a, res);
-        gshiftleft(b, res._giant);
-    }
-
-    void GiantsArithmetic::shiftright(Giant& a, int b, Giant& res)
-    {
-        if (res._giant == nullptr)
-            alloc(res, abs(a._giant->sign) - b/32);
-        if (res._giant != a._giant)
-            copy(a, res);
-        gshiftright(b, res._giant);
-    }
-
-    int GiantsArithmetic::bitlen(const Giant& a)
-    {
-        return ::bitlen(a._giant);
-    }
-
-    bool GiantsArithmetic::bit(const Giant& a, int b)
-    {
-        return bitval(a._giant, b) != 0;
-    }
-
-    int GiantsArithmetic::cmp(const Giant& a, const Giant& b)
-    {
-        return gcompg(a._giant, b._giant);
-    }
-
-    int GiantsArithmetic::cmp(const Giant& a, int32_t b)
-    {
-        if (a._giant->sign > 1 || (a._giant->sign == 1 && ::bitlen(a._giant) == 32))
-            return 1;
-        if (a._giant->sign < -1 || (a._giant->sign == -1 && ::bitlen(a._giant) == 32))
-            return -1;
-        if (a._giant->sign == 0)
-            return 0 > b ? 1 : 0 < b ? -1 : 0;
-        return ((int)a._giant->n[0]) > b ? 1 : ((int)a._giant->n[0]) < b ? -1 : 0;
-    }
-
-    void GiantsArithmetic::gcd(Giant& a, Giant& b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign))
-            alloc(res, abs(a._giant->sign));
-        if (res._giant != a._giant)
-            copy(a, res);
-        gcdg(b._giant, res._giant);
-    }
-
-    void GiantsArithmetic::inv(Giant& a, Giant& n, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(n._giant->sign))
-            alloc(res, abs(n._giant->sign));
-        if (res._giant != a._giant)
-            copy(a, res);
-        invg(n._giant, res._giant);
-        if (res._giant->sign < 0)
-            throw new NoInverseException(res);
-    }
-
-    void GiantsArithmetic::div(Giant& a, Giant& b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign))
-            alloc(res, abs(a._giant->sign));
-        if (res._giant != a._giant)
-            copy(a, res);
-        divg(b._giant, res._giant);
-    }
-
-    void GiantsArithmetic::div(Giant& a, int32_t b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign))
-            alloc(res, abs(a._giant->sign));
-        if (res._giant != a._giant)
-            copy(a, res);
-        dbldivg(b, res._giant);
-    }
-
-    void GiantsArithmetic::mod(Giant& a, Giant& b, Giant& res)
-    {
-        if (res._giant == nullptr || res._size < abs(a._giant->sign))
-            alloc(res, abs(a._giant->sign));
-        if (res._giant != a._giant)
-            copy(a, res);
-        modg(b._giant, res._giant);
-    }
-
-    void GiantsArithmetic::power(Giant& a, int32_t b, Giant& res)
-    {
-        int size = abs(a._giant->sign);
-        if (size == 1)
-            size = (int)(log2(a._giant->n[0])*b/32) + 1;
-        else
-            size *= b;
-        if (res._giant == nullptr || res._size < size)
-            alloc(res, size);
-        if (res._giant != a._giant)
-            copy(a, res);
-        ::power(res._giant, b);
-    }
-
-    std::string Giant::to_string() const
-    {
-        if (_giant == nullptr)
-            return "";
-        std::vector<char> buffer(abs(_giant->sign)*10 + 10);
-        //std::iterator<char> x = buffer.begin();
-        if (_giant->sign ==  0)
-            buffer[0] = '0';
-        else if (_giant->sign >  0)
-            gtoc(_giant, buffer.data(), (int)buffer.size());
-        else
-        {
-            _giant->sign = -_giant->sign;
-            buffer[0] = '-';
-            gtoc(_giant, buffer.data() + 1, (int)buffer.size() - 1);
-            _giant->sign = -_giant->sign;
-        }
-        return std::string(buffer.data());
-    }
-
-    void Giant::to_GWNum(GWNum& a) const
-    {
-        if (_giant->sign >= 0)
-            gianttogw(a.arithmetic().gwdata(), _giant, *a);
-        else
-        {
-            Giant tmp(*this);
-            tmp += a.arithmetic().N();
-            gianttogw(a.arithmetic().gwdata(), tmp._giant, *a);
-        }
-    }
-
-    Giant& Giant::operator = (const GWNum& a)
-    {
-        int size = a.arithmetic().state().giants.size();
-        if (_giant == nullptr || _size < size)
-            arithmetic().alloc(*this, size);
-        if (gwtogiant(a.arithmetic().gwdata(), *a, _giant) < 0)
-            throw new InvalidFFTDataException();
-        return *this;
-    }
-    
     void GWState::setup(int k, int b, int n, int c)
     {
         gwset_num_threads(gwdata(), thread_count);
@@ -316,15 +17,20 @@ namespace arithmetic
         if (large_pages)
             gwset_use_large_pages(gwdata());
         if (gwsetup(gwdata(), k, b, n, c))
-            throw new std::exception();
-        giants._size = ((int)gwdata()->bit_length >> 5) + 10;
+            throw std::exception();
+        giants._capacity = ((int)gwdata()->bit_length >> 5) + 10;
         if (N != nullptr)
             delete N;
         N = new Giant(giants);
         *N = k*power(std::move(*N = b), n) + c;
+        fingerprint = *N%3417905339UL;
+        char buf[200];
+        gwfft_description(gwdata(), buf);
+        fft_description = buf;
+        fft_length = gwfftlen(gwdata());
     }
 
-    void GWState::setup(Giant& g)
+    void GWState::setup(const Giant& g)
     {
         gwset_num_threads(gwdata(), thread_count);
         gwset_larger_fftlen_count(gwdata(), next_fft_count);
@@ -334,30 +40,29 @@ namespace arithmetic
             gwset_will_error_check(gwdata());
         if (large_pages)
             gwset_use_large_pages(gwdata());
-        if (gwsetup_general_mod_giant(gwdata(), g.to_giant()))
-            throw new std::exception();
-        giants._size = ((int)gwdata()->bit_length >> 5) + 10;
+        if (gwsetup_general_mod(gwdata(), g.data(), g.size()))
+            throw std::exception();
+        giants._capacity = ((int)gwdata()->bit_length >> 5) + 10;
         if (N != nullptr)
             delete N;
         N = new Giant(giants);
         *N = g;
+        fingerprint = *N%3417905339UL;
+        char buf[200];
+        gwfft_description(gwdata(), buf);
+        fft_description = buf;
+        fft_length = gwfftlen(gwdata());
     }
 
-    void GWGiantsArithmetic::alloc(Giant& a)
+    void GWState::done()
     {
-        a._size = _size;
-        a._giant = popg(&_gwdata->gdata, a._size);
-    }
-
-    void GWGiantsArithmetic::free(Giant& a)
-    {
-        pushg(&_gwdata->gdata, 1);
-        a._giant = nullptr;
-    }
-
-    void GWGiantsArithmetic::alloc(Giant& a, int size)
-    {
-        alloc(a);
+        if (N != nullptr)
+            delete N;
+        N = nullptr;
+        fft_description.clear();
+        fft_length = 0;
+        gwdone(&handle);
+        gwinit(&handle);
     }
 
     GWArithmetic::GWArithmetic(GWState& state) : _state(state)
@@ -568,6 +273,22 @@ namespace arithmetic
     std::string GWNum::to_string() const
     {
         return (arithmetic().popg() = *this).to_string();
+    }
+
+    void CarefulGWArithmetic::add(GWNum& a, int32_t b, GWNum& res)
+    {
+        GWNum tmp(*this);
+        tmp = b;
+        unfft(a, a);
+        gwadd3o(gwdata(), *a, *tmp, *res, GWADD_FORCE_NORMALIZE);
+    }
+
+    void CarefulGWArithmetic::sub(GWNum& a, int32_t b, GWNum& res)
+    {
+        GWNum tmp(*this);
+        tmp = b;
+        unfft(a, a);
+        gwsub3o(gwdata(), *a, *tmp, *res, GWADD_FORCE_NORMALIZE);
     }
 
     void CarefulGWArithmetic::add(GWNum& a, GWNum& b, GWNum& res, int options)
