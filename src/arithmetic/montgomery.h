@@ -12,6 +12,7 @@ namespace arithmetic
         friend class EdY;
 
     public:
+        MontgomeryArithmetic(GWNum& ed_d) : _gw(nullptr), _ed_d(ed_d) { }
         MontgomeryArithmetic(GWArithmetic& gw, GWNum& ed_d) : _gw(&gw), _ed_d(ed_d) { }
         virtual ~MontgomeryArithmetic() { }
 
@@ -91,6 +92,9 @@ namespace arithmetic
             arithmetic().normalize(*this);
             return *this;
         }
+
+        void serialize(Giant& Y, Giant& Z);
+        void deserialize(const Giant& Y, const Giant& Z);
 
     public:
         std::unique_ptr<GWNum> Y;

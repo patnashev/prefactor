@@ -80,3 +80,26 @@ void PrimeIterator::operator++(int)
 {
     operator++();
 }
+
+PrimeIterator& PrimeIterator::operator+=(int offset)
+{
+    _cur += offset;
+    if (_cur < _list.size())
+        return *this;
+    while (_cur - _range_pos >= _range.size())
+    {
+        int start;
+        if (_range_pos == 0)
+        {
+            _range_pos = _list.size();
+            start = _list[_list.size() - 1] + 2;
+        }
+        else
+        {
+            _range_pos += _range.size();
+            start = _range[_range.size() - 1] + 2;
+        }
+        _list.sieve_range(start, start + _list[_list.size() - 1], _range);
+    }
+    return *this;
+}

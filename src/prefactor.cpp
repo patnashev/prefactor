@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <array>
+#include <iostream>
 #include <fstream>
 #include <unordered_set>
 
@@ -15,6 +16,7 @@
 #include "exception.h"
 #include "inputnum.h"
 #include "primelist.h"
+#include "stage1.h"
 #include "stage2.h"
 
 using namespace arithmetic;
@@ -23,7 +25,6 @@ using namespace arithmetic;
 
 #include "md5.c"
 #include "file.c"
-#include "stage1.c"
 #include "prob.c"
 
 int main(int argc, char *argv[])
@@ -184,6 +185,7 @@ int main(int argc, char *argv[])
         minus1 = 1;
 
     input.setup(gwstate);
+    std::cout << "Using " << gwstate.fft_description << std::endl;
 
     double primalityCost = 0;
     if (input.b() == 2)
@@ -239,11 +241,14 @@ int main(int argc, char *argv[])
 
     if (minus1)
     {
-        Giant P;
-        if (do_minus1stage1(primes, input, gw, B1, P) && B2 > B1)
+        PM1Stage1 stage1(primes, B1);
+        stage1.init(input, gwstate);
+        stage1.run();
+        if (!stage1.success() && B2 > B1)
         {
-            PP1Stage2 stage2(gw, primes, B1, B2, D, A, L);
-            stage2.run(input, P, true);
+            PP1Stage2 stage2(primes, B1, B2, D, A, L);
+            stage2.init(input, gwstate, stage1.V(), true);
+            stage2.run();
         }
     }
     if (plus1)
@@ -251,69 +256,74 @@ int main(int argc, char *argv[])
         if (sP.empty())
             //sP = "6/5";
             sP = "2/7";
-        int a = stoi(sP);
-        int b = 1;
-        for (i = sP[0] == '-' ? 1 : 0; isdigit(sP[i]); i++);
-        if (sP[i] == '/')
-            b = stoi(sP.substr(i + 1));
-        Giant P;
-        P = b;
-        P = a*inv(std::move(P), gw.N())%gw.N();
-        if (do_plus1stage1(primes, input, gw, 0, B1, P, sP, P) && B2 > B1)
+        PP1Stage1 stage1(primes, B1, sP);
+        stage1.init(input, gwstate);
+        stage1.run();
+        if (!stage1.success() && B2 > B1)
         {
-            PP1Stage2 stage2(gw, primes, B1, B2, D, A, L);
-            stage2.run(input, P, false);
+            PP1Stage2 stage2(primes, B1, B2, D, A, L);
+            stage2.init(input, gwstate, stage1.state()->V(), false);
+            stage2.run();
         }
     }
     if (edecm)
     {
-        EdwardsArithmetic ed(gw.carefully());
-        
-        EdPoint P(ed);
-        GWNum ed_d(gw.carefully());
-        if (curveType == 0)
-            P = ed.from_small(17, 19, 17, 33, &ed_d);
-        else if (curveType == 1)
-            P = ed.from_small(5, 23, -1, 7, &ed_d);
-        else if (curveType == 2)
+        Giant X, Y, Z, T, EdD;
         {
-            try
+            EdwardsArithmetic ed(gw.carefully());
+            EdPoint P(ed);
+            GWNum ed_d(gw.carefully());
+
+            if (curveType == 0)
+                P = ed.from_small(17, 19, 17, 33, &ed_d);
+            else if (curveType == 1)
+                P = ed.from_small(5, 23, -1, 7, &ed_d);
+            else if (curveType == 2)
             {
-                P = ed.gen_curve(curveSeed, &ed_d);
+                try
+                {
+                    P = ed.gen_curve(curveSeed, &ed_d);
+                }
+                catch (const ArithmeticException&)
+                {
+                    printf("Invalid curve.\n");
+                    return 1;
+                }
             }
-            catch (const ArithmeticException&)
+            else if (curveType == 3)
             {
-                printf("Invalid curve.\n");
-                return 1;
+                int xa = stoi(curveX);
+                int xb = 1;
+                for (i = curveX[0] == '-' ? 1 : 0; isdigit(curveX[i]); i++);
+                if (curveX[i] == '/')
+                    xb = stoi(curveX.substr(i + 1));
+                int ya = stoi(curveY);
+                int yb = 1;
+                for (i = curveY[0] == '-' ? 1 : 0; isdigit(curveY[i]); i++);
+                if (curveY[i] == '/')
+                    yb = stoi(curveY.substr(i + 1));
+                P = ed.from_small(xa, xb, ya, yb, &ed_d);
             }
-        }
-        else if (curveType == 3)
+            Giant tmp;
+            tmp = ed.jinvariant(ed_d);
+            if (tmp.size() > 1)
+                printf("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
+            else if (tmp.size() > 0)
+                printf("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
+            else
+                printf("Curve j-invariant RES64: %08X%08X\n", 0, 0);
+            P.serialize(X, Y, Z, T);
+            EdD = ed_d;
+        };
+
+        EdECMStage1 stage1(primes, B1, K);
+        stage1.init(input, gwstate, X, Y, Z, T, EdD);
+        stage1.run();
+        if (!stage1.success() && B2 > B1)
         {
-            int xa = stoi(curveX);
-            int xb = 1;
-            for (i = curveX[0] == '-' ? 1 : 0; isdigit(curveX[i]); i++);
-            if (curveX[i] == '/')
-                xb = stoi(curveX.substr(i + 1));
-            int ya = stoi(curveY);
-            int yb = 1;
-            for (i = curveY[0] == '-' ? 1 : 0; isdigit(curveY[i]); i++);
-            if (curveY[i] == '/')
-                yb = stoi(curveY.substr(i + 1));
-            P = ed.from_small(xa, xb, ya, yb, &ed_d);
-        }
-        Giant tmp;
-        tmp = ed.jinvariant(ed_d);
-        if (tmp.size() > 1)
-            printf("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
-        else if (tmp.size() > 0)
-            printf("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
-        else
-            printf("Curve j-invariant RES64: %08X%08X\n", 0, 0);
-        if (do_edecm_stage1(primes, input, gw, B1, K, P) && B2 > B1)
-        {
-            GWASSERT(ed.on_curve(P, ed_d));
-            EdECMStage2 stage2(gw, primes, B1, B2, D, L, 20);
-            stage2.run(input, ed_d, P);
+            EdECMStage2 stage2(primes, B1, B2, 210, 5, 20);
+            stage2.init(input, gwstate, stage1.state()->X(), stage1.state()->Y(), stage1.state()->Z(), stage1.state()->T(), EdD);
+            stage2.run();
         }
     }
 

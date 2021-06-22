@@ -16,6 +16,7 @@ namespace arithmetic
         static const int EDDBL_FOR_EXT_NORM_ADD = 0x400000;
 
     public:
+        EdwardsArithmetic() : _gw(nullptr) { }
         EdwardsArithmetic(GWArithmetic& gw) : _gw(&gw) { }
         virtual ~EdwardsArithmetic() { }
 
@@ -117,6 +118,9 @@ namespace arithmetic
             }
             return *this;
         }
+
+        void serialize(Giant& X, Giant& Y, Giant& Z, Giant& T);
+        void deserialize(const Giant& X, const Giant& Y, const Giant& Z, const Giant& T);
 
     public:
         std::unique_ptr<GWNum> X;

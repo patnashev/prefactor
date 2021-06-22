@@ -147,6 +147,7 @@ namespace arithmetic
         void reset();
         void restart(int op = 0);
 
+        int op() { return _op; }
         bool restart_flag() { return _restart_flag; }
         bool failure_flag() { return _failure_flag; }
 

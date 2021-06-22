@@ -559,4 +559,56 @@ namespace arithmetic
         else
             gw.sub(ed_d_a, 1, ed_d_a);
     }
+
+    void EdPoint::serialize(Giant& X, Giant& Y, Giant& Z, Giant& T)
+    {
+        if (this->X)
+            X = *this->X;
+        else
+            X = 0;
+        if (this->Y)
+            Y = *this->Y;
+        else
+            Y = 0;
+        if (this->Z)
+            Z = *this->Z;
+        else
+            Z = 1;
+        if (this->T)
+            T = *this->T;
+        else
+            T = 0;
+    }
+
+    void EdPoint::deserialize(const Giant& X, const Giant& Y, const Giant& Z, const Giant& T)
+    {
+        if (X != 0)
+        {
+            this->X.reset(new GWNum(arithmetic().gw()));
+            *this->X = X;
+        }
+        else
+            this->X.reset();
+        if (Y != 0)
+        {
+            this->Y.reset(new GWNum(arithmetic().gw()));
+            *this->Y = Y;
+        }
+        else
+            this->Y.reset();
+        if (Z != 1)
+        {
+            this->Z.reset(new GWNum(arithmetic().gw()));
+            *this->Z = Z;
+        }
+        else
+            this->Z.reset();
+        if (T != 0)
+        {
+            this->T.reset(new GWNum(arithmetic().gw()));
+            *this->T = T;
+        }
+        else
+            this->T.reset();
+    }
 }

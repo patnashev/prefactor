@@ -1,13 +1,12 @@
 
 #include <deque>
 #include <algorithm>
+#include <iostream>
 
 #include "gwnum.h"
 #include "cpuid.h"
 #include "stage2.h"
 #include "exception.h"
-#include "lucas.h"
-#include "montgomery.h"
 
 using namespace arithmetic;
 
@@ -19,6 +18,9 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
     int i, j, k;
     int d, p, q;
     Stage2::Pairing ret;
+
+    int second_base = D/A;
+    //int second_base = D/A*(A-1)/2;
 
     std::vector<int> dist;
     /*for (i = 1; i < D; i++)
@@ -38,38 +40,26 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
     for (i = 1; i < D/2*L; i++)
         if (gcd(D/A, i%(D/2)) == 1)
         {
-            //d = i%(D/2) + (i/(D/2) == 1 ? -1 : i/(D/2) == 2 ? 2 : i/(D/2) == 3 ? 6 : i/(D/2) == 4 ? 14 : i/(D/2) == 5 ? 30 : 0)*D;
-            d = i%(D/2) + ((1 << (i/(D/2)*1)) - 1)*D;
             //d = i;
             //d = i + i/D*D;
             //d = i%D + ((1 << (i/D*1)) - 1)*D;
-            //d = i%D + (i/D == 1 ? 1 : i/D == 2 ? 2 : i/D == 3 ? 8 : i/D == 4 ? 21 : i/D == 5 ? 48 : 0)*D;
-            //d = i%D + (i/D == 1 ? 1 : i/D == 2 ? 2 : i/D == 3 ? 3 : i/D == 4 ? 5 : i/D == 5 ? 7 : 0)*D;
+            d = i%(D/2) + ((1 << (i/(D/2)*1)) - 1)*D;
+            //d = i%(D/2) + (i/(D/2) == 1 ? -1 : i/(D/2) == 2 ? 2 : i/(D/2) == 3 ? 6 : i/(D/2) == 4 ? 14 : i/(D/2) == 5 ? 30 : 0)*D;
+            //d = i%(D/2) + (i/(D/2) == 1 ? 1 : i/(D/2) == 2 ? 7 : i/(D/2) == 3 ? 31 : i/(D/2) == 4 ? 127 : i/(D/2) == 5 ? 511 : 0)*D;
+            //d = i%(D/2) + (i/(D/2) == 1 ? 1 : i/(D/2) == 2 ? 4 : i/(D/2) == 3 ? 16 : i/(D/2) == 4 ? 64 : i/(D/2) == 5 ? 256 : 0)*D;
             dist.push_back(d);
         }
-    for (k = dist.size(), i = 0; i < k; i++)
+    for (k = (int)dist.size(), i = 0; i < k; i++)
         dist.push_back(-dist[i]);
-
-    std::vector<std::vector<int>> dist_rem(D);
-    for (i = 1; i < D; i++)
-        if (gcd(D/A, i) == 1)
-        {
-            for (j = 0; j < dist.size(); j++)
-            {
-                d = i + dist[j];
-                if ((d%D != 0 && (d%D + D)%D != D/A))
-                    continue;
-                dist_rem[i].push_back(dist[j]*2);
-            }
-        }
+    int max_dist = d;
 
     std::vector<int> relocs;
     for (j = 3; B1*j <= B2; j += 2)
         if (gcd(D/A, j) == 1)
             relocs.push_back(j);
 
-    int *map = new int[B2/2];
-    memset(map, 0, sizeof(int)*B2/2);
+    int *map = new int[(B2 + max_dist)/2 + 1];
+    memset(map, 0, sizeof(int)*((B2 + max_dist)/2 + 1));
 
     PrimeIterator it = primes.begin();
     for (; *it <= B1; it++);
@@ -83,23 +73,48 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
         if (!relocs.empty() && *it*relocs[0] <= B2)
         {
             srclist.emplace_back((int)plist.size());
-            srclist.back().adjacency[0] = plist.size();
-            for (i = 0; i < relocs.size() && *it*relocs[i] <= B2; i++)
-                if (*it*relocs[i]*relocs[0] > B2)
+            srclist.back().adjacency[0] = (int)plist.size();
+            for (i = 0; i < relocs.size() && *it*relocs[i] <= B2 + max_dist; i++)
+                if (*it*relocs[i] > B2/relocs[0] - max_dist)
                 {
-                    map[*it*relocs[i]/2] = plist.size();
+                    if (*it*relocs[i] <= B2)
+                        srclist.back().value = (int)plist.size();
+                    map[*it*relocs[i]/2] = (int)plist.size();
                     plist.emplace_back(*it*relocs[i]);
-                    plist.back().match = 1 - srclist.size();
+                    plist.back().match = 1 - (int)srclist.size();
                 }
             if (srclist.back().adjacency[0] == plist.size())
                 throw ArithmeticException("Invalid B1/B2.");
+            if (*it > B2/relocs[0] - max_dist)
+            {
+                map[*it/2] = (int)plist.size();
+                plist.emplace_back(*it);
+                plist.back().match = 1 - (int)srclist.size();
+            }
         }
         else
         {
-            map[*it/2] = plist.size();
+            map[*it/2] = (int)plist.size();
             plist.emplace_back(*it);
         }
     }
+
+    std::vector<std::vector<int>> dist_rem(D);
+    for (i = 1; i < D; i++)
+        if (gcd(D/A, i) == 1)
+        {
+            for (j = 0; j < dist.size(); j++)
+            {
+                d = i + dist[j];
+                if ((d%D != 0 && (d%D + D)%D != second_base))
+                    continue;
+                dist_rem[i].push_back(dist[j]*2);
+            }
+        }
+    if (!relocs.empty())
+        d = B2/relocs[0]/D*D;
+    else
+        d = B1/D*D;
     for (auto itp = plist.begin(); itp != plist.end(); itp++)
     {
         j = 0;
@@ -108,7 +123,9 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
         for (auto itd = p_dists.begin(); itd != p_dists.end(); itd++)
         {
             q = p + *itd;
-            if (q <= B1 || q > B2 || map[q/2] == 0)
+            if (q <= B1 || q > B2 + max_dist || map[q/2] == 0 || p + q < 2*d || p + q > 2*B2)
+                continue;
+            if (itp->match < 0 && itp->match == plist[map[q/2]].match)
                 continue;
             itp->adjacency[j] = map[q/2];
             j++;
@@ -166,7 +183,7 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
         memset(srclink, 0, sizeof(int)*srclist.size());
         for (k = kk; k < plist.size() + kk && !flag; k++)
         {
-            p = k < plist.size() ? k : k - plist.size();
+            p = k < (int)plist.size() ? k : k - (int)plist.size();
             if (p == 0 || plist[p].match > 0 || (plist[p].match < 0 && srclist[-plist[p].match].match > 0))
                 continue;
             queue.clear();
@@ -247,6 +264,7 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
         ret.first_D = B1/D;
         if (!relocs.empty())
             ret.first_D = B2/relocs[0]/D;
+        ret.last_D = B2/D;
         for (auto itp = plist.begin(); itp != plist.end(); itp++)
             if (itp->match > 0 && plist[itp->match].value > itp->value)
                 ret.pairs++;
@@ -279,7 +297,7 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
             }
         
         std::sort(D_distances.begin(), D_distances.end(), [](std::pair<int, int>& a, std::pair<int, int>& b) { return a.first < b.first; });
-        ret.first_D = D_distances[0].first/D;
+        ret.first_D = D_distances.front().first/D;
         int cur = ret.first_D*D;
         auto it = D_distances.begin();
         while (it != D_distances.end())
@@ -289,12 +307,13 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
             ret.distances.push_back(0);
             if (A > 1)
             {
-                for (; it != D_distances.end() && cur + D/A == it->first; it++)
+                for (; it != D_distances.end() && cur + second_base == it->first; it++)
                     ret.distances.push_back(it->second);
                 ret.distances.push_back(0);
             }
             cur += D;
         }
+        ret.last_D = cur/D - 1;
     }
 
     return ret;
@@ -448,6 +467,10 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
 
     // Irregular L
     Xn = XD;
+    if (_L > 2)
+        for (j = _D/4 + 0; j < _D/2; j++)
+            if (precomp[j])
+                arithmetic.optimize(*precomp[j]);
     for (i = 1; i < _L; i++)
     {
         for (j = 0; j < _D/4 + 0; j++)
@@ -478,217 +501,351 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
     return precomp_size;
 }
 
-// P+-1 factoring stage 2.
-void PP1Stage2::run(InputNum& input, Giant& P, bool minus1)
+
+void Stage2::init(InputNum& input, GWState& gwstate)
 {
-    int i;
+    Task::init(gwstate, _pairing.last_D - _pairing.first_D + 1);
+    _error_check = gwnear_fft_limit(gwstate.gwdata(), 1) == TRUE;
+    _input = &input;
+    _timer = getHighResTimer();
+    _transforms = -(int)gwstate.handle.fft_count;
+}
+
+void Stage2::reinit_gwstate()
+{
+    _transforms += (int)_gwstate->handle.fft_count;
+    _gwstate->done();
+    _input->setup(*_gwstate);
+    std::cout << "Using " << _gwstate->fft_description << std::endl;
+}
+
+void Stage2::done(const arithmetic::Giant& factor)
+{
+    _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
+    _transforms += (int)_gwstate->handle.fft_count;
+    if (factor == 0 || factor == *_gwstate->N)
+    {
+        printf("All divisors of N < B1.\n");
+        _success = true;
+    }
+    else if (factor != 1)
+    {
+        report_factor(factor, *_input);
+        _success = true;
+    }
+    else
+    {
+        printf("No factors found, transforms: %d, time: %d s.\n", _transforms, (int)_timer);
+    }
+}
+
+void PP1Stage2::init(InputNum& input, GWState& gwstate, Giant& P, bool minus1)
+{
+    Stage2::init(input, gwstate);
+    _state_update_period = MULS_PER_STATE_UPDATE/10;
+    printf("%s, P%c1 stage 2, B2 = %d.\n", input.display_text().data(), minus1 ? '-' : '+', _B2);
+    lucas.reset(new LucasVArithmetic());
+    _P = P;
+}
+
+void PP1Stage2::setup()
+{
+    lucas->set_gw(gw());
+
+    if (!_Vn)
+        _Vn.reset(new LucasV(*lucas));
+    if (!_Vn1)
+        _Vn1.reset(new LucasV(*lucas));
+    if (!_W)
+        _W.reset(new LucasV(*lucas));
+    if (!_Va && _A > 1)
+        _Va.reset(new LucasV(*lucas));
+    if (!_Va1 && _A > 1)
+        _Va1.reset(new LucasV(*lucas));
+    if (!_Wa && _A > 1)
+        _Wa.reset(new LucasV(*lucas));
+
+    if (_precomp.empty())
+    {
+        int transforms = -(int)gw().gwdata()->fft_count;
+        _Vn->V() = _P;
+        std::vector<std::unique_ptr<LucasV>> precomp;
+        int precomp_size = precompute<LucasV>(*lucas, *_Vn, *_W, _Wa ? *_Wa : *_Vn1, precomp);
+        commit_setup();
+        _precomp = std::move(precomp);
+
+        transforms += (int)gw().gwdata()->fft_count;
+        _transforms -= transforms;
+        printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp_size, transforms, (200*_pairing.pairs + _pairing.total/2)/_pairing.total, _D, _L);
+        if (_A > 1)
+            printf(", A = %d.\n", _A);
+        else
+            printf(".\n");
+    }
+
+    if (state() == nullptr)
+        set_state(new State());
+    int v = state()->iteration() + _pairing.first_D;
+
+    if (_A > 1)
+    {
+        lucas->init(*_Va);
+        *_Va1 = *_Wa;
+        if (v > 0)
+            lucas->mul(*_Wa, v*_A, *_Va, *_Va1);
+        swap(*_Vn1, *_Va);
+        *_Vn = *_Vn1;
+        *_Va = *_Va1;
+        for (int i = 0; i < _A; i++)
+        {
+            lucas->add(*_Wa, *_Va1, *_Vn1, *_Vn1);
+            swap(*_Vn1, *_Va1);
+        }
+    }
+    else
+    {
+        lucas->init(*_Vn);
+        *_Vn1 = *_W;
+        if (v > 0)
+            lucas->mul(*_W, v, *_Vn, *_Vn1);
+    }
+    commit_setup();
+}
+
+void PP1Stage2::release()
+{
+    _precomp.clear();
+    _Vn.reset();
+    _Vn1.reset();
+    _W.reset();
+    _Va.reset();
+    _Va1.reset();
+    _Wa.reset();
+}
+
+void PP1Stage2::execute()
+{
     int v;
     Giant tmp;
 
-    if (_B2 <= _B1)
-        return;
-    printf("%s, P%c1 stage 2, B2 = %d.\n", input.display_text().data(), minus1 ? '-' : '+', _B2);
-
-    double timer = getHighResTimer();
-    int transforms = -(int)gw().gwdata()->fft_count;
-
-    LucasVArithmetic lucas(gw());
-    LucasV Vn(lucas);
-    LucasV Vn1(lucas);
-    LucasV W(lucas);
+    lucas->set_gw(gw());
     GWNum G(gw());
-    LucasV Va(lucas);
-    LucasV Va1(lucas);
-    std::vector<std::unique_ptr<LucasV>> precomp;
-
-    Vn.V() = P;
-    int precomp_size = precompute<LucasV>(lucas, Vn, W, Va, precomp);
+    G = state()->G();
 
     v = _pairing.first_D;
-
-    if (_A > 1)
-    {
-        LucasV Wa(lucas);
-        swap(Wa, Va);
-        Va1 = Wa;
-        if (v > 0)
-            lucas.mul(Wa, v*_A, Va, Va1);
-        swap(Vn1, Va);
-        Vn = Vn1;
-        Va = Va1;
-        for (i = 0; i < _A; i++)
-        {
-            lucas.add(Wa, Va1, Vn1, Vn1);
-            swap(Vn1, Va1);
-        }
-    }
-    else
-    {
-        // V_{v*D} V_{(v+1)*D}
-        lucas.init(Vn);
-        Vn1 = W;
-        if (v > 0)
-            lucas.mul(W, v, Vn, Vn1);
-    }
-
-    transforms += (int)gw().gwdata()->fft_count;
-    printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp_size, transforms, (200*_pairing.pairs + _pairing.total/2)/_pairing.total, _D, _L);
-    if (_A > 1)
-        printf(", A = %d.\n", _A);
-    else
-        printf(".\n");
-
-    transforms = -(int)gw().gwdata()->fft_count;
-    G = 1;
     auto it = _pairing.distances.begin();
-    while (it != _pairing.distances.end())
+    while (v - _pairing.first_D < state()->iteration() && it != _pairing.distances.end())
     {
-        for (; *it != 0; it++)
-            gw().submul(Vn.V(), precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT);
+        for (; *it != 0; it++);
         it++;
-        if (v > 0)
-            lucas.add(W, Vn1, Vn, Vn);
-        else
-            lucas.dbl(Vn1, Vn);
-        swap(Vn, Vn1);
         v++;
         if (_A > 1)
         {
-            for (; *it != 0; it++)
-                gw().submul(Va.V(), precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT);
+            for (; *it != 0; it++);
             it++;
-            lucas.add(W, Va1, Va, Va);
-            swap(Va, Va1);
         }
+    }
+
+    while (it != _pairing.distances.end())
+    {
+        for (; *it != 0; it++)
+            gw().submul(_Vn->V(), _precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D)));
+        it++;
+        if (v > 0)
+            lucas->add(*_W, *_Vn1, *_Vn, *_Vn);
+        else
+            lucas->dbl(*_Vn1, *_Vn);
+        swap(*_Vn, *_Vn1);
+        if (_A > 1)
+        {
+            for (; *it != 0; it++)
+                gw().submul(_Va->V(), _precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D)));
+            it++;
+            lucas->add(*_W, *_Va1, *_Va, *_Va);
+            swap(*_Va, *_Va1);
+        }
+        v++;
+        commit_execute<State>(v - _pairing.first_D, G);
     }
 
     tmp = G;
     tmp = gcd(std::move(tmp), gw().N());
 
-    timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    transforms += (int)gw().gwdata()->fft_count;
-    if (tmp == 0 || tmp == gw().N())
-    {
-        printf("All divisors of N < B1.\n");
-    }
-    else if (tmp != 1)
-    {
-        report_factor(tmp, input);
-    }
-    else
-    {
-        printf("No factors found, transforms: %d, time: %d s.\n", transforms, (int)timer);
-    }
+    done(tmp);
 }
 
-// EdECM factoring stage 2.
-void EdECMStage2::run(InputNum& input, GWNum& ed_d, EdPoint& P)
+void EdECMStage2::init(InputNum& input, GWState& gwstate, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
-    int i;
-    int v;
-    Giant tmp;
-
-    if (_B2 <= _B1)
-        return;
+    Stage2::init(input, gwstate);
+    _state_update_period = MULS_PER_STATE_UPDATE*10/_D;
+    if (_LN > 0 && _state_update_period%_LN != 0)
+        _state_update_period += _LN - _state_update_period%_LN;
     printf("%s, EdECM stage 2, B2 = %d.\n", input.display_text().data(), _B2);
-    
-    double timer = getHighResTimer();
-    int transforms = -(int)gw().gwdata()->fft_count;
+    _X = X;
+    _Y = Y;
+    _Z = Z;
+    _T = T;
+    _EdD = EdD;
+}
 
-    MontgomeryArithmetic montgomery(gw(), ed_d);
-    EdY Pn(montgomery);
-    EdY Pn1(montgomery);
-    EdY W(montgomery);
-    GWNum G(gw());
-    GWNum TG(gw());
-    std::vector<std::unique_ptr<EdY>> precomp;
-
-    Pn = P;
-    int precomp_size = precompute<EdY>(montgomery, Pn, W, Pn1, precomp);
-    precomp.emplace_back(&W);
-
-    try
+void EdECMStage2::setup()
+{
+    if (!_ed_d)
     {
-        montgomery.normalize(precomp.begin(), precomp.end());
+        _ed_d.reset(new GWNum(gw()));
+        *_ed_d = _EdD;
+    }
+    if (!montgomery)
+        montgomery.reset(new MontgomeryArithmetic(*_ed_d));
+    montgomery->set_gw(gw());
 
-        v = _pairing.first_D;
+    if (!_Pn)
+        _Pn.reset(new EdY(*montgomery));
+    if (!_Pn1)
+        _Pn1.reset(new EdY(*montgomery));
+    if (!_W)
+        _W.reset(new EdY(*montgomery));
 
-        // V_{v*D} V_{(v+1)*D}
-        montgomery.init(Pn);
-        Pn1 = W;
-        if (v > 0)
+    if (_precomp.empty())
+    {
+        int transforms = -(int)gw().gwdata()->fft_count;
+        _Pn->deserialize(_Y, _Z);
+        std::vector<std::unique_ptr<EdY>> precomp;
+        int precomp_size = precompute<EdY>(*montgomery, *_Pn, *_W, *_Pn1, precomp);
+
+        precomp.emplace_back(_W.release());
+        try
         {
-            EdwardsArithmetic edwards = P.arithmetic();
-            EdPoint EdW(edwards);
-            tmp = _D;
-            edwards.mul(P, tmp, EdW);
-            //GWASSERT(*EdW.Y == *W.Y*(*EdW.Z));
-            tmp = v;
-            EdPoint EdPn(edwards);
-            edwards.mul(EdW, tmp, EdPn);
-            Pn = EdPn;
-            montgomery.optimize(Pn);
-            if (v > 1)
-                edwards.add(EdPn, EdW, EdPn, edwards.ED_PROJECTIVE);
-            else
-                edwards.dbl(EdPn, EdPn, edwards.ED_PROJECTIVE);
-            Pn1 = EdPn;
-            montgomery.optimize(Pn1);
+            montgomery->normalize(precomp.begin(), precomp.end());
         }
-        std::deque<std::unique_ptr<EdY>> norm_bases;
+        catch (const NoInverseException& e)
+        {
+            done(e.divisor);
+            return;
+        }
+        _W.reset(precomp.back().release());
+        commit_setup();
+        _precomp = std::move(precomp);
 
         transforms += (int)gw().gwdata()->fft_count;
+        _transforms -= transforms;
         printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp_size, transforms, (200*_pairing.pairs + _pairing.total/2)/_pairing.total, _D, _L);
         if (_LN > 0)
             printf(", LN = %d.\n", _LN);
         else
             printf(".\n");
+    }
 
-        transforms = -(int)gw().gwdata()->fft_count;
-        G = 1;
-        auto it = _pairing.distances.begin();
+    if (state() == nullptr)
+        set_state(new State());
+    int v = state()->iteration() + _pairing.first_D;
+
+    montgomery->init(*_Pn);
+    *_Pn1 = *_W;
+    if (v > 0)
+    {
+        EdwardsArithmetic ed(gw());
+        EdPoint P(ed);
+        P.deserialize(_X, _Y, _Z, _T);
+        EdPoint EdW(ed);
+        Giant tmp;
+        tmp = _D;
+        ed.mul(P, tmp, EdW);
+        //GWASSERT(*EdW.Y == (*_W->Y)*(*EdW.Z));
+        tmp = v;
+        EdPoint EdPn(ed);
+        ed.mul(EdW, tmp, EdPn);
+        *_Pn = EdPn;
+        montgomery->optimize(*_Pn);
+        if (v > 1)
+            ed.add(EdPn, EdW, EdPn, ed.ED_PROJECTIVE);
+        else
+            ed.dbl(EdPn, EdPn, ed.ED_PROJECTIVE);
+        *_Pn1 = EdPn;
+        montgomery->optimize(*_Pn1);
+    }
+    commit_setup();
+}
+
+void EdECMStage2::release()
+{
+    _precomp.clear();
+    _Pn.reset();
+    _Pn1.reset();
+    _W.reset();
+    _ed_d.reset();
+    montgomery.reset();
+}
+
+void EdECMStage2::execute()
+{
+    if (success())
+        return;
+    int i;
+    int v;
+    Giant tmp;
+    std::deque<std::unique_ptr<EdY>> norm_bases;
+
+    montgomery->set_gw(gw());
+    GWNum G(gw());
+    G = state()->G();
+    GWNum TG(gw());
+
+    v = _pairing.first_D;
+    auto it = _pairing.distances.begin();
+    while (v - _pairing.first_D < state()->iteration() && it != _pairing.distances.end())
+    {
+        for (; *it != 0; it++);
+        it++;
+        v++;
+    }
+
+    try
+    {
         while (it != _pairing.distances.end())
         {
-            EdY* iD = &Pn;
+            EdY* iD = _Pn.get();
             if (_LN > 0)
             {
                 if (norm_bases.empty())
                 {
-                    for (i = 0; i < _LN && (v - 1)*_D < _B2; i++, v++)
+                    for (i = 0; i < _LN && v <= _pairing.last_D; i++, v++)
                     {
-                        norm_bases.emplace_back(new EdY(montgomery));
-                        if ((v + 1)*_D < _B2)
+                        norm_bases.emplace_back(new EdY(*montgomery));
+                        if (v + 2 <= _pairing.last_D)
                             if (v > 0)
-                                montgomery.add(W, Pn1, Pn, *norm_bases.back());
+                                montgomery->add(*_W, *_Pn1, *_Pn, *norm_bases.back());
                             else
-                                montgomery.dbl(Pn1, *norm_bases.back());
-                        swap(Pn, Pn1);
-                        swap(Pn1, *norm_bases.back());
+                                montgomery->dbl(*_Pn1, *norm_bases.back());
+                        swap(*_Pn, *_Pn1);
+                        swap(*_Pn1, *norm_bases.back());
                     }
-                    montgomery.normalize(norm_bases.begin(), norm_bases.end());
+                    montgomery->normalize(norm_bases.begin(), norm_bases.end());
                 }
                 iD = norm_bases.front().get();
             }
             for (; *it != 0; it++)
                 if (iD->Z)
                 {
-                    gw().mul(*iD->Z, *precomp[*it/2]->Y, TG, GWMUL_STARTNEXTFFT);
-                    gw().submul(*iD->Y, TG, G, G, GWMUL_STARTNEXTFFT);
+                    gw().mul(*iD->Z, *_precomp[*it/2]->Y, TG, GWMUL_STARTNEXTFFT);
+                    gw().submul(*iD->Y, TG, G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D - (int)norm_bases.size())));
                 }
                 else
-                    gw().submul(*iD->Y, *precomp[*it/2]->Y, G, G, GWMUL_STARTNEXTFFT);
+                    gw().submul(*iD->Y, *_precomp[*it/2]->Y, G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D - (int)norm_bases.size())));
             it++;
             if (_LN > 0)
                 norm_bases.pop_front();
             else
             {
                 if (v > 0)
-                    montgomery.add(W, Pn1, Pn, Pn);
+                    montgomery->add(*_W, *_Pn1, *_Pn, *_Pn);
                 else
-                    montgomery.dbl(Pn1, Pn);
-                swap(Pn, Pn1);
+                    montgomery->dbl(*_Pn1, *_Pn);
+                swap(*_Pn, *_Pn1);
                 v++;
             }
+            commit_execute<State>(v - _pairing.first_D - (int)norm_bases.size(), G);
+            GWASSERT(state()->iteration() != v - _pairing.first_D - (int)norm_bases.size() || norm_bases.empty()); // deterministic restart
         }
 
         tmp = G;
@@ -698,20 +855,6 @@ void EdECMStage2::run(InputNum& input, GWNum& ed_d, EdPoint& P)
     {
         tmp = e.divisor;
     }
-    precomp.back().release();
 
-    timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    transforms += (int)gw().gwdata()->fft_count;
-    if (tmp == 0 || tmp == gw().N())
-    {
-        printf("All divisors of N < B1.\n");
-    }
-    else if (tmp != 1)
-    {
-        report_factor(tmp, input);
-    }
-    else
-    {
-        printf("No factors found, transforms: %d, time: %d s.\n", transforms, (int)timer);
-    }
+    done(tmp);
 }

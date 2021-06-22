@@ -403,8 +403,8 @@ namespace arithmetic
     {
         _op = 0;
         _suspect_ops.clear();
-        bool _restart_flag = false;
-        bool _failure_flag = false;
+        _restart_flag = false;
+        _failure_flag = false;
     }
 
     void ReliableGWArithmetic::restart(int op)

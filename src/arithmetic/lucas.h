@@ -11,6 +11,7 @@ namespace arithmetic
         friend class LucasV;
 
     public:
+        LucasVArithmetic() : _gw(nullptr) { }
         LucasVArithmetic(GWArithmetic& gw) : _gw(&gw) { }
         virtual ~LucasVArithmetic() { }
 

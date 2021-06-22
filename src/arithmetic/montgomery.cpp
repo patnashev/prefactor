@@ -253,4 +253,36 @@ namespace arithmetic
     template void MontgomeryArithmetic::normalize(std::vector<std::unique_ptr<EdY>>::iterator begin, std::vector<std::unique_ptr<EdY>>::iterator end);
     template void MontgomeryArithmetic::normalize(std::vector<EdY*>::iterator begin, std::vector<EdY*>::iterator end);
     template void MontgomeryArithmetic::normalize(std::deque<std::unique_ptr<EdY>>::iterator begin, std::deque<std::unique_ptr<EdY>>::iterator end);
+
+    void EdY::serialize(Giant& Y, Giant& Z)
+    {
+        if (this->Y)
+            Y = *this->Y;
+        else
+            Y = 0;
+        if (this->Z)
+            Z = *this->Z;
+        else
+            Z = 1;
+    }
+
+    void EdY::deserialize(const Giant& Y, const Giant& Z)
+    {
+        if (Y != 0)
+        {
+            this->Y.reset(new GWNum(arithmetic().gw()));
+            *this->Y = Y;
+        }
+        else
+            this->Y.reset();
+        if (Z != 1)
+        {
+            this->Z.reset(new GWNum(arithmetic().gw()));
+            *this->Z = Z;
+        }
+        else
+            this->Z.reset();
+        ZpY.reset();
+        ZmY.reset();
+    }
 }
