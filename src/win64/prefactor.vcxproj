@@ -21,7 +21,9 @@
     <ClCompile Include="..\precompute.c" />
     <ClCompile Include="..\prefactor.cpp" />
     <ClCompile Include="..\primelist.cpp" />
+    <ClCompile Include="..\stage1.cpp" />
     <ClCompile Include="..\stage2.cpp" />
+    <ClCompile Include="..\task.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\arithmetic\arithmetic.h" />
@@ -34,7 +36,9 @@
     <ClInclude Include="..\arithmetic\montgomery.h" />
     <ClInclude Include="..\inputnum.h" />
     <ClInclude Include="..\primelist.h" />
+    <ClInclude Include="..\stage1.h" />
     <ClInclude Include="..\stage2.h" />
+    <ClInclude Include="..\task.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>

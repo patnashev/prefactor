@@ -6,7 +6,7 @@ CFLAGS = -I.. -I../gwnum -DX86_64 -O2 -std=c99
 CPP = g++
 CPPFLAGS = -I.. -I../gwnum -I../arithmetic -DX86_64 -O2 -std=gnu++17
 
-CPPSOURCES = arithmetic.cpp edwards.cpp giant.cpp group.cpp lucas.cpp montgomery.cpp inputnum.cpp primelist.cpp stage2.cpp prefactor.cpp
+CPPSOURCES = arithmetic.cpp edwards.cpp giant.cpp group.cpp lucas.cpp montgomery.cpp inputnum.cpp primelist.cpp stage1.cpp stage2.cpp task.cpp prefactor.cpp
 COMPOBJS = precompute.o $(CPPSOURCES:.cpp=.o)
 
 compile: $(COMPOBJS)
