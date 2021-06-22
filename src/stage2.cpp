@@ -2,6 +2,7 @@
 #include <deque>
 #include <algorithm>
 #include <iostream>
+#include <string.h>
 
 #include "gwnum.h"
 #include "cpuid.h"
@@ -813,10 +814,12 @@ void EdECMStage2::execute()
                     {
                         norm_bases.emplace_back(new EdY(*montgomery));
                         if (v + 2 <= _pairing.last_D)
+                        {
                             if (v > 0)
                                 montgomery->add(*_W, *_Pn1, *_Pn, *norm_bases.back());
                             else
                                 montgomery->dbl(*_Pn1, *norm_bases.back());
+                        }
                         swap(*_Pn, *_Pn1);
                         swap(*_Pn1, *norm_bases.back());
                     }

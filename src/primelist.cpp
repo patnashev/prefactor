@@ -1,5 +1,6 @@
-#include "primelist.h"
+
 #include <cmath>
+#include "primelist.h"
 
 PrimeList::PrimeList(int max)
 {

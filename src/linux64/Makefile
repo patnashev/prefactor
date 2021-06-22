@@ -1,28 +1,30 @@
 # Makefile for Linux
 
-CC = gcc
+EXE       = prefactor
+COMPOBJS  = precompute.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o stage1.o stage2.o task.o prefactor.o
+LIB_GWNUM = ../gwnum/linux64/gwnum.a
 
-LFLAGS =
-LIBELF = ../gwnum/linux64/gwnum.a
-LIBS2  = $(LIBELF) ../gwnum/linux64/gwnum.ld -lm  -lpthread -lstdc++ -static
+# Source directories
 
-COMPOBJS = precompute.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o stage1.o stage2.o task.o prefactor.o
-EXE2 = prefactor
+VPATH     = ..:../arithmetic
 
 # insert proper dummy file to get _GWDATA data segment aligned
 # on a 32 byte boundary.  Use proper dummyNN.o to do the alignment
 
-DUMMY2   = ../gwnum/linux64/gwnum.ld
+DUMMY2 = ../gwnum/linux64/gwnum.ld
+LIBS2  = -lm -lpthread -lstdc++ -static
+
+CC  = gcc
+CXX = g++
+CFLAGS   = -I.. -I../gwnum                 -DX86_64 -O2 -std=c99     -Wall -Wextra
+CXXFLAGS = -I.. -I../gwnum -I../arithmetic -DX86_64 -O2 -std=gnu++17 -Wall -Wextra
 
 #########################################################################
 
-all: $(EXE2)
+all: $(EXE)
 
-$(EXE2): $(COMPOBJS) $(LIBELF)
-	$(CC) $(LFLAGS) -o $(EXE2) $(COMPOBJS) $(DUMMY2) $(LIBS2)
-
-$(COMPOBJS):
-	make -f make64
+$(EXE): $(COMPOBJS)
+	$(CC) -o $@ $(COMPOBJS) $(LIB_GWNUM) $(DUMMY2) $(LIBS2)
 
 clean:
-	rm -f $(EXE2) $(COMPOBJS)
+	rm -f $(EXE) $(COMPOBJS)

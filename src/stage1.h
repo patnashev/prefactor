@@ -28,6 +28,9 @@ public:
     PrimeList& primes() { return _primes; }
     bool success() { return _success; }
 
+private:
+    PrimeList& _primes;
+
 protected:
     int _B1;
 
@@ -35,9 +38,6 @@ protected:
     double _timer = 0;
     int _transforms = 0;
     bool _success = false;
-
-private:
-    PrimeList& _primes;
 };
 
 class PM1Stage1 : public Stage1

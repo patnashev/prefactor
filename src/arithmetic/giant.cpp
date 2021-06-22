@@ -1,4 +1,5 @@
 
+#include <cmath>
 #include <vector>
 #include <stdlib.h>
 #include "gwnum.h"
@@ -276,7 +277,7 @@ namespace arithmetic
     {
         int capacity = abs(a._giant->sign);
         if (capacity == 1)
-            capacity = (int)(log2(a._giant->n[0])*b/32) + 1;
+            capacity = (int)(std::log2(a._giant->n[0])*b/32) + 1;
         else
             capacity *= b;
         if (res._giant == nullptr || res._capacity < capacity)

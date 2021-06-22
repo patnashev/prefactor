@@ -1,6 +1,6 @@
 
-#include <stdlib.h>
 #include <deque>
+#include <stdlib.h>
 #include "gwnum.h"
 #include "montgomery.h"
 #include "exception.h"

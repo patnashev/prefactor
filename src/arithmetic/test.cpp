@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
     if (tmp == rgw.N() - 1)
         std::cout << "prime\n";
     else
-        printf("%016llX\n", *(uint64_t*)tmp.to_giant()->n);
+        printf("%016" PRIX64 "\n", *(uint64_t*)tmp.data());
  
     return 0;
 }
