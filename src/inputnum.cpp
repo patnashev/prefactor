@@ -375,7 +375,8 @@ bool InputNum::to_base2(InputNum& k, InputNum& base2)
         base2._display_text.append(1, '+');
     if (c < 0)
         base2._display_text.append(1, '-');
-    base2._display_text.append(std::to_string(abs(c)));
+    if (c != 0)
+        base2._display_text.append(std::to_string(abs(c)));
 
     return true;
 }

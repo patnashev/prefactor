@@ -297,7 +297,7 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
                 ret.pairs++;
             }
         
-        std::sort(D_distances.begin(), D_distances.end(), [](std::pair<int, int>& a, std::pair<int, int>& b) { return a.first < b.first; });
+        std::sort(D_distances.begin(), D_distances.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) { return a.first < b.first; });
         ret.first_D = D_distances.front().first/D;
         int cur = ret.first_D*D;
         auto it = D_distances.begin();
