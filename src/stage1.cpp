@@ -11,9 +11,9 @@ using namespace arithmetic;
 
 void report_factor(const Giant& f, InputNum& input);
 
-void Stage1::init(InputNum& input, GWState& gwstate, int iterations)
+void Stage1::init(InputNum& input, GWState& gwstate, int iterations, File* file, TaskState* state)
 {
-    Task::init(gwstate, iterations);
+    Task::init(gwstate, iterations, file, state);
     _error_check = gwnear_fft_limit(gwstate.gwdata(), 1) == TRUE;
     _input = &input;
     _timer = getHighResTimer();
@@ -92,11 +92,14 @@ PM1Stage1::PM1Stage1(PrimeList& primes, int B1) : Stage1(primes, B1)
     _exp = get_stage1_exp();
 }
 
-void PM1Stage1::init(InputNum& input, GWState& gwstate)
+void PM1Stage1::init(InputNum& input, GWState& gwstate, File* file)
 {
-    Stage1::init(input, gwstate, _exp.bitlen() - 1);
+    Stage1::init(input, gwstate, _exp.bitlen() - 1, file, read_state<State>(file));
     _state_update_period = MULS_PER_STATE_UPDATE;
-    printf("%s, P-1 stage 1, B1 = %d%s.\n", input.display_text().data(), _B1, input.gfn() != 0 ? ", GFN" : "");
+    printf("%s, P-1 stage 1, B1 = %d%s", input.display_text().data(), _B1, input.gfn() != 0 ? ", GFN" : "");
+    if (state() != nullptr)
+        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    printf(".\n");
 }
 
 void PM1Stage1::execute()
@@ -132,7 +135,7 @@ void PM1Stage1::execute()
 
     try
     {
-        _V = state()->X() + inv(state()->X(), gw().N());
+        _V = (state()->X() + inv(state()->X(), gw().N()))%gw().N();
     }
     catch (const NoInverseException& e)
     {
@@ -152,13 +155,19 @@ PP1Stage1::PP1Stage1(PrimeList& primes, int B1, std::string& sP) : Stage1(primes
         _Pb = stoi(sP.substr(i + 1));
 }
 
-void PP1Stage1::init(InputNum& input, GWState& gwstate)
+void PP1Stage1::init(InputNum& input, GWState& gwstate, File* file)
 {
-    Stage1::init(input, gwstate, (int)std::expint(log(_B1)));
+    Stage1::init(input, gwstate, (int)std::expint(log(_B1)), file, read_state<State>(file));
     _state_update_period = MULS_PER_STATE_UPDATE/10;
-    printf("%s, P+1 stage 1, B1 = %d, P = %s%s.\n", input.display_text().data(), _B1, _sP.data(), input.gfn() != 0 ? ", GFN" : "");
-    _P = _Pb;
-    _P = _Pa*inv(std::move(_P), *gwstate.N)%(*gwstate.N);
+    printf("%s, P+1 stage 1, B1 = %d, P = %s%s", input.display_text().data(), _B1, _sP.data(), input.gfn() != 0 ? ", GFN" : "");
+    if (state() != nullptr)
+        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    else
+    {
+        _P = _Pb;
+        _P = _Pa*inv(std::move(_P), *gwstate.N)%(*gwstate.N);
+    }
+    printf(".\n");
 }
 
 void PP1Stage1::execute()
@@ -176,6 +185,7 @@ void PP1Stage1::execute()
             lucas.dbl(V, V);
         for (j = 0; j < _input->gfn(); j++)
             lucas.dbl(V, V);
+        it++;
         commit_execute<State>(1, V);
     }
     else
@@ -220,11 +230,15 @@ EdECMStage1::EdECMStage1(PrimeList& primes, int B1, int W) : Stage1(primes, B1),
     get_NAF_W(_W, tmp, _NAF_W);
 }
 
-void EdECMStage1::init(InputNum& input, GWState& gwstate, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
+void EdECMStage1::init(InputNum& input, GWState& gwstate, File* file, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
-    Stage1::init(input, gwstate, (int)_NAF_W.size() - 1);
+    Stage1::init(input, gwstate, (int)_NAF_W.size() - 1, file, read_state<State>(file));
     _state_update_period = MULS_PER_STATE_UPDATE/7/_W;
-    printf("%s, EdECM stage 1, B1 = %d, W = %d.\n", input.display_text().data(), _B1, _W);
+    printf("%s, EdECM stage 1, B1 = %d, W = %d", input.display_text().data(), _B1, _W);
+    if (state() != nullptr)
+        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    printf(".\n");
+
     _error_check = false;
     _X = X;
     _Y = Y;
@@ -237,27 +251,37 @@ void EdECMStage1::init(InputNum& input, GWState& gwstate, arithmetic::Giant& X, 
 void EdECMStage1::setup()
 {
     ed->set_gw(gw());
+    if (!_ed_d)
+    {
+        _ed_d.reset(new GWNum(gw()));
+        *_ed_d = _EdD;
+    }
 
     if (_u.empty())
     {
         int i;
+        std::vector<std::unique_ptr<arithmetic::EdPoint>> u;
         for (i = 0; i < (1 << (_W - 2)); i++)
-            _u.emplace_back(new EdPoint(*ed));
-        _u[0]->deserialize(_X, _Y, _Z, _T);
+            u.emplace_back(new EdPoint(*ed));
+        u[0]->deserialize(_X, _Y, _Z, _T);
+        ed->dbl(*u[0], *u[0], ed->ED_PROJECTIVE | GWMUL_STARTNEXTFFT);
         for (int i = 2; i <= _B1; i <<= 1)
-            ed->dbl(*_u[0], *_u[0], ed->ED_PROJECTIVE | GWMUL_STARTNEXTFFT);
-        ed->dbl(*_u[0], *_u[0], GWMUL_STARTNEXTFFT);
+            ed->dbl(*u[0], *u[0], ed->ED_PROJECTIVE | GWMUL_STARTNEXTFFT);
+        ed->dbl(*u[0], *u[0], GWMUL_STARTNEXTFFT);
 
         if (_W > 2)
         {
             EdPoint u2(*ed);
-            ed->dbl(*_u[0], u2, GWMUL_STARTNEXTFFT);
+            ed->dbl(*u[0], u2, GWMUL_STARTNEXTFFT);
             for (i = 1; i < (1 << (_W - 2)); i++)
-                ed->add(*_u[i - 1], u2, *_u[i], GWMUL_STARTNEXTFFT);
+                ed->add(*u[i - 1], u2, *u[i], GWMUL_STARTNEXTFFT);
         }
+        if (!ed->on_curve(*u.back(), *_ed_d))
+            throw TaskRestartException();
+
         try
         {
-            ed->normalize(_u.begin(), _u.end(), 0);
+            ed->normalize(u.begin(), u.end(), 0);
         }
         catch (const NoInverseException& e)
         {
@@ -265,11 +289,13 @@ void EdECMStage1::setup()
             return;
         }
         commit_setup();
+        _u = std::move(u);
     }
 }
 
 void EdECMStage1::release()
 {
+    _ed_d.reset();
     _u.clear();
 }
 
@@ -280,8 +306,6 @@ void EdECMStage1::execute()
     int i, j, len;
 
     ed->set_gw(gw());
-    GWNum ed_d(gw());
-    ed_d = _EdD;
     EdPoint p(*ed);
     if (state() == nullptr)
     {
@@ -311,7 +335,7 @@ void EdECMStage1::execute()
         //check();
         if (i%state_update_period() == 0 || i == len)
         {
-            if (!ed->on_curve(p, ed_d))
+            if (!ed->on_curve(p, *_ed_d))
                 throw TaskRestartException();
             set_state(new State(i, p));
         }

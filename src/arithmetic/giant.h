@@ -23,6 +23,7 @@ namespace arithmetic
         virtual void init(int32_t a, Giant& res) override;
         virtual void init(uint32_t a, Giant& res);
         virtual void init(const std::string& a, Giant& res) override;
+        virtual void init(uint32_t* data, int size, Giant& res);
         virtual int cmp(const Giant& a, const Giant& b) override;
         virtual int cmp(const Giant& a, int32_t b) override;
         virtual void add(Giant& a, Giant& b, Giant& res) override;

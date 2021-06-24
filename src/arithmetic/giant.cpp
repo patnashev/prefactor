@@ -1,6 +1,7 @@
 
 #include <cmath>
 #include <vector>
+#include <string.h>
 #include <stdlib.h>
 #include "gwnum.h"
 #include "giant.h"
@@ -77,6 +78,21 @@ namespace arithmetic
         if (res._giant == nullptr || res._capacity < ((int)a.length() + 8)/9)
             alloc(res, ((int)a.length() + 8)/9);
         ctog(a.data(), res._giant);
+    }
+
+    void GiantsArithmetic::init(uint32_t* data, int size, Giant& res)
+    {
+        if (size == 0)
+        {
+            init(0, res);
+            return;
+        }
+        if (res._giant == nullptr || res._capacity < size)
+            alloc(res, size);
+        memcpy(res._giant->n, data, size*4);
+        res._giant->sign = size;
+        while (res._giant->sign && !res._giant->n[res._giant->sign - 1])
+            res._giant->sign--;
     }
 
     void GiantsArithmetic::add(Giant& a, Giant& b, Giant& res)

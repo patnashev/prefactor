@@ -1,4 +1,4 @@
-#define PREFACTOR_VERSION "0.7.0"
+#define PREFACTOR_VERSION "0.8.0"
 
 #include <ctype.h>
 #include <string.h>
@@ -18,13 +18,12 @@
 #include "primelist.h"
 #include "stage1.h"
 #include "stage2.h"
+#include "file.h"
 
 using namespace arithmetic;
 
 #include "precompute.h"
 
-#include "md5.c"
-#include "file.c"
 #include "prob.c"
 
 int main(int argc, char *argv[])
@@ -165,11 +164,11 @@ int main(int argc, char *argv[])
             if (!input.parse(argv[i]))
             {
                 Giant x, y;
-                if (!readFromFile(argv[i], 0, &j, x, y))
+                /*if (!readFromFile(argv[i], 0, &j, x, y))
                 {
                     printf("File %s is missing or corrupted.\n", argv[i]);
                     return 1;
-                }
+                }*/
             }
         }
     if (input.empty())
@@ -239,92 +238,144 @@ int main(int argc, char *argv[])
         printf("Probability of a factor 1/%.0f, overall speedup %.2f%%.\n", 1/value, 100*(value - cost/primalityCost));
     }
 
-    if (minus1)
+    try
     {
-        PM1Stage1 stage1(primes, B1);
-        stage1.init(input, gwstate);
-        stage1.run();
-        if (!stage1.success() && B2 > B1)
+        if (minus1)
         {
-            PP1Stage2 stage2(primes, B1, B2, D, A, L);
-            stage2.init(input, gwstate, stage1.V(), true);
-            stage2.run();
-        }
-    }
-    if (plus1)
-    {
-        if (sP.empty())
-            //sP = "6/5";
-            sP = "2/7";
-        PP1Stage1 stage1(primes, B1, sP);
-        stage1.init(input, gwstate);
-        stage1.run();
-        if (!stage1.success() && B2 > B1)
-        {
-            PP1Stage2 stage2(primes, B1, B2, D, A, L);
-            stage2.init(input, gwstate, stage1.state()->V(), false);
-            stage2.run();
-        }
-    }
-    if (edecm)
-    {
-        Giant X, Y, Z, T, EdD;
-        {
-            EdwardsArithmetic ed(gw.carefully());
-            EdPoint P(ed);
-            GWNum ed_d(gw.carefully());
-
-            if (curveType == 0)
-                P = ed.from_small(17, 19, 17, 33, &ed_d);
-            else if (curveType == 1)
-                P = ed.from_small(5, 23, -1, 7, &ed_d);
-            else if (curveType == 2)
+            File file1(std::to_string(gwstate.fingerprint) + ".m1", gwstate.fingerprint);
+            File file12(std::to_string(gwstate.fingerprint) + ".m12", gwstate.fingerprint);
+            File file2(std::to_string(gwstate.fingerprint) + ".m2", gwstate.fingerprint);
+            PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
+            if (interstate == nullptr)
             {
-                try
+                PM1Stage1 stage1(primes, B1);
+                stage1.init(input, gwstate, &file1);
+                stage1.run();
+                if (!stage1.success() && B2 > B1)
                 {
-                    P = ed.gen_curve(curveSeed, &ed_d);
-                }
-                catch (const ArithmeticException&)
-                {
-                    printf("Invalid curve.\n");
-                    return 1;
+                    interstate = new PP1Stage1::State();
+                    interstate->V() = std::move(stage1.V());
+                    file12.write(*interstate);
                 }
             }
-            else if (curveType == 3)
+            if (interstate != nullptr)
             {
-                int xa = stoi(curveX);
-                int xb = 1;
-                for (i = curveX[0] == '-' ? 1 : 0; isdigit(curveX[i]); i++);
-                if (curveX[i] == '/')
-                    xb = stoi(curveX.substr(i + 1));
-                int ya = stoi(curveY);
-                int yb = 1;
-                for (i = curveY[0] == '-' ? 1 : 0; isdigit(curveY[i]); i++);
-                if (curveY[i] == '/')
-                    yb = stoi(curveY.substr(i + 1));
-                P = ed.from_small(xa, xb, ya, yb, &ed_d);
+                PP1Stage2 stage2(primes, B1, B2, D, A, L);
+                stage2.init(input, gwstate, &file2, interstate->V(), true);
+                stage2.run();
             }
-            Giant tmp;
-            tmp = ed.jinvariant(ed_d);
-            if (tmp.size() > 1)
-                printf("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
-            else if (tmp.size() > 0)
-                printf("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
-            else
-                printf("Curve j-invariant RES64: %08X%08X\n", 0, 0);
-            P.serialize(X, Y, Z, T);
-            EdD = ed_d;
-        };
-
-        EdECMStage1 stage1(primes, B1, K);
-        stage1.init(input, gwstate, X, Y, Z, T, EdD);
-        stage1.run();
-        if (!stage1.success() && B2 > B1)
-        {
-            EdECMStage2 stage2(primes, B1, B2, 210, 5, 20);
-            stage2.init(input, gwstate, stage1.state()->X(), stage1.state()->Y(), stage1.state()->Z(), stage1.state()->T(), EdD);
-            stage2.run();
+            file1.clear();
+            file12.clear();
+            file2.clear();
         }
+        if (plus1)
+        {
+            if (sP.empty())
+                sP = "6/5";
+                //sP = "2/7";
+            File file1(std::to_string(gwstate.fingerprint) + ".p1", gwstate.fingerprint);
+            File file12(std::to_string(gwstate.fingerprint) + ".p12", gwstate.fingerprint);
+            File file2(std::to_string(gwstate.fingerprint) + ".p2", gwstate.fingerprint);
+            PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
+            if (interstate == nullptr)
+            {
+                PP1Stage1 stage1(primes, B1, sP);
+                stage1.init(input, gwstate, &file1);
+                stage1.run();
+                if (!stage1.success() && B2 > B1)
+                {
+                    interstate = new PP1Stage1::State(std::move(*stage1.state()));
+                    file12.write(*interstate);
+                }
+            }
+            if (interstate != nullptr)
+            {
+                PP1Stage2 stage2(primes, B1, B2, D, A, L);
+                stage2.init(input, gwstate, &file2, interstate->V(), false);
+                stage2.run();
+            }
+            file1.clear();
+            file12.clear();
+            file2.clear();
+        }
+        if (edecm)
+        {
+            Giant X, Y, Z, T, EdD;
+            {
+                EdwardsArithmetic ed(gw.carefully());
+                EdPoint P(ed);
+                GWNum ed_d(gw.carefully());
+
+                if (curveType == 0)
+                    P = ed.from_small(17, 19, 17, 33, &ed_d);
+                else if (curveType == 1)
+                    P = ed.from_small(5, 23, -1, 7, &ed_d);
+                else if (curveType == 2)
+                {
+                    try
+                    {
+                        P = ed.gen_curve(curveSeed, &ed_d);
+                    }
+                    catch (const ArithmeticException&)
+                    {
+                        printf("Invalid curve.\n");
+                        return 1;
+                    }
+                }
+                else if (curveType == 3)
+                {
+                    int xa = stoi(curveX);
+                    int xb = 1;
+                    for (i = curveX[0] == '-' ? 1 : 0; isdigit(curveX[i]); i++);
+                    if (curveX[i] == '/')
+                        xb = stoi(curveX.substr(i + 1));
+                    int ya = stoi(curveY);
+                    int yb = 1;
+                    for (i = curveY[0] == '-' ? 1 : 0; isdigit(curveY[i]); i++);
+                    if (curveY[i] == '/')
+                        yb = stoi(curveY.substr(i + 1));
+                    P = ed.from_small(xa, xb, ya, yb, &ed_d);
+                }
+                Giant tmp;
+                tmp = ed.jinvariant(ed_d);
+                if (tmp.size() > 1)
+                    printf("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                else if (tmp.size() > 0)
+                    printf("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
+                else
+                    printf("Curve j-invariant RES64: %08X%08X\n", 0, 0);
+                P.serialize(X, Y, Z, T);
+                EdD = ed_d;
+            };
+
+            File file1(std::to_string(gwstate.fingerprint) + ".ed1", gwstate.fingerprint);
+            File file12(std::to_string(gwstate.fingerprint) + ".ed12", gwstate.fingerprint);
+            File file2(std::to_string(gwstate.fingerprint) + ".ed2", gwstate.fingerprint);
+            EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
+            if (interstate == nullptr)
+            {
+                EdECMStage1 stage1(primes, B1, K);
+                stage1.init(input, gwstate, &file1, X, Y, Z, T, EdD);
+                stage1.run();
+                if (!stage1.success() && B2 > B1)
+                {
+                    interstate = new EdECMStage1::State(std::move(*stage1.state()));
+                    file12.write(*interstate);
+                }
+            }
+            if (interstate != nullptr)
+            {
+                EdECMStage2 stage2(primes, B1, B2, 210, 5, 20);
+                stage2.init(input, gwstate, &file2, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
+                stage2.run();
+            }
+            file1.clear();
+            file12.clear();
+            file2.clear();
+        }
+    }
+    catch (const TaskAbortException&)
+    {
     }
 
     gwstate.done();

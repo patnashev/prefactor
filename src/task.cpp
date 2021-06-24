@@ -3,14 +3,33 @@
 #include "gwnum.h"
 #include "task.h"
 #include "exception.h"
+#include "file.h"
 
 using namespace arithmetic;
 
-void Task::init(arithmetic::GWState& gwstate, int iterations)
+bool TaskState::read(Reader& reader)
+{
+    if (!reader.read(_iteration))
+    {
+        _iteration = 0;
+        return false;
+    }
+    return true;
+}
+
+void TaskState::write(Writer& writer)
+{
+    writer.write(_iteration);
+}
+
+void Task::init(arithmetic::GWState& gwstate, int iterations, File* file, TaskState* state)
 {
     _gwstate = &gwstate;
     _iterations = iterations;
     _gw = nullptr;
+    _file = file;
+    _state.reset(state);
+    _last_write = std::chrono::system_clock::now();
 }
 
 void Task::run()
@@ -134,6 +153,11 @@ void Task::check()
 void Task::set_state(TaskState* state)
 {
     _state.reset(state);
+    if (_file != nullptr && state != nullptr && std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME)
+    {
+        _file->write(*state);
+        _last_write = std::chrono::system_clock::now();
+    }
     if (_error_check && _gw != nullptr)
     {
         ReliableGWArithmetic* reliable = dynamic_cast<ReliableGWArithmetic*>(_gw);

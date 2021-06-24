@@ -2,6 +2,7 @@
 #include <deque>
 #include <algorithm>
 #include <iostream>
+#include <iomanip>
 #include <string.h>
 
 #include "gwnum.h"
@@ -19,6 +20,8 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
     int i, j, k;
     int d, p, q;
     Stage2::Pairing ret;
+
+    double timer = getHighResTimer();
 
     int second_base = D/A;
     //int second_base = D/A*(A-1)/2;
@@ -99,6 +102,11 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
             plist.emplace_back(*it);
         }
     }
+
+    std::cout << "Pairing " << ret.total << " primes, D=" << D << ", L=" << L;
+    if (A > 1)
+        std::cout << ", A=" << A;
+    std::cout << "... ";
 
     std::vector<std::vector<int>> dist_rem(D);
     for (i = 1; i < D; i++)
@@ -317,6 +325,9 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
         ret.last_D = cur/D - 1;
     }
 
+    timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
+    std::cout << ret.pairs << " pairs (" << std::fixed << std::setprecision(1) << (200.0*ret.pairs/ret.total) << "%), time: " << timer << " s." << std::endl;
+
     return ret;
 }
 
@@ -503,9 +514,9 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
 }
 
 
-void Stage2::init(InputNum& input, GWState& gwstate)
+void Stage2::init(InputNum& input, GWState& gwstate, File* file, TaskState* state)
 {
-    Task::init(gwstate, _pairing.last_D - _pairing.first_D + 1);
+    Task::init(gwstate, _pairing.last_D - _pairing.first_D + 1, file, state);
     _error_check = gwnear_fft_limit(gwstate.gwdata(), 1) == TRUE;
     _input = &input;
     _timer = getHighResTimer();
@@ -540,11 +551,14 @@ void Stage2::done(const arithmetic::Giant& factor)
     }
 }
 
-void PP1Stage2::init(InputNum& input, GWState& gwstate, Giant& P, bool minus1)
+void PP1Stage2::init(InputNum& input, GWState& gwstate, File* file, Giant& P, bool minus1)
 {
-    Stage2::init(input, gwstate);
+    Stage2::init(input, gwstate, file, read_state<State>(file));
     _state_update_period = MULS_PER_STATE_UPDATE/10;
-    printf("%s, P%c1 stage 2, B2 = %d.\n", input.display_text().data(), minus1 ? '-' : '+', _B2);
+    printf("%s, P%c1 stage 2, B2 = %d", input.display_text().data(), minus1 ? '-' : '+', _B2);
+    if (state() != nullptr)
+        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    printf(".\n");
     lucas.reset(new LucasVArithmetic());
     _P = P;
 }
@@ -577,11 +591,7 @@ void PP1Stage2::setup()
 
         transforms += (int)gw().gwdata()->fft_count;
         _transforms -= transforms;
-        printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp_size, transforms, (200*_pairing.pairs + _pairing.total/2)/_pairing.total, _D, _L);
-        if (_A > 1)
-            printf(", A = %d.\n", _A);
-        else
-            printf(".\n");
+        std::cout << precomp_size << " precomputed values (" << transforms << " transforms), " << (_pairing.last_D - _pairing.first_D + 1) << " steps." << std::endl;
     }
 
     if (state() == nullptr)
@@ -675,13 +685,16 @@ void PP1Stage2::execute()
     done(tmp);
 }
 
-void EdECMStage2::init(InputNum& input, GWState& gwstate, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
+void EdECMStage2::init(InputNum& input, GWState& gwstate, File* file, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
-    Stage2::init(input, gwstate);
+    Stage2::init(input, gwstate, file, read_state<State>(file));
     _state_update_period = MULS_PER_STATE_UPDATE*10/_D;
     if (_LN > 0 && _state_update_period%_LN != 0)
         _state_update_period += _LN - _state_update_period%_LN;
-    printf("%s, EdECM stage 2, B2 = %d.\n", input.display_text().data(), _B2);
+    printf("%s, EdECM stage 2, B2 = %d", input.display_text().data(), _B2);
+    if (state() != nullptr)
+        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    printf(".\n");
     _X = X;
     _Y = Y;
     _Z = Z;
@@ -730,11 +743,10 @@ void EdECMStage2::setup()
 
         transforms += (int)gw().gwdata()->fft_count;
         _transforms -= transforms;
-        printf("%d precomputed values (%d transforms), %d%% pairing, D = %d, L = %d", precomp_size, transforms, (200*_pairing.pairs + _pairing.total/2)/_pairing.total, _D, _L);
+        std::cout << precomp_size << " precomputed values (" << transforms << " transforms), " << (_pairing.last_D - _pairing.first_D + 1) << " steps";
         if (_LN > 0)
-            printf(", LN = %d.\n", _LN);
-        else
-            printf(".\n");
+            std::cout << " in batches of " << _LN;
+        std::cout << "." << std::endl;
     }
 
     if (state() == nullptr)
