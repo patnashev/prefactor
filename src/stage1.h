@@ -28,7 +28,7 @@ protected:
     void setup() override { }
     void release() override { }
     void reinit_gwstate() override;
-    void init(InputNum& input, arithmetic::GWState& gwstate, int iterations, File* file, TaskState* state);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations);
     void done(const arithmetic::Giant& factor);
 
 private:
@@ -62,7 +62,7 @@ public:
 public:
     PM1Stage1(PrimeList& primes, int B1);
 
-    void init(InputNum& input, arithmetic::GWState& gwstate, File* file);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging);
 
     State* state() { return static_cast<State*>(Task::state()); }
     arithmetic::Giant& V() { return _V; }
@@ -95,7 +95,7 @@ public:
 public:
     PP1Stage1(PrimeList& primes, int B1, std::string& sP);
 
-    void init(InputNum& input, arithmetic::GWState& gwstate, File* file);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging);
 
     State* state() { return static_cast<State*>(Task::state()); }
 
@@ -134,7 +134,7 @@ public:
 public:
     EdECMStage1(PrimeList& primes, int B1, int W);
 
-    void init(InputNum& input, arithmetic::GWState& gwstate, File* file, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
 
     State* state() { return static_cast<State*>(Task::state()); }
 

@@ -6,6 +6,7 @@
 #include "arithmetic.h"
 #include "inputnum.h"
 #include "file.h"
+#include "logging.h"
 
 class TaskRestartException : public std::exception
 {
@@ -62,15 +63,17 @@ public:
     virtual ~Task() { }
 
     virtual void run();
+    static void abort() { _abort_flag = true; }
 
     arithmetic::GWArithmetic& gw() { return *_gw; }
     TaskState* state() { return _state.get(); }
     int iterations() { return _iterations; }
     int state_update_period() { return _state_update_period; }
     bool is_last(int iteration) { return iteration + 1 == _iterations || (iteration + 1)%_state_update_period == 0; }
+    bool abort_flag() { return _abort_flag; }
 
 protected:
-    virtual void init(arithmetic::GWState& gwstate, int iterations, File* file, TaskState* state);
+    virtual void init(arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations);
     virtual void set_state(TaskState* state);
     virtual void setup() = 0;
     virtual void execute() = 0;
@@ -82,7 +85,7 @@ protected:
     template<class TState, class... Args>
     void commit_execute(int iteration, Args&&... args)
     {
-        if (iteration%state_update_period() == 0 || iteration == iterations())
+        if (iteration%state_update_period() == 0 || iteration == iterations() || abort_flag())
         {
             check();
             set_state(new TState(iteration, std::forward<Args>(args)...));
@@ -97,7 +100,10 @@ protected:
     int _iterations = 0;
     int _state_update_period = MULS_PER_STATE_UPDATE;
     File* _file;
+    Logging* _logging;
     std::chrono::system_clock::time_point _last_write;
+    std::chrono::system_clock::time_point _last_progress;
+    static bool _abort_flag;
 private:
     int _restart_op = 0;
 };

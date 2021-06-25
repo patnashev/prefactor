@@ -9,15 +9,13 @@
 
 using namespace arithmetic;
 
-void report_factor(const Giant& f, InputNum& input);
-
-void Stage1::init(InputNum& input, GWState& gwstate, int iterations, File* file, TaskState* state)
+void Stage1::init(InputNum* input, GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations)
 {
-    Task::init(gwstate, iterations, file, state);
-    _error_check = gwnear_fft_limit(gwstate.gwdata(), 1) == TRUE;
-    _input = &input;
+    Task::init(gwstate, file, state, logging, iterations);
+    _error_check = gwnear_fft_limit(gwstate->gwdata(), 1) == TRUE;
+    _input = input;
     _timer = getHighResTimer();
-    _transforms = -(int)gwstate.handle.fft_count;
+    _transforms = -(int)gwstate->handle.fft_count;
     _success = false;
 }
 
@@ -25,28 +23,36 @@ void Stage1::done(const arithmetic::Giant& factor)
 {
     _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
     _transforms += (int)_gwstate->handle.fft_count;
+    _logging->progress().update(1, (int)_gwstate->handle.fft_count);
+    _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
     if (factor == 0 || factor == *_gwstate->N)
     {
-        printf("All divisors of N < B1.\n");
+        _logging->warning("all divisors less than B1.\n");
+        _logging->result("all divisors less than B1, time: %.1f s.\n", _logging->progress().time_total());
         _success = true;
     }
     else if (factor != 1)
     {
-        report_factor(factor, *_input);
+        _logging->report_factor(*_input, factor);
         _success = true;
     }
     else
     {
-        printf("No factors found, transforms: %d, time: %d s.\n", _transforms, (int)_timer);
+        //_logging->info("No factors found.\n");
     }
+    _logging->set_prefix("");
 }
 
 void Stage1::reinit_gwstate()
 {
-    _transforms += (int)_gwstate->handle.fft_count;
+    double fft_count = _gwstate->handle.fft_count;
     _gwstate->done();
     _input->setup(*_gwstate);
-    std::cout << "Using " << _gwstate->fft_description << std::endl;
+    _gwstate->handle.fft_count = fft_count;
+    std::string prefix = _logging->prefix();
+    _logging->set_prefix("");
+    _logging->error("Restarting using %s\n", _gwstate->fft_description.data());
+    _logging->set_prefix(prefix);
     _error_check = gwnear_fft_limit(_gwstate->gwdata(), 1) == TRUE;
 }
 
@@ -92,14 +98,15 @@ PM1Stage1::PM1Stage1(PrimeList& primes, int B1) : Stage1(primes, B1)
     _exp = get_stage1_exp();
 }
 
-void PM1Stage1::init(InputNum& input, GWState& gwstate, File* file)
+void PM1Stage1::init(InputNum* input, GWState* gwstate, File* file, Logging* logging)
 {
-    Stage1::init(input, gwstate, _exp.bitlen() - 1, file, read_state<State>(file));
+    Stage1::init(input, gwstate, file, read_state<State>(file), logging, _exp.bitlen() - 1);
     _state_update_period = MULS_PER_STATE_UPDATE;
-    printf("%s, P-1 stage 1, B1 = %d%s", input.display_text().data(), _B1, input.gfn() != 0 ? ", GFN" : "");
+    _logging->set_prefix(input->display_text() + ", P-1 stage 1, ");
+    _logging->info("B1 = %d%s", _B1, input->gfn() != 0 ? ", GFN" : "");
     if (state() != nullptr)
-        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
-    printf(".\n");
+        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    _logging->info(".\n");
 }
 
 void PM1Stage1::execute()
@@ -155,19 +162,20 @@ PP1Stage1::PP1Stage1(PrimeList& primes, int B1, std::string& sP) : Stage1(primes
         _Pb = stoi(sP.substr(i + 1));
 }
 
-void PP1Stage1::init(InputNum& input, GWState& gwstate, File* file)
+void PP1Stage1::init(InputNum* input, GWState* gwstate, File* file, Logging* logging)
 {
-    Stage1::init(input, gwstate, (int)std::expint(log(_B1)), file, read_state<State>(file));
+    Stage1::init(input, gwstate, file, read_state<State>(file), logging, (int)std::expint(log(_B1)));
     _state_update_period = MULS_PER_STATE_UPDATE/10;
-    printf("%s, P+1 stage 1, B1 = %d, P = %s%s", input.display_text().data(), _B1, _sP.data(), input.gfn() != 0 ? ", GFN" : "");
+    _logging->set_prefix(input->display_text() + ", P+1 stage 1, ");
+    _logging->info("B1 = %d, P = %s%s", _B1, _sP.data(), input->gfn() != 0 ? ", GFN" : "");
     if (state() != nullptr)
-        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
     else
     {
         _P = _Pb;
-        _P = _Pa*inv(std::move(_P), *gwstate.N)%(*gwstate.N);
+        _P = _Pa*inv(std::move(_P), *gwstate->N)%(*gwstate->N);
     }
-    printf(".\n");
+    _logging->info(".\n");
 }
 
 void PP1Stage1::execute()
@@ -230,14 +238,15 @@ EdECMStage1::EdECMStage1(PrimeList& primes, int B1, int W) : Stage1(primes, B1),
     get_NAF_W(_W, tmp, _NAF_W);
 }
 
-void EdECMStage1::init(InputNum& input, GWState& gwstate, File* file, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
+void EdECMStage1::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
-    Stage1::init(input, gwstate, (int)_NAF_W.size() - 1, file, read_state<State>(file));
+    Stage1::init(input, gwstate, file, read_state<State>(file), logging, (int)_NAF_W.size() - 1);
     _state_update_period = MULS_PER_STATE_UPDATE/7/_W;
-    printf("%s, EdECM stage 1, B1 = %d, W = %d", input.display_text().data(), _B1, _W);
+    _logging->set_prefix(input->display_text() + ", EdECM stage 1, ");
+    _logging->info("B1 = %d, W = %d", _B1, _W);
     if (state() != nullptr)
-        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
-    printf(".\n");
+        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    _logging->info(".\n");
 
     _error_check = false;
     _X = X;
@@ -333,7 +342,7 @@ void EdECMStage1::execute()
             ed->dbl(p, p, GWMUL_STARTNEXTFFT_IF(!is_last(i)) | (i < len - 1 ? ed->ED_PROJECTIVE : 0));
         i++;
         //check();
-        if (i%state_update_period() == 0 || i == len)
+        if (i%state_update_period() == 0 || i == len || abort_flag())
         {
             if (!ed->on_curve(p, *_ed_d))
                 throw TaskRestartException();

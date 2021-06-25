@@ -294,7 +294,8 @@ void get_stage2_cost_and_pairing(PrimeList& primes, int B1, int B2, int D, int A
     int i, j;
     int stage2cost = 0;
 
-    Stage2::Pairing PP = Stage2::get_pairing(primes, B1, B2, D, A, L, false);
+    Logging logging(Logging::LEVEL_WARNING);
+    Stage2::Pairing PP = Stage2::get_pairing(logging, primes, B1, B2, D, A, L, false);
     B1 = PP.first_D*D;
     stage2cost += PP.total - PP.pairs;
     *pairing = 2*PP.pairs/(double)PP.total;

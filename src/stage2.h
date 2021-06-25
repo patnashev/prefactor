@@ -9,6 +9,7 @@
 #include "inputnum.h"
 #include "task.h"
 #include "file.h"
+#include "logging.h"
 
 class Stage2 : public Task
 {
@@ -46,12 +47,12 @@ public:
     };
 
 public:
-    Stage2(PrimeList& primes, int B1, int B2, int D, int A, int L) : Task(true), _primes(primes), _B1(B1), _B2(B2), _D(D), _A(A), _L(L)
+    Stage2(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L) : Task(true), _primes(primes), _B1(B1), _B2(B2), _D(D), _A(A), _L(L)
     {
-        _pairing = get_pairing(primes, B1, B2, D, A, L, true);
+        _pairing = get_pairing(logging, primes, B1, B2, D, A, L, true);
     }
 
-    static Pairing get_pairing(PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances);
+    static Pairing get_pairing(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances);
 
     PrimeList& primes() { return _primes; }
     bool success() { return _success; }
@@ -60,7 +61,7 @@ public:
 protected:
     template<class Element>
     int precompute(arithmetic::DifferentialGroupArithmetic<Element>& arithmetic, Element& X1, Element& XD, Element& XDA, std::vector<std::unique_ptr<Element>>& precomp);
-    void init(InputNum& input, arithmetic::GWState& gwstate, File* file, TaskState* state);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging);
     void reinit_gwstate() override;
     void done(const arithmetic::Giant& factor);
 
@@ -84,9 +85,9 @@ protected:
 class PP1Stage2 : public Stage2
 {
 public:
-    PP1Stage2(PrimeList& primes, int B1, int B2, int D, int A, int L) : Stage2(primes, B1, B2, D, A, L) { }
+    PP1Stage2(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L) : Stage2(logging, primes, B1, B2, D, A, L) { }
 
-    void init(InputNum& input, arithmetic::GWState& gwstate, File* file, arithmetic::Giant& P, bool minus1);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& P, bool minus1);
 
 protected:
     void setup() override;
@@ -109,9 +110,9 @@ private:
 class EdECMStage2 : public Stage2
 {
 public:
-    EdECMStage2(PrimeList& primes, int B1, int B2, int D, int L, int LN) : Stage2(primes, B1, B2, D, 1, L), _LN(LN) { }
+    EdECMStage2(Logging& logging, PrimeList& primes, int B1, int B2, int D, int L, int LN) : Stage2(logging, primes, B1, B2, D, 1, L), _LN(LN) { }
 
-    void init(InputNum& input, arithmetic::GWState& gwstate, File* file, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
 
 protected:
     void setup() override;

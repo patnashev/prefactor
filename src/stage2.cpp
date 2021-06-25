@@ -12,10 +12,8 @@
 
 using namespace arithmetic;
 
-void report_factor(const Giant& f, InputNum& input);
-
 template<int TL>
-Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances)
+Stage2::Pairing get_pairing_L(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances)
 {
     int i, j, k;
     int d, p, q;
@@ -103,10 +101,10 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
         }
     }
 
-    std::cout << "Pairing " << ret.total << " primes, D=" << D << ", L=" << L;
+    logging.info("Pairing %d primes, D=%d, L=%d", ret.total, D, L);
     if (A > 1)
-        std::cout << ", A=" << A;
-    std::cout << "... ";
+        logging.info(", A=%d", A);
+    logging.info("... ");
 
     std::vector<std::vector<int>> dist_rem(D);
     for (i = 1; i < D; i++)
@@ -326,78 +324,78 @@ Stage2::Pairing get_pairing_L(PrimeList& primes, int B1, int B2, int D, int A, i
     }
 
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    std::cout << ret.pairs << " pairs (" << std::fixed << std::setprecision(1) << (200.0*ret.pairs/ret.total) << "%), time: " << timer << " s." << std::endl;
+    logging.info("%d pairs (%.1f%%), time: %.1f s.\n", ret.pairs, 200.0*ret.pairs/ret.total, timer);
 
     return ret;
 }
 
-Stage2::Pairing Stage2::get_pairing(PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances)
+Stage2::Pairing Stage2::get_pairing(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances)
 {
     if (A > 1)
     {
         if (L == 1)
-            return get_pairing_L<2>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<2>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 2)
-            return get_pairing_L<4>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<4>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 3)
-            return get_pairing_L<6>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<6>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 4)
-            return get_pairing_L<8>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<8>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 5)
-            return get_pairing_L<10>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<10>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 6)
-            return get_pairing_L<12>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<12>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 7)
-            return get_pairing_L<14>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<14>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 8)
-            return get_pairing_L<16>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<16>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 9)
-            return get_pairing_L<18>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<18>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 10)
-            return get_pairing_L<20>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<20>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 11)
-            return get_pairing_L<22>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<22>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 12)
-            return get_pairing_L<24>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<24>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 13)
-            return get_pairing_L<26>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<26>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 14)
-            return get_pairing_L<28>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<28>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 15)
-            return get_pairing_L<30>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<30>(logging, primes, B1, B2, D, A, L, with_distances);
     }
     else
     {
         if (L == 1)
-            return get_pairing_L<1>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<1>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 2)
-            return get_pairing_L<2>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<2>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 3)
-            return get_pairing_L<3>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<3>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 4)
-            return get_pairing_L<4>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<4>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 5)
-            return get_pairing_L<5>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<5>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 6)
-            return get_pairing_L<6>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<6>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 7)
-            return get_pairing_L<7>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<7>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 8)
-            return get_pairing_L<8>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<8>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 9)
-            return get_pairing_L<9>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<9>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 10)
-            return get_pairing_L<10>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<10>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 11)
-            return get_pairing_L<11>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<11>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 12)
-            return get_pairing_L<12>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<12>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 13)
-            return get_pairing_L<13>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<13>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 14)
-            return get_pairing_L<14>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<14>(logging, primes, B1, B2, D, A, L, with_distances);
         if (L == 15)
-            return get_pairing_L<15>(primes, B1, B2, D, A, L, with_distances);
+            return get_pairing_L<15>(logging, primes, B1, B2, D, A, L, with_distances);
     }
     throw ArithmeticException("L not supported.");
 }
@@ -514,51 +512,60 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
 }
 
 
-void Stage2::init(InputNum& input, GWState& gwstate, File* file, TaskState* state)
+void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* state, Logging* logging)
 {
-    Task::init(gwstate, _pairing.last_D - _pairing.first_D + 1, file, state);
-    _error_check = gwnear_fft_limit(gwstate.gwdata(), 1) == TRUE;
-    _input = &input;
+    Task::init(gwstate, file, state, logging, _pairing.last_D - _pairing.first_D + 1);
+    _error_check = gwnear_fft_limit(gwstate->gwdata(), 1) == TRUE;
+    _input = input;
     _timer = getHighResTimer();
-    _transforms = -(int)gwstate.handle.fft_count;
+    _transforms = -(int)gwstate->handle.fft_count;
 }
 
 void Stage2::reinit_gwstate()
 {
-    _transforms += (int)_gwstate->handle.fft_count;
+    double fft_count = _gwstate->handle.fft_count;
     _gwstate->done();
     _input->setup(*_gwstate);
-    std::cout << "Using " << _gwstate->fft_description << std::endl;
+    _gwstate->handle.fft_count = fft_count;
+    std::string prefix = _logging->prefix();
+    _logging->set_prefix("");
+    _logging->error("Restarting using %s\n", _gwstate->fft_description.data());
+    _logging->set_prefix(prefix);
 }
 
 void Stage2::done(const arithmetic::Giant& factor)
 {
     _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
     _transforms += (int)_gwstate->handle.fft_count;
+    _logging->progress().update(1, (int)_gwstate->handle.fft_count);
+    _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
     if (factor == 0 || factor == *_gwstate->N)
     {
-        printf("All divisors of N < B1.\n");
+        _logging->warning("all divisors less than B1.\n");
+        _logging->result("all divisors less than B1, time: %.1f s.\n", _logging->progress().time_total());
         _success = true;
     }
     else if (factor != 1)
     {
-        report_factor(factor, *_input);
+        _logging->report_factor(*_input, factor);
         _success = true;
     }
     else
     {
-        printf("No factors found, transforms: %d, time: %d s.\n", _transforms, (int)_timer);
+        //_logging->info("No factors found.\n");
     }
+    _logging->set_prefix("");
 }
 
-void PP1Stage2::init(InputNum& input, GWState& gwstate, File* file, Giant& P, bool minus1)
+void PP1Stage2::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, Giant& P, bool minus1)
 {
-    Stage2::init(input, gwstate, file, read_state<State>(file));
+    Stage2::init(input, gwstate, file, read_state<State>(file), logging);
     _state_update_period = MULS_PER_STATE_UPDATE/10;
-    printf("%s, P%c1 stage 2, B2 = %d", input.display_text().data(), minus1 ? '-' : '+', _B2);
+    _logging->set_prefix(input->display_text() + (minus1 ? ", P-1 stage 2, " : ", P+1 stage 2, "));
+    _logging->info("B2 = %d", _B2);
     if (state() != nullptr)
-        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
-    printf(".\n");
+        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    _logging->info(".\n");
     lucas.reset(new LucasVArithmetic());
     _P = P;
 }
@@ -591,7 +598,7 @@ void PP1Stage2::setup()
 
         transforms += (int)gw().gwdata()->fft_count;
         _transforms -= transforms;
-        std::cout << precomp_size << " precomputed values (" << transforms << " transforms), " << (_pairing.last_D - _pairing.first_D + 1) << " steps." << std::endl;
+        _logging->info("%d precomputed values (%d transforms), %d steps.\n", precomp_size, transforms, _pairing.last_D - _pairing.first_D + 1);
     }
 
     if (state() == nullptr)
@@ -685,16 +692,17 @@ void PP1Stage2::execute()
     done(tmp);
 }
 
-void EdECMStage2::init(InputNum& input, GWState& gwstate, File* file, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
+void EdECMStage2::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
-    Stage2::init(input, gwstate, file, read_state<State>(file));
+    Stage2::init(input, gwstate, file, read_state<State>(file), logging);
     _state_update_period = MULS_PER_STATE_UPDATE*10/_D;
     if (_LN > 0 && _state_update_period%_LN != 0)
         _state_update_period += _LN - _state_update_period%_LN;
-    printf("%s, EdECM stage 2, B2 = %d", input.display_text().data(), _B2);
+    _logging->set_prefix(input->display_text() + ", EdECM stage 2, ");
+    _logging->info("B2 = %d", _B2);
     if (state() != nullptr)
-        printf(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
-    printf(".\n");
+        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    _logging->info(".\n");
     _X = X;
     _Y = Y;
     _Z = Z;
@@ -743,10 +751,10 @@ void EdECMStage2::setup()
 
         transforms += (int)gw().gwdata()->fft_count;
         _transforms -= transforms;
-        std::cout << precomp_size << " precomputed values (" << transforms << " transforms), " << (_pairing.last_D - _pairing.first_D + 1) << " steps";
+        _logging->info("%d precomputed values (%d transforms), %d steps", precomp_size, transforms, _pairing.last_D - _pairing.first_D + 1);
         if (_LN > 0)
-            std::cout << " in batches of " << _LN;
-        std::cout << "." << std::endl;
+            _logging->info(" in batches of %d", _LN);
+        _logging->info(".\n");
     }
 
     if (state() == nullptr)

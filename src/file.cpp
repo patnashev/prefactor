@@ -6,18 +6,9 @@
 #include "md5.c"
 #include "inputnum.h"
 #include "task.h"
-
-void report_factor(const arithmetic::Giant& f, InputNum& input)
-{
-    std::string str = f.to_string();
-    printf("Found factor %s\n", str.data());
-    FILE *fp = fopen("factors.txt", "a");
-    if (fp)
-    {
-        fprintf(fp, "%s | %s\n", str.data(), input.input_text().data());
-        fclose(fp);
-    }
-}
+#ifdef _WIN32
+#include "windows.h"
+#endif
 
 int Writer::_max_size = 0;
 
@@ -25,30 +16,30 @@ void Writer::write(int32_t value)
 {
     _data.insert(_data.end(), (char*)&value, 4 + (char*)&value);
     if (_max_size < _data.size())
-        _max_size = _data.size();
+        _max_size = (int)_data.size();
 }
 
 void Writer::write(uint32_t value)
 {
     _data.insert(_data.end(), (char*)&value, 4 + (char*)&value);
     if (_max_size < _data.size())
-        _max_size = _data.size();
+        _max_size = (int)_data.size();
 }
 
 void Writer::write(double value)
 {
     _data.insert(_data.end(), (char*)&value, (char*)(&value + 1));
     if (_max_size < _data.size())
-        _max_size = _data.size();
+        _max_size = (int)_data.size();
 }
 
 void Writer::write(const std::string& value)
 {
-    int32_t len = value.size();
+    int32_t len = (int)value.size();
     _data.insert(_data.end(), (char*)&len, 4 + (char*)&len);
     _data.insert(_data.end(), (char*)value.data(), (char*)(value.data() + value.size()));
     if (_max_size < _data.size())
-        _max_size = _data.size();
+        _max_size = (int)_data.size();
 }
 
 void Writer::write(const arithmetic::Giant& value)
@@ -59,7 +50,7 @@ void Writer::write(const arithmetic::Giant& value)
     _data.insert(_data.end(), (char*)&len, 4 + (char*)&len);
     _data.insert(_data.end(), (char*)value.data(), (char*)(value.data() + value.size()));
     if (_max_size < _data.size())
-        _max_size = _data.size();
+        _max_size = (int)_data.size();
 }
 
 std::vector<char> Writer::hash()
@@ -67,7 +58,7 @@ std::vector<char> Writer::hash()
     std::vector<char> digest(16);
     MD5_CTX context;
     MD5Init(&context);
-    MD5Update(&context, (unsigned char *)_data.data(), _data.size());
+    MD5Update(&context, (unsigned char *)_data.data(), (unsigned int)_data.size());
     MD5Final((unsigned char *)digest.data(), &context);
     return digest;
 }
@@ -75,7 +66,7 @@ std::vector<char> Writer::hash()
 std::string Writer::hash_str()
 {
     char output[33];
-    md5_raw_input(output, (unsigned char *)_data.data(), _data.size());
+    md5_raw_input(output, (unsigned char *)_data.data(), (unsigned int)_data.size());
     return output;
 }
 
@@ -145,7 +136,7 @@ Reader* File::get_reader()
     int filelen = ftell(fd);
     data.data().resize(filelen);
     fseek(fd, 0L, SEEK_SET);
-    filelen = fread(data.data().data(), 1, filelen, fd);
+    filelen = (int)fread(data.data().data(), 1, filelen, fd);
     fclose(fd);
     if (filelen != data.data().size())
         return nullptr;
@@ -175,15 +166,15 @@ Reader* File::get_reader()
     return new Reader(data.data()[5], data.data()[6], std::move(data.data()), 8);
 }
 
-bool writeThrough(char *filename, const void *buffer, unsigned int count)
+bool writeThrough(char *filename, const void *buffer, size_t count)
 {
     bool ret = true;
-#ifdef dwedwe_WIN32
+#ifdef _WIN32
     HANDLE hFile = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_FLAG_WRITE_THROUGH, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
         return false;
     DWORD written;
-    if (!WriteFile(hFile, buffer, count, &written, NULL) || written != count)
+    if (!WriteFile(hFile, buffer, (DWORD)count, &written, NULL) || written != count)
         ret = false;
     CloseHandle(hFile);
 #else

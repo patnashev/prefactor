@@ -31,7 +31,7 @@ class Reader
 {
 public:
     Reader(char format_version, char version, char *data, int size, int pos) : _format_version(format_version), _version(version), _data(data), _size(size), _pos(pos) { }
-    Reader(char format_version, char version, std::vector<char>&& container, int pos) : _format_version(format_version), _version(version), _container(std::move(container)), _data(_container.data()), _size(_container.size()), _pos(pos) { }
+    Reader(char format_version, char version, std::vector<char>&& container, int pos) : _format_version(format_version), _version(version), _container(std::move(container)), _data(_container.data()), _size((int)_container.size()), _pos(pos) { }
 
     bool read(int32_t& value);
     bool read(uint32_t& value);

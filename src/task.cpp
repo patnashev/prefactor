@@ -22,14 +22,19 @@ void TaskState::write(Writer& writer)
     writer.write(_iteration);
 }
 
-void Task::init(arithmetic::GWState& gwstate, int iterations, File* file, TaskState* state)
+bool Task::_abort_flag = false;
+
+void Task::init(arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations)
 {
-    _gwstate = &gwstate;
+    _gwstate = gwstate;
     _iterations = iterations;
     _gw = nullptr;
     _file = file;
     _state.reset(state);
+    _logging = logging;
+    logging->progress().update(0, (int)gwstate->handle.fft_count);
     _last_write = std::chrono::system_clock::now();
+    _last_progress = std::chrono::system_clock::now();
 }
 
 void Task::run()
@@ -69,9 +74,15 @@ void Task::run()
             }
             catch (const ArithmeticException& e)
             {
-                printf("ArithmeticException: %s\n", e.what());
+                _logging->error("ArithmeticException: %s\n", e.what());
+            }
+            catch (...)
+            {
+                release();
+                throw;
             }
             //GWASSERT(0);
+            _logging->error("Arithmetic error, restarting at %.1f%%.\n", state() ? 100.0*state()->iteration()/iterations() : 0.0);
             if (reliable && reliable->restart_flag() && !reliable->failure_flag())
             {
                 reliable->restart();
@@ -108,9 +119,15 @@ void Task::run()
             }
             catch (const ArithmeticException& e)
             {
-                printf("ArithmeticException: %s\n", e.what());
+                _logging->error("ArithmeticException: %s\n", e.what());
+            }
+            catch (...)
+            {
+                release();
+                throw;
             }
             //GWASSERT(0);
+            _logging->error("Arithmetic error, restarting at %.1f%%.\n", state() ? 100.0*state()->iteration()/iterations() : 0.0);
             if (reliable && reliable->restart_flag() && !reliable->failure_flag())
             {
                 reliable->restart(_restart_op);
@@ -126,7 +143,7 @@ void Task::run()
         release();
         if (_gwstate->next_fft_count >= 5)
         {
-            printf("Maximum FFT increment reached.\n");
+            _logging->error("Maximum FFT increment reached.\n");
             throw TaskAbortException();
         }
         _gwstate->next_fft_count++;
@@ -153,10 +170,18 @@ void Task::check()
 void Task::set_state(TaskState* state)
 {
     _state.reset(state);
-    if (_file != nullptr && state != nullptr && std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME)
+    if (_file != nullptr && state != nullptr && (std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME || abort_flag()))
     {
         _file->write(*state);
         _last_write = std::chrono::system_clock::now();
+    }
+    if (abort_flag())
+        throw TaskAbortException();
+    if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - _last_progress).count() >= 10)
+    {
+        _logging->progress().update(state != nullptr ? state->iteration()/(double)iterations() : 0.0, (int)_gwstate->handle.fft_count);
+        _logging->report_progress();
+        _last_progress = std::chrono::system_clock::now();
     }
     if (_error_check && _gw != nullptr)
     {

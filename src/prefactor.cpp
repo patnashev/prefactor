@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <math.h>
 #include <array>
 #include <iostream>
@@ -19,6 +20,7 @@
 #include "stage1.h"
 #include "stage2.h"
 #include "file.h"
+#include "logging.h"
 
 using namespace arithmetic;
 
@@ -26,8 +28,18 @@ using namespace arithmetic;
 
 #include "prob.c"
 
+void sigterm_handler(int signo)
+{
+    Task::abort();
+    printf("Terminating...\n");
+    signal(signo, sigterm_handler);
+}
+
 int main(int argc, char *argv[])
 {
+    signal(SIGTERM, sigterm_handler);
+    signal(SIGINT, sigterm_handler);
+
     int i, j;
     GWState gwstate;
     GWArithmetic gw(gwstate);
@@ -47,6 +59,8 @@ int main(int argc, char *argv[])
     std::string curveY;
     int K = 0;
     InputNum input;
+    int log_level = Logging::LEVEL_INFO;
+    bool success = false;
 
     for (i = 1; i < argc; i++)
         if (argv[i][0] == '-' && argv[i][1])
@@ -183,8 +197,10 @@ int main(int argc, char *argv[])
     if (!minus1 && !plus1 && !edecm)
         minus1 = 1;
 
+    Logging logging(log_level);
+    logging.progress().time_init(0);
     input.setup(gwstate);
-    std::cout << "Using " << gwstate.fft_description << std::endl;
+    logging.info("Using %s.\n", gwstate.fft_description.data());
 
     double primalityCost = 0;
     if (input.b() == 2)
@@ -207,7 +223,7 @@ int main(int argc, char *argv[])
     if (sievingDepth != 0 && B1 == 0)
     {
         get_optimal_bounds(&B1, &B2, maxSize, sievingDepth, knownDivisors, primalityCost, minus1 ? 0 : plus1 ? 1 : 5);
-        printf("Optimal B1 = %d, B2 = %d.\n", B1, B2);
+        logging.info("Optimal B1 = %d, B2 = %d.\n", B1, B2);
     }
     if (sievingDepth != 0 && B1 != 0 && B2 == 0)
     {
@@ -227,20 +243,38 @@ int main(int argc, char *argv[])
         get_edecm_stage1_params(B1, maxSize, &K);
     double pairing;
     get_stage2_params(B1, B2, maxSize, &D, &A, &L, &pairing);
-    int cost = get_stage1_cost(B1, minus1 ? 0 : plus1 ? 1 : K) + get_stage2_cost(B1, B2, D, A, L, pairing);
-    int size = get_stage2_size(D, A, L);
-    if (edecm && size < get_edecm_stage1_size(K))
-        size = get_edecm_stage1_size(K);
-    printf("Running at 1/%.0f cost of a primality test, using %.0f MB.\n", primalityCost/cost, gwnum_size(gwstate.gwdata())/1048576.0*size);
+    int size = 0;
+    if (minus1)
+    {
+        logging.progress().add_stage(get_stage1_cost(B1, 0));
+        logging.progress().add_stage(get_stage2_cost(B1, B2, D, A, L, pairing));
+        size = get_stage2_size(D, A, L);
+    }
+    if (plus1)
+    {
+        logging.progress().add_stage(get_stage1_cost(B1, 1));
+        logging.progress().add_stage(get_stage2_cost(B1, B2, D, A, L, pairing));
+        size = get_stage2_size(D, A, L);
+    }
+    if (edecm)
+    {
+        logging.progress().add_stage(get_stage1_cost(B1, K));
+        logging.progress().add_stage(get_stage2_cost(B1, B2, D, A, L, pairing)); // TODO:
+        int size_ed1 = get_edecm_stage1_size(K);
+        if (size < size_ed1)
+            size = size_ed1;
+    }
+    int cost = logging.progress().cost_total();
+    logging.info("Running at 1/%.0f cost of a primality test, using %.0f MB.\n", primalityCost/cost, gwnum_size(gwstate.gwdata())/1048576.0*size);
     if (sievingDepth != 0)
     {
         double value = prob_smooth(B1, B2, sievingDepth, knownDivisors);
-        printf("Probability of a factor 1/%.0f, overall speedup %.2f%%.\n", 1/value, 100*(value - cost/primalityCost));
+        logging.info("Probability of a factor 1/%.0f, overall speedup %.2f%%.\n", 1/value, 100*(value - cost/primalityCost));
     }
 
     try
     {
-        if (minus1)
+        if (minus1 && !success)
         {
             File file1(std::to_string(gwstate.fingerprint) + ".m1", gwstate.fingerprint);
             File file12(std::to_string(gwstate.fingerprint) + ".m12", gwstate.fingerprint);
@@ -249,30 +283,34 @@ int main(int argc, char *argv[])
             if (interstate == nullptr)
             {
                 PM1Stage1 stage1(primes, B1);
-                stage1.init(input, gwstate, &file1);
+                stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
-                if (!stage1.success() && B2 > B1)
+                success = stage1.success();
+                if (!success && B2 > B1)
                 {
                     interstate = new PP1Stage1::State();
                     interstate->V() = std::move(stage1.V());
                     file12.write(*interstate);
                 }
             }
+            logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(primes, B1, B2, D, A, L);
-                stage2.init(input, gwstate, &file2, interstate->V(), true);
+                PP1Stage2 stage2(logging, primes, B1, B2, D, A, L);
+                stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                 stage2.run();
+                success = stage2.success();
             }
+            logging.progress().next_stage();
             file1.clear();
             file12.clear();
             file2.clear();
         }
-        if (plus1)
+        if (plus1 && !success)
         {
             if (sP.empty())
-                sP = "6/5";
-                //sP = "2/7";
+                //sP = "6/5";
+                sP = "2/7";
             File file1(std::to_string(gwstate.fingerprint) + ".p1", gwstate.fingerprint);
             File file12(std::to_string(gwstate.fingerprint) + ".p12", gwstate.fingerprint);
             File file2(std::to_string(gwstate.fingerprint) + ".p2", gwstate.fingerprint);
@@ -280,25 +318,29 @@ int main(int argc, char *argv[])
             if (interstate == nullptr)
             {
                 PP1Stage1 stage1(primes, B1, sP);
-                stage1.init(input, gwstate, &file1);
+                stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
-                if (!stage1.success() && B2 > B1)
+                success = stage1.success();
+                if (!success && B2 > B1)
                 {
                     interstate = new PP1Stage1::State(std::move(*stage1.state()));
                     file12.write(*interstate);
                 }
             }
+            logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(primes, B1, B2, D, A, L);
-                stage2.init(input, gwstate, &file2, interstate->V(), false);
+                PP1Stage2 stage2(logging, primes, B1, B2, D, A, L);
+                stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                 stage2.run();
+                success = stage2.success();
             }
+            logging.progress().next_stage();
             file1.clear();
             file12.clear();
             file2.clear();
         }
-        if (edecm)
+        if (edecm && !success)
         {
             Giant X, Y, Z, T, EdD;
             {
@@ -339,11 +381,11 @@ int main(int argc, char *argv[])
                 Giant tmp;
                 tmp = ed.jinvariant(ed_d);
                 if (tmp.size() > 1)
-                    printf("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                    logging.info("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
                 else if (tmp.size() > 0)
-                    printf("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
+                    logging.info("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
                 else
-                    printf("Curve j-invariant RES64: %08X%08X\n", 0, 0);
+                    logging.info("Curve j-invariant RES64: %08X%08X\n", 0, 0);
                 P.serialize(X, Y, Z, T);
                 EdD = ed_d;
             };
@@ -355,23 +397,33 @@ int main(int argc, char *argv[])
             if (interstate == nullptr)
             {
                 EdECMStage1 stage1(primes, B1, K);
-                stage1.init(input, gwstate, &file1, X, Y, Z, T, EdD);
+                stage1.init(&input, &gwstate, &file1, &logging, X, Y, Z, T, EdD);
                 stage1.run();
-                if (!stage1.success() && B2 > B1)
+                success = stage1.success();
+                if (!success && B2 > B1)
                 {
                     interstate = new EdECMStage1::State(std::move(*stage1.state()));
                     file12.write(*interstate);
                 }
             }
+            logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                EdECMStage2 stage2(primes, B1, B2, 210, 5, 20);
-                stage2.init(input, gwstate, &file2, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
+                EdECMStage2 stage2(logging, primes, B1, B2, 210, 5, 20);
+                stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                 stage2.run();
+                success = stage2.success();
             }
+            logging.progress().next_stage();
             file1.clear();
             file12.clear();
             file2.clear();
+        }
+        if (!success)
+        {
+            logging.progress().update(1, (int)gwstate.handle.fft_count);
+            logging.info("%s, no factors found.\n", input.input_text().data(), logging.progress().time_total());
+            logging.result("%s, no factors found, time: %.1f s.\n", input.input_text().data(), logging.progress().time_total());
         }
     }
     catch (const TaskAbortException&)
