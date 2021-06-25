@@ -88,8 +88,8 @@ void Logging::result(const char* message...)
 void Logging::report(const std::string& message)
 {
     if (_print_prefix)
-        printf(_prefix.data());
-    std::cout << message.data();
+        std::cout << _prefix;
+    std::cout << message;
     _print_prefix = message.back() == '\n';
 }
 
