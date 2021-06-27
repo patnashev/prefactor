@@ -142,9 +142,8 @@ namespace arithmetic
     {
         bool safe11 = mul_safe(gw().gwdata(), 1, 1);
 
-        std::unique_ptr<GWNum> tmp;
-        if (!(options & ED_PROJECTIVE) || &a == &res)
-            tmp.reset(new GWNum(gw()));
+        if (!_tmp && (!(options & ED_PROJECTIVE) || &a == &res))
+            _tmp.reset(new GWNum(gw()));
         if (!res.X)
             res.X.reset(new GWNum(gw()));
         if (!res.Y)
@@ -192,25 +191,25 @@ namespace arithmetic
         gw().addsub(*res.T, *res.Z, *res.T, *res.Z, GWADD_DELAYNORM_IF(safe11 || (options & ED_PROJECTIVE))); // E = D + C, H = D - C
         if (options & EDADD_NEGATIVE)
         {
-            gw().mulmuladd(*a.X, *b.Y, *a.Y, *b.X, (&a == &res) ? *tmp : *res.X, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // F = X1*Y2 - Y1*[-]X2
+            gw().mulmuladd(*a.X, *b.Y, *a.Y, *b.X, (&a == &res) ? *_tmp : *res.X, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // F = X1*Y2 - Y1*[-]X2
             gw().mulmulsub(*a.Y, *b.Y, *a.X, *b.X, *res.Y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*[-]X2
         }
         else
         {
-            gw().mulmulsub(*a.X, *b.Y, *a.Y, *b.X, (&a == &res) ? *tmp : *res.X, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // F = X1*Y2 - Y1*X2
+            gw().mulmulsub(*a.X, *b.Y, *a.Y, *b.X, (&a == &res) ? *_tmp : *res.X, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // F = X1*Y2 - Y1*X2
             gw().mulmuladd(*a.Y, *b.Y, *a.X, *b.X, *res.Y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*X2
         }
         if (&a == &res)
-            swap(*res.X, *tmp);
+            swap(*res.X, *_tmp);
         if (!(options & ED_PROJECTIVE))
-            gw().mul(*res.Z, *res.T, *tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | options); // T3 = E * H
+            gw().mul(*res.Z, *res.T, *_tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | options); // T3 = E * H
         gw().mul(*res.Y, *res.Z, *res.Z, options); // Y3 = G * H
         gw().mul(*res.X, *res.T, *res.T, options); // X3 = E * F
         gw().mul(*res.X, *res.Y, *res.Y, options); // Z3 = F * G
         swap(*res.Y, *res.Z);
         swap(*res.X, *res.T);
         if (!(options & ED_PROJECTIVE))
-            swap(*res.T, *tmp);
+            swap(*res.T, *_tmp);
         else
             res.T.reset();
     }
@@ -221,15 +220,19 @@ namespace arithmetic
         bool safe11 = mul_safe(gw().gwdata(), 1, 1);
         bool save_write = safe11 && gw().gwdata()->PASS2_SIZE;
 
-        std::unique_ptr<GWNum> tmp;
-        if (!(options & ED_PROJECTIVE))
-            tmp.reset(new GWNum(gw()));
+        if (!_tmp && (!(options & ED_PROJECTIVE) || !res.T))
+            _tmp.reset(new GWNum(gw()));
         if (!res.X)
             res.X.reset(new GWNum(gw()));
         if (!res.Y)
             res.Y.reset(new GWNum(gw()));
         if (!res.T)
-            res.T.reset(new GWNum(gw()));
+        {
+            if (!(options & ED_PROJECTIVE))
+                res.T.reset(new GWNum(gw()));
+            else
+                res.T.reset(_tmp.release());
+        }
 
         gw().setmulbyconst(2);
         gw().mul(*a.X, *a.Y, *res.T, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // E = 2X1Y1
@@ -250,7 +253,7 @@ namespace arithmetic
             gw().mulmuladd(*a.Y, *a.Y, *a.X, *a.X, *res.Y, GWMUL_STARTNEXTFFT); // G = Y1^2 + X1^2 
             gw().square(*a.X, *res.X, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // G - H = 2X1^2
             if (!(options & ED_PROJECTIVE))
-                gw().submul(*res.Y, *res.X, *res.T, *tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | ((options & GWMUL_STARTNEXTFFT) && (options & EDDBL_FOR_EXT_NORM_ADD) ? GWMUL_STARTNEXTFFT_IF(safe11) : options)); // H = G - (G - H), T3 = E * H
+                gw().submul(*res.Y, *res.X, *res.T, *_tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | ((options & GWMUL_STARTNEXTFFT) && (options & EDDBL_FOR_EXT_NORM_ADD) ? GWMUL_STARTNEXTFFT_IF(safe11) : options)); // H = G - (G - H), T3 = E * H
             gw().submul(*res.Z, *res.Y, *res.T, *res.T, options); // F = C - G, X3 = F * E
             gw().submul(*res.Z, *res.Y, *res.Y, *res.Z, options); // F = C - G, Z3 = F * G
             gw().submul(*res.Y, *res.X, *res.Y, *res.Y, options); // H = G - (G - H), Y3 = H * G
@@ -261,7 +264,7 @@ namespace arithmetic
             gw().square(*a.Y, *res.Y, GWMUL_STARTNEXTFFT_IF(safe21)); // B = Y1^2
             gw().addsub(*res.Y, *res.X, *res.Y, *res.X, GWADD_DELAYNORM_IF(safe21 || safe11)); // G = B + A, H = B - A
             if (!(options & ED_PROJECTIVE))
-                gw().mul(*res.X, *res.T, *tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | ((options & GWMUL_STARTNEXTFFT) && (options & EDDBL_FOR_EXT_NORM_ADD) ? GWMUL_STARTNEXTFFT_IF(safe11) : options)); // T3 = E * H
+                gw().mul(*res.X, *res.T, *_tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2 | ((options & GWMUL_STARTNEXTFFT) && (options & EDDBL_FOR_EXT_NORM_ADD) ? GWMUL_STARTNEXTFFT_IF(safe11) : options)); // T3 = E * H
             gw().sub(*res.Z, *res.Y, *res.Z, GWADD_DELAYNORM_IF(safe21 || !safe11)); // F = C - G
             gw().mul(*res.Z, *res.T, *res.T, options); // X3 = F * E
             gw().mul(*res.Y, *res.Z, *res.Z, options); // Z3 = G * F
@@ -269,9 +272,9 @@ namespace arithmetic
         }
         swap(*res.X, *res.T);
         if (!(options & ED_PROJECTIVE))
-            swap(*res.T, *tmp);
+            swap(*res.T, *_tmp);
         else
-            res.T.reset();
+            _tmp.reset(res.T.release());
     }
 
     void EdwardsArithmetic::mul(EdPoint& a, Giant& b, EdPoint& res)

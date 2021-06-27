@@ -21,6 +21,9 @@
 #include "stage2.h"
 #include "file.h"
 #include "logging.h"
+#ifdef FERMAT
+#include "fermat.h"
+#endif
 
 using namespace arithmetic;
 
@@ -68,109 +71,115 @@ int main(int argc, char *argv[])
             switch (argv[i][1])
             {
             case 't':
-                if (argv[i][2])
+                if (argv[i][2] && isdigit(argv[i][2]))
                     gwstate.thread_count = atoi(argv[i] + 2);
-                else if (i < argc - 1)
+                else if (!argv[i][2] && i < argc - 1)
                 {
                     i++;
                     gwstate.thread_count = atoi(argv[i]);
                 }
+                else
+                    break;
                 if (gwstate.thread_count == 0 || gwstate.thread_count > 64)
                     gwstate.thread_count = 1;
-                break;
+                continue;
 
             case 'q':
+                if (argv[i][2] != '\"' && !isdigit(argv[i][2]))
+                    break;
                 if (!input.parse(argv[i] + 2))
                 {
                     printf("Invalid number format.\n");
                     return 1;
                 }
-                break;
+                continue;
+            }
 
-            default:
-                if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
+            if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
+            {
+                i++;
+                B1 = atoi(argv[i]);
+                if (B1 < 100)
+                    B1 = 100;
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-B2") == 0)
+            {
+                i++;
+                B2 = atoi(argv[i]);
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-S") == 0)
+            {
+                i++;
+                if (sscanf(argv[i], "%lf", &sievingDepth))
                 {
-                    i++;
-                    B1 = atoi(argv[i]);
-                    if (B1 < 100)
-                        B1 = 100;
+                    j = (int)strlen(argv[i]);
+                    if (argv[i][j - 1] == 'P')
+                        sievingDepth *= 1e15;
+                    if (argv[i][j - 1] == 'T')
+                        sievingDepth *= 1e12;
+                    if (argv[i][j - 1] == 'G')
+                        sievingDepth *= 1e9;
+                    if (argv[i][j - 1] == 'M')
+                        sievingDepth *= 1e6;
                 }
-                else if (i < argc - 1 && strcmp(argv[i], "-B2") == 0)
+                if (sievingDepth > 100)
+                    sievingDepth = log(sievingDepth)/log(2);
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
+            {
+                i++;
+                maxMem = atoi(argv[i]);
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-P") == 0)
+            {
+                i++;
+                sP = argv[i];
+                plus1 = 1;
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-curve") == 0)
+            {
+                i++;
+                if (strcmp(argv[i], "curve2x8") == 0)
+                    curveType = 0;
+                else if (strcmp(argv[i], "curve12") == 0)
+                    curveType = 1;
+                else if (strcmp(argv[i], "seed") == 0)
                 {
                     i++;
-                    B2 = atoi(argv[i]);
+                    curveType = 2;
+                    curveSeed = atoi(argv[i]);
                 }
-                else if (i < argc - 1 && strcmp(argv[i], "-S") == 0)
+                else if (strcmp(argv[i], "random") == 0)
                 {
-                    i++;
-                    if (sscanf(argv[i], "%lf", &sievingDepth))
-                    {
-                        j = (int)strlen(argv[i]);
-                        if (argv[i][j - 1] == 'P')
-                            sievingDepth *= 1e15;
-                        if (argv[i][j - 1] == 'T')
-                            sievingDepth *= 1e12;
-                        if (argv[i][j - 1] == 'G')
-                            sievingDepth *= 1e9;
-                        if (argv[i][j - 1] == 'M')
-                            sievingDepth *= 1e6;
-                    }
-                    if (sievingDepth > 100)
-                        sievingDepth = log(sievingDepth)/log(2);
+                    curveType = 2;
+                    double timer = getHighResTimer();
+                    curveSeed = *(int *)&timer;
                 }
-                else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
+                else if (strcmp(argv[i], "xy") == 0)
                 {
                     i++;
-                    maxMem = atoi(argv[i]);
+                    curveType = 3;
+                    curveX = argv[i];
+                    i++;
+                    curveY = argv[i];
                 }
-                else if (i < argc - 1 && strcmp(argv[i], "-P") == 0)
-                {
-                    i++;
-                    sP = argv[i];
-                    plus1 = 1;
-                }
-                else if (i < argc - 1 && strcmp(argv[i], "-curve") == 0)
-                {
-                    i++;
-                    if (strcmp(argv[i], "curve2x8") == 0)
-                        curveType = 0;
-                    else if (strcmp(argv[i], "curve12") == 0)
-                        curveType = 1;
-                    else if (strcmp(argv[i], "seed") == 0)
-                    {
-                        i++;
-                        curveType = 2;
-                        curveSeed = atoi(argv[i]);
-                    }
-                    else if (strcmp(argv[i], "random") == 0)
-                    {
-                        curveType = 2;
-                        double timer = getHighResTimer();
-                        curveSeed = *(int *)&timer;
-                    }
-                    else if (strcmp(argv[i], "xy") == 0)
-                    {
-                        i++;
-                        curveType = 3;
-                        curveX = argv[i];
-                        i++;
-                        curveY = argv[i];
-                    }
 
-                    edecm = 1;
-                }
-                else if (strcmp(argv[i], "-minus") == 0 || strcmp(argv[i], "-minus1") == 0)
-                    minus1 = 1;
-                else if (strcmp(argv[i], "-plus") == 0 || strcmp(argv[i], "-plus1") == 0)
-                    plus1 = 1;
-                else if (strcmp(argv[i], "-ecm") == 0 || strcmp(argv[i], "-eecm") == 0 || strcmp(argv[i], "-edecm") == 0)
-                    edecm = 1;
-                else if (strcmp(argv[i], "-v") == 0)
-                {
-                    printf("Prefactor version " PREFACTOR_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
-                    return 0;
-                }
-                break;
+                edecm = 1;
+            }
+            else if (strcmp(argv[i], "-minus") == 0 || strcmp(argv[i], "-minus1") == 0)
+                minus1 = 1;
+            else if (strcmp(argv[i], "-plus") == 0 || strcmp(argv[i], "-plus1") == 0)
+                plus1 = 1;
+            else if (strcmp(argv[i], "-ecm") == 0 || strcmp(argv[i], "-eecm") == 0 || strcmp(argv[i], "-edecm") == 0)
+                edecm = 1;
+#ifdef FERMAT
+            else if (strcmp(argv[i], "-fermat") == 0)
+                return fermat_main(argc, argv);
+#endif
+            else if (strcmp(argv[i], "-v") == 0)
+            {
+                printf("Prefactor version " PREFACTOR_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
+                return 0;
             }
         }
         else
@@ -357,6 +366,12 @@ int main(int argc, char *argv[])
                     try
                     {
                         P = ed.gen_curve(curveSeed, &ed_d);
+                    }
+                    catch (const NoInverseException& e)
+                    {
+                        logging.set_prefix(input.display_text() + ", EdECM, ");
+                        logging.report_factor(input, e.divisor);
+                        return 0;
                     }
                     catch (const ArithmeticException&)
                     {

@@ -27,6 +27,13 @@ void Writer::write(uint32_t value)
         _max_size = (int)_data.size();
 }
 
+void Writer::write(uint64_t value)
+{
+    _data.insert(_data.end(), (char*)&value, 8 + (char*)&value);
+    if (_max_size < _data.size())
+        _max_size = (int)_data.size();
+}
+
 void Writer::write(double value)
 {
     _data.insert(_data.end(), (char*)&value, (char*)(&value + 1));
@@ -50,6 +57,13 @@ void Writer::write(const arithmetic::Giant& value)
         len *= -1;
     _data.insert(_data.end(), (char*)&len, 4 + (char*)&len);
     _data.insert(_data.end(), (char*)value.data(), (char*)(value.data() + value.size()));
+    if (_max_size < _data.size())
+        _max_size = (int)_data.size();
+}
+
+void Writer::write(const char* ptr, int count)
+{
+    _data.insert(_data.end(), ptr, ptr + count);
     if (_max_size < _data.size())
         _max_size = (int)_data.size();
 }
@@ -86,6 +100,15 @@ bool Reader::read(uint32_t& value)
         return false;
     value = *(uint32_t*)(_data + _pos);
     _pos += 4;
+    return true;
+}
+
+bool Reader::read(uint64_t& value)
+{
+    if (_size < _pos + 8)
+        return false;
+    value = *(uint64_t*)(_data + _pos);
+    _pos += 8;
     return true;
 }
 
@@ -161,7 +184,7 @@ Reader* File::get_reader()
         return nullptr;
     if (*(uint32_t*)data.data().data() != MAGIC_NUM)
         return nullptr;
-    if (data.data()[4] != FILE_APPID)
+    if (data.data()[4] != appid)
         return nullptr;
 
     return new Reader(data.data()[5], data.data()[6], std::move(data.data()), 8);

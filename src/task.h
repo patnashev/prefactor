@@ -70,7 +70,7 @@ public:
     int iterations() { return _iterations; }
     int state_update_period() { return _state_update_period; }
     bool is_last(int iteration) { return iteration + 1 == _iterations || (iteration + 1)%_state_update_period == 0; }
-    bool abort_flag() { return _abort_flag; }
+    static bool abort_flag() { return _abort_flag; }
 
 protected:
     virtual void init(arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations);

@@ -14,9 +14,11 @@ public:
 
     void write(int32_t value);
     void write(uint32_t value);
+    void write(uint64_t value);
     void write(double value);
     void write(const std::string& value);
     void write(const arithmetic::Giant& value);
+    void write(const char* ptr, int count);
 
     std::vector<char>& data() { return _data; }
     std::vector<char> hash();
@@ -35,6 +37,7 @@ public:
 
     bool read(int32_t& value);
     bool read(uint32_t& value);
+    bool read(uint64_t& value);
     bool read(double& value);
     bool read(std::string& value);
     bool read(arithmetic::Giant& value);
@@ -67,6 +70,7 @@ public:
     void clear();
     
     bool hash = true;
+    int appid = FILE_APPID;
 
 private:
     std::string _filename;

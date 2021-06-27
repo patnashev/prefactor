@@ -49,6 +49,7 @@ namespace arithmetic
 
     private:
         GWArithmetic* _gw;
+        std::unique_ptr<GWNum> _tmp;
     };
 
     class EdPoint : public GroupElement<EdwardsArithmetic, EdPoint>

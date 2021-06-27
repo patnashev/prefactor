@@ -306,6 +306,7 @@ void EdECMStage1::release()
 {
     _ed_d.reset();
     _u.clear();
+    ed.release();
 }
 
 void EdECMStage1::execute()
