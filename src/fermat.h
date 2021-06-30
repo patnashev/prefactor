@@ -10,7 +10,7 @@
 
 #define FERMAT_APPID 2
 
-int fermat_main(int argc, const char *argv[]);
+int fermat_main(int argc, char *argv[]);
 
 class Fermat
 {
@@ -25,7 +25,7 @@ public:
 
     bool read_points(File& file);
     bool read_state(File& file, uint64_t B1);
-    void verify(bool verify_curve, const std::string& dhash);
+    std::string verify(bool verify_curve);
     void modulus(int curve, File& file_result);
     void stage1(uint64_t B1, File& file_state, File& file_result);
 

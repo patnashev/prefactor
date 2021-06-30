@@ -4,50 +4,38 @@
 #include <stdlib.h>
 #include "gwnum.h"
 #include "file.h"
-#include "md5.c"
+#include "md5.h"
 #include "inputnum.h"
 #include "task.h"
 #ifdef _WIN32
 #include "windows.h"
 #endif
 
-int Writer::_max_size = 0;
-
 void Writer::write(int32_t value)
 {
-    _data.insert(_data.end(), (char*)&value, 4 + (char*)&value);
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), (char*)&value, 4 + (char*)&value);
 }
 
 void Writer::write(uint32_t value)
 {
-    _data.insert(_data.end(), (char*)&value, 4 + (char*)&value);
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), (char*)&value, 4 + (char*)&value);
 }
 
 void Writer::write(uint64_t value)
 {
-    _data.insert(_data.end(), (char*)&value, 8 + (char*)&value);
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), (char*)&value, 8 + (char*)&value);
 }
 
 void Writer::write(double value)
 {
-    _data.insert(_data.end(), (char*)&value, (char*)(&value + 1));
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), (char*)&value, (char*)(&value + 1));
 }
 
 void Writer::write(const std::string& value)
 {
     int32_t len = (int)value.size();
-    _data.insert(_data.end(), (char*)&len, 4 + (char*)&len);
-    _data.insert(_data.end(), (char*)value.data(), (char*)(value.data() + value.size()));
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), (char*)&len, 4 + (char*)&len);
+    _buffer.insert(_buffer.end(), (char*)value.data(), (char*)(value.data() + value.size()));
 }
 
 void Writer::write(const arithmetic::Giant& value)
@@ -55,17 +43,13 @@ void Writer::write(const arithmetic::Giant& value)
     int32_t len = value.size();
     if (value < 0)
         len *= -1;
-    _data.insert(_data.end(), (char*)&len, 4 + (char*)&len);
-    _data.insert(_data.end(), (char*)value.data(), (char*)(value.data() + value.size()));
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), (char*)&len, 4 + (char*)&len);
+    _buffer.insert(_buffer.end(), (char*)value.data(), (char*)(value.data() + value.size()));
 }
 
 void Writer::write(const char* ptr, int count)
 {
-    _data.insert(_data.end(), ptr, ptr + count);
-    if (_max_size < _data.size())
-        _max_size = (int)_data.size();
+    _buffer.insert(_buffer.end(), ptr, ptr + count);
 }
 
 std::vector<char> Writer::hash()
@@ -73,16 +57,16 @@ std::vector<char> Writer::hash()
     std::vector<char> digest(16);
     MD5_CTX context;
     MD5Init(&context);
-    MD5Update(&context, (unsigned char *)_data.data(), (unsigned int)_data.size());
+    MD5Update(&context, (unsigned char *)_buffer.data(), (unsigned int)_buffer.size());
     MD5Final((unsigned char *)digest.data(), &context);
     return digest;
 }
 
 std::string Writer::hash_str()
 {
-    char output[33];
-    md5_raw_input(output, (unsigned char *)_data.data(), (unsigned int)_data.size());
-    return output;
+    char md5hash[33];
+    md5_raw_input(md5hash, (unsigned char *)_buffer.data(), (unsigned int)_buffer.size());
+    return md5hash;
 }
 
 bool Reader::read(int32_t& value)
@@ -149,20 +133,25 @@ bool Reader::read(arithmetic::Giant& value)
     return true;
 }
 
+Writer* File::get_writer()
+{
+    Writer* writer = new Writer(std::move(_buffer));
+    writer->buffer().clear();
+    return writer;
+}
+
 Reader* File::get_reader()
 {
-    Writer data;
-
     FILE* fd = fopen(_filename.data(), "rb");
     if (!fd)
         return nullptr;
     fseek(fd, 0L, SEEK_END);
     int filelen = ftell(fd);
-    data.data().resize(filelen);
+    _buffer.resize(filelen);
     fseek(fd, 0L, SEEK_SET);
-    filelen = (int)fread(data.data().data(), 1, filelen, fd);
+    filelen = (int)fread(_buffer.data(), 1, filelen, fd);
     fclose(fd);
-    if (filelen != data.data().size())
+    if (filelen != _buffer.size())
         return nullptr;
 
     if (hash)
@@ -171,23 +160,28 @@ Reader* File::get_reader()
         fd = fopen(md5_filename.data(), "rb");
         if (fd)
         {
-            char saved_hash[33];
-            fread(saved_hash, 1, 32, fd);
+            char md5hash[33];
+            fread(md5hash, 1, 32, fd);
             fclose(fd);
-            saved_hash[32] = 0;
-            if (saved_hash != data.hash_str())
-                return nullptr;
+            md5hash[32] = 0;
+            std::string saved_hash(md5hash);
+            if (!saved_hash.empty())
+            {
+                md5_raw_input(md5hash, (unsigned char *)_buffer.data(), (unsigned int)_buffer.size());
+                if (saved_hash != md5hash)
+                    return nullptr;
+            }
         }
     }
 
-    if (data.data().size() < 8)
+    if (_buffer.size() < 8)
         return nullptr;
-    if (*(uint32_t*)data.data().data() != MAGIC_NUM)
+    if (*(uint32_t*)_buffer.data() != MAGIC_NUM)
         return nullptr;
-    if (data.data()[4] != appid)
+    if (_buffer[4] != appid)
         return nullptr;
 
-    return new Reader(data.data()[5], data.data()[6], std::move(data.data()), 8);
+    return new Reader(_buffer[5], _buffer[6], _buffer[7], _buffer.data(), (int)_buffer.size(), 8);
 }
 
 bool writeThrough(char *filename, const void *buffer, size_t count)
@@ -215,7 +209,7 @@ bool writeThrough(char *filename, const void *buffer, size_t count)
 void File::commit_writer(Writer& writer)
 {
     std::string new_filename = _filename + ".new";
-    if (!writeThrough(new_filename.data(), writer.data().data(), writer.data().size()))
+    if (!writeThrough(new_filename.data(), writer.buffer().data(), writer.buffer().size()))
     {
         remove(new_filename.data());
         return;
@@ -229,12 +223,24 @@ void File::commit_writer(Writer& writer)
         std::string hash = writer.hash_str();
         writeThrough(new_filename.data(), hash.data(), 32);
     }
+
+    _buffer = std::move(writer.buffer());
+}
+
+void File::clear()
+{
+    remove(_filename.data());
+    std::string md5_filename = _filename + ".md5";
+    remove(md5_filename.data());
+    std::vector<char>().swap(_buffer);
 }
 
 bool File::read(TaskState& state)
 {
     std::unique_ptr<Reader> reader(get_reader());
     if (!reader)
+        return false;
+    if (reader->type() != state.type())
         return false;
     uint32_t fingerprint;
     if (!reader->read(fingerprint) || fingerprint != _fingerprint)
@@ -244,17 +250,10 @@ bool File::read(TaskState& state)
 
 void File::write(TaskState& state)
 {
-    Writer writer;
-    writer.write(MAGIC_NUM);
-    writer.write(FILE_APPID + (0 << 8) + (state.version() << 16));
-    writer.write(_fingerprint);
-    state.write(writer);
-    commit_writer(writer);
-}
-
-void File::clear()
-{
-    remove(_filename.data());
-    std::string md5_filename = _filename + ".md5";
-    remove(md5_filename.data());
+    std::unique_ptr<Writer> writer(get_writer());
+    writer->write(MAGIC_NUM);
+    writer->write(FILE_APPID + (0 << 8) + (state.type() << 16) + (state.version() << 24));
+    writer->write(_fingerprint);
+    state.write(*writer);
+    commit_writer(*writer);
 }

@@ -9,7 +9,8 @@ class InputNum
 {
 public:
     InputNum() { }
-    InputNum(int k, int b, int n, int c) { _gk = k; _gb = b; _n = n; _c = c; }
+    InputNum(int k, int b, int n, int c) { _gk = k; _gb = b; _n = n; _c = c; process(); }
+    InputNum(const std::string& sk, const std::string& sb, int n, int c) { _gk = sk; _gb = sb; _n = n; _c = c; process(); }
 
     bool parse(const std::string& s);
     void setup(arithmetic::GWState& state);

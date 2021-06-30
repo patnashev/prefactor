@@ -319,6 +319,7 @@ namespace arithmetic
             else
                 dbl(res, res, (i > 0 ? GWMUL_STARTNEXTFFT | ED_PROJECTIVE : 0));
         }
+        _tmp.reset();
     }
 
     void EdwardsArithmetic::normalize(EdPoint& a, int options)

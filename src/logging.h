@@ -39,9 +39,11 @@ public:
     static const int LEVEL_INFO = 1;
     static const int LEVEL_WARNING = 2;
     static const int LEVEL_ERROR = 3;
+    static const int LEVEL_RESULT = 4;
 
 public:
     Logging(int level = LEVEL_INFO) : _level(level) { }
+    virtual ~Logging() { }
 
     void debug(const char* message...);
     void info(const char* message...);
@@ -49,10 +51,10 @@ public:
     void error(const char* message...);
     void result(const char* message...);
 
-    void report(const std::string& message);
-    void report_progress();
-    void report_factor(InputNum& input, const arithmetic::Giant& f);
-    void report_result(const std::string& message);
+    virtual void report(const std::string& message, int level);
+    virtual void report_progress();
+    virtual void report_factor(InputNum& input, const arithmetic::Giant& f);
+    virtual void report_result(const std::string& message);
 
     int level() { return _level; }
     Progress& progress() { return _progress; }

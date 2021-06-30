@@ -19,6 +19,10 @@ without express or implied warranty of any kind.
 These notices must be retained in any copies of any part of this
 documentation and/or software. */
 
+#include <stdint.h>
+#include <string.h>
+#include <stdio.h>
+
 /* MD5 context. */
 typedef struct {
   uint32_t state[4];                                   /* state (ABCD) */

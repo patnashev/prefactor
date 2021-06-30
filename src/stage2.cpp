@@ -260,6 +260,9 @@ Stage2::Pairing get_pairing_L(Logging& logging, PrimeList& primes, int B1, int B
                         queue.push_back(p);
                 }
             }
+
+            if (Task::abort_flag())
+                throw TaskAbortException();
         }
     }
     delete plink;

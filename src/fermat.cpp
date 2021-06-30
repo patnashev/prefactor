@@ -147,7 +147,7 @@ void gen_F12_ed_curve(const std::string& prefix, char exponent, int seed, int co
                 fwrite(hash.data(), 1, hash.length(), fp);
                 fclose(fp);
             }
-            hasher.data().clear();
+            hasher.buffer().clear();
         }
 
         if (i + seed == 1)
@@ -185,22 +185,22 @@ void ed_mul(EdPoint& p, Giant& exp)
 
 void Fermat::write_file(File& file, uint64_t B1, std::vector<std::unique_ptr<EdPoint>>& points)
 {
-    Writer writer;
-    writer.write(File::MAGIC_NUM);
-    writer.write(FERMAT_APPID + (0 << 8) + ((int)_exponent_c << 16));
-    writer.write(_seed);
-    writer.write((int)points.size());
-    writer.write(B1);
+    std::unique_ptr<Writer> writer(file.get_writer());
+    writer->write(File::MAGIC_NUM);
+    writer->write(FERMAT_APPID + (0 << 8) + ((int)_exponent_c << 16) + (0 << 24));
+    writer->write(_seed);
+    writer->write((int)points.size());
+    writer->write(B1);
     Giant X, Y, Z, T;
     for (auto it = points.begin(); it != points.end(); it++)
     {
         (*it)->serialize(X, Y, Z, T);
-        writer.write(X);
-        writer.write(Y);
-        writer.write(Z);
-        writer.write(T);
+        writer->write(X);
+        writer->write(Y);
+        writer->write(Z);
+        writer->write(T);
     }
-    file.commit_writer(writer);
+    file.commit_writer(*writer);
 }
 
 bool Fermat::read_file(File& file, int& seed, uint64_t& B0, std::vector<std::unique_ptr<EdPoint>>& points)
@@ -214,7 +214,7 @@ bool Fermat::read_file(File& file, int& seed, uint64_t& B0, std::vector<std::uni
         if (!reader)
             return false;
     }
-    if (reader->version() != _exponent_c)
+    if (reader->type() != _exponent_c)
         return false;
     if (!reader->read(seed))
         return false;
@@ -271,7 +271,7 @@ bool Fermat::read_state(File& file, uint64_t B1)
     return true;
 }
 
-void Fermat::verify(bool verify_curve, const std::string& dhash)
+std::string Fermat::verify(bool verify_curve)
 {
     int i;
     for (i = 0; i < _points.size(); i++)
@@ -310,16 +310,10 @@ void Fermat::verify(bool verify_curve, const std::string& dhash)
         hasher.write((char*)gd.data(), gd.size()*4);
     }
 
-    std::string cur_dhash = hasher.hash_str();
-    _logging.info("dhash: %s\n", cur_dhash.data());
+    std::string dhash = hasher.hash_str();
+    _logging.info("dhash: %s\n", dhash.data());
 
-    if (!dhash.empty())
-    {
-        if (dhash != cur_dhash)
-            _logging.error("%s dhash mismatch!\n", _input.display_text().data());
-        else
-            _logging.info("dhash ok.\n");
-    }
+    return dhash;
 }
 
 void Fermat::modulus(int curve, File& file_result)
@@ -424,24 +418,24 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
     _logging.info("%d bits, W = %d\n", len, W);
 
     time_t last_write = time(NULL);
-    //double timer = getHighResTimer();
+    double timer = getHighResTimer();
     int timer_i = (int)_state.size();
     while (_state.size() < _points.size())
     {
         i = (int)_state.size();
         _state.emplace_back(new EdPoint(_ed));
-        double timer = getHighResTimer();
+        //double timer = getHighResTimer();
         _ed.mul(*_points[i], W, naf_w, *_state[i]);
-        timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-        _logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
+        //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
+        //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
 
         if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
         {
-            //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
+            timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
             write_file(file_state, B1, _state);
             last_write = time(NULL);
-            //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len/(i + 1 - timer_i));
-            //timer = getHighResTimer();
+            _logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len/(i + 1 - timer_i));
+            timer = getHighResTimer();
             timer_i = i + 1;
         }
         if (Task::abort_flag())
@@ -454,7 +448,7 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
     _points = std::move(_state);
 }
 
-int fermat_main(int argc, const char *argv[])
+int fermat_main(int argc, char *argv[])
 {
     int i, j;
     GWState gwstate;
@@ -716,7 +710,7 @@ int fermat_main(int argc, const char *argv[])
 
         if (verify)
         {
-            std::string dhash;
+            std::string dhash = fermat.verify(verifyCurve);
             std::string dhashfile = filename + ".dhash";
             FILE* fp = fopen(dhashfile.data(), "r");
             if (fp)
@@ -725,12 +719,13 @@ int fermat_main(int argc, const char *argv[])
                 if (fread(hash, 1, 32, fp) == 32)
                 {
                     hash[32] = 0;
-                    dhash = hash;
+                    if (dhash != hash)
+                        logging.error("File %s dhash mismatch!\n", filename.data());
+                    else
+                        logging.info("dhash ok.\n");
                 }
                 fclose(fp);
             }
-
-            fermat.verify(verifyCurve, dhash);
         }
     }
     catch (const NoInverseException& e)

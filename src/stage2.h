@@ -36,8 +36,8 @@ public:
     class State : public TaskState
     {
     public:
-        State() : TaskState(0) { _G = 1; }
-        State(int iteration, arithmetic::GWNum& G) : TaskState(iteration) { _G = G; }
+        State() : TaskState(10, 0) { _G = 1; }
+        State(int iteration, arithmetic::GWNum& G) : TaskState(10, iteration) { _G = G; }
         arithmetic::Giant& G() { return _G; }
         bool read(Reader& reader) override { return TaskState::read(reader) && reader.read(_G); }
         void write(Writer& writer) override { TaskState::write(writer); writer.write(_G); }

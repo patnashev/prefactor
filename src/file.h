@@ -10,7 +10,9 @@
 class Writer
 {
 public:
-    Writer() { _data.reserve(_max_size); }
+    Writer() { }
+    Writer(std::vector<char>& buffer) : _buffer(buffer) { }
+    Writer(std::vector<char>&& buffer) : _buffer(std::move(buffer)) { }
 
     void write(int32_t value);
     void write(uint32_t value);
@@ -20,20 +22,18 @@ public:
     void write(const arithmetic::Giant& value);
     void write(const char* ptr, int count);
 
-    std::vector<char>& data() { return _data; }
+    std::vector<char>& buffer() { return _buffer; }
     std::vector<char> hash();
     std::string hash_str();
 
 private:
-    std::vector<char> _data;
-    static int _max_size;
+    std::vector<char> _buffer;
 };
 
 class Reader
 {
 public:
-    Reader(char format_version, char version, char *data, int size, int pos) : _format_version(format_version), _version(version), _data(data), _size(size), _pos(pos) { }
-    Reader(char format_version, char version, std::vector<char>&& container, int pos) : _format_version(format_version), _version(version), _container(std::move(container)), _data(_container.data()), _size((int)_container.size()), _pos(pos) { }
+    Reader(char format_version, char type, char version, char *data, int size, int pos) : _format_version(format_version), _type(type), _version(version), _data(data), _size(size), _pos(pos) { }
 
     bool read(int32_t& value);
     bool read(uint32_t& value);
@@ -42,12 +42,13 @@ public:
     bool read(std::string& value);
     bool read(arithmetic::Giant& value);
 
+    char type() { return _type; }
     char version() { return _version; }
 
 private:
     char _format_version;
+    char _type;
     char _version;
-    std::vector<char> _container;
     char* _data;
     int _size;
     int _pos = 0;
@@ -62,17 +63,21 @@ public:
 
 public:
     File(const std::string& filename, uint32_t fingerprint) : _filename(filename), _fingerprint(fingerprint) { }
+    virtual ~File() { }
 
+    virtual Writer* get_writer();
     virtual Reader* get_reader();
     virtual void commit_writer(Writer& writer);
+    virtual void clear();
     bool read(TaskState& state);
     void write(TaskState& state);
-    void clear();
     
+    std::string& filename() { return _filename; }
     bool hash = true;
     int appid = FILE_APPID;
 
-private:
+protected:
     std::string _filename;
     uint32_t _fingerprint;
+    std::vector<char> _buffer;
 };

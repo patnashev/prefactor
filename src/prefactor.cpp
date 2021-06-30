@@ -24,6 +24,9 @@
 #ifdef FERMAT
 #include "fermat.h"
 #endif
+#ifdef NETPF
+int net_main(int argc, char *argv[]);
+#endif
 
 using namespace arithmetic;
 
@@ -175,6 +178,10 @@ int main(int argc, char *argv[])
 #ifdef FERMAT
             else if (strcmp(argv[i], "-fermat") == 0)
                 return fermat_main(argc, argv);
+#endif
+#ifdef NETPF
+            else if (strcmp(argv[i], "-net") == 0)
+                return net_main(argc, argv);
 #endif
             else if (strcmp(argv[i], "-v") == 0)
             {

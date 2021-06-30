@@ -35,7 +35,7 @@ void Logging::debug(const char* message...)
     va_start(args, message);
     vsnprintf(buf, 1000, message, args);
     va_end(args);
-    report(buf);
+    report(buf, LEVEL_DEBUG);
 }
 
 void Logging::info(const char* message...)
@@ -47,7 +47,7 @@ void Logging::info(const char* message...)
     va_start(args, message);
     vsnprintf(buf, 1000, message, args);
     va_end(args);
-    report(buf);
+    report(buf, LEVEL_INFO);
 }
 
 void Logging::warning(const char* message...)
@@ -59,7 +59,7 @@ void Logging::warning(const char* message...)
     va_start(args, message);
     vsnprintf(buf, 1000, message, args);
     va_end(args);
-    report(buf);
+    report(buf, LEVEL_WARNING);
 }
 
 void Logging::error(const char* message...)
@@ -71,7 +71,7 @@ void Logging::error(const char* message...)
     va_start(args, message);
     vsnprintf(buf, 1000, message, args);
     va_end(args);
-    report(buf);
+    report(buf, LEVEL_ERROR);
     report_result(buf);
 }
 
@@ -85,7 +85,7 @@ void Logging::result(const char* message...)
     report_result(buf);
 }
 
-void Logging::report(const std::string& message)
+void Logging::report(const std::string& message, int level)
 {
     if (_print_prefix)
         std::cout << _prefix;

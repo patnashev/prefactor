@@ -23,16 +23,18 @@ public:
 class TaskState
 {
 public:
-    TaskState(int iteration) : _iteration(iteration) { }
+    TaskState(char type, int iteration) : _type(type), _iteration(iteration) { }
     virtual ~TaskState() { }
     
     virtual bool read(Reader& reader);
     virtual void write(Writer& writer);
 
     int iteration() { return _iteration; }
+    char type() { return _type; }
     char version() { return 0; }
 
 protected:
+    char _type;
     int _iteration;
 };
 
@@ -64,6 +66,7 @@ public:
 
     virtual void run();
     static void abort() { _abort_flag = true; }
+    static void abort_reset() { _abort_flag = false; }
 
     arithmetic::GWArithmetic& gw() { return *_gw; }
     TaskState* state() { return _state.get(); }
