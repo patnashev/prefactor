@@ -540,7 +540,7 @@ void Stage2::done(const arithmetic::Giant& factor)
 {
     _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
     _transforms += (int)_gwstate->handle.fft_count;
-    _logging->progress().update(1, (int)_gwstate->handle.fft_count);
+    _logging->progress().update(1, (int)_gwstate->handle.fft_count/2);
     _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
     if (factor == 0 || factor == *_gwstate->N)
     {
@@ -605,7 +605,7 @@ void PP1Stage2::setup()
     }
 
     if (state() == nullptr)
-        set_state(new State());
+        reset_state<State>();
     int v = state()->iteration() + _pairing.first_D;
 
     if (_A > 1)
@@ -761,7 +761,7 @@ void EdECMStage2::setup()
     }
 
     if (state() == nullptr)
-        set_state(new State());
+        reset_state<State>();
     int v = state()->iteration() + _pairing.first_D;
 
     montgomery->init(*_Pn);

@@ -193,12 +193,12 @@ int main(int argc, char *argv[])
         {
             if (!input.parse(argv[i]))
             {
-                Giant x, y;
-                /*if (!readFromFile(argv[i], 0, &j, x, y))
+                File file(argv[i], 0);
+                if (!input.read(file))
                 {
                     printf("File %s is missing or corrupted.\n", argv[i]);
                     return 1;
-                }*/
+                }
             }
         }
     if (input.empty())
@@ -443,7 +443,6 @@ int main(int argc, char *argv[])
         }
         if (!success)
         {
-            logging.progress().update(1, (int)gwstate.handle.fft_count);
             logging.info("%s, no factors found.\n", input.input_text().data(), logging.progress().time_total());
             logging.result("%s, no factors found, time: %.1f s.\n", input.input_text().data(), logging.progress().time_total());
         }

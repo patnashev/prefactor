@@ -23,7 +23,7 @@ void Stage1::done(const arithmetic::Giant& factor)
 {
     _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
     _transforms += (int)_gwstate->handle.fft_count;
-    _logging->progress().update(1, (int)_gwstate->handle.fft_count);
+    _logging->progress().update(1, (int)_gwstate->handle.fft_count/2);
     _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
     if (factor == 0 || factor == *_gwstate->N)
     {
@@ -137,7 +137,7 @@ void PM1Stage1::execute()
             gw().carefully().square(X, X, 0);
         i = len + 1;
         check();
-        set_state(new State(i, X));
+        set_state<State>(i, X);
     }
 
     try
@@ -254,11 +254,12 @@ void EdECMStage1::init(InputNum* input, GWState* gwstate, File* file, Logging* l
     _Z = Z;
     _T = T;
     _EdD = EdD;
-    ed.reset(new EdwardsArithmetic());
 }
 
 void EdECMStage1::setup()
 {
+    if (!ed)
+        ed.reset(new EdwardsArithmetic());
     ed->set_gw(gw());
     if (!_ed_d)
     {
@@ -347,7 +348,7 @@ void EdECMStage1::execute()
         {
             if (!ed->on_curve(p, *_ed_d))
                 throw TaskRestartException();
-            set_state(new State(i, p));
+            set_state<State>(i, p);
         }
     }
     

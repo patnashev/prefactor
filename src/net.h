@@ -31,12 +31,13 @@ struct PFTask {
     int c = 0;
     std::string factors;
     std::string seed;
+    double time = 0.0;
     std::map<std::string, std::string> options;
 
     std::string fft_desc;
     int fft_len;
-    int progress;
-    int timer;
+    double progress;
+    double time_op;
     arithmetic::Giant factor;
     bool aborted = false;
 };
@@ -53,6 +54,7 @@ BOOST_FUSION_ADAPT_STRUCT(
     (auto, c)
     (auto, factors)
     (auto, seed)
+    (auto, time)
     (auto, options)
 )
 
@@ -96,8 +98,9 @@ public:
 public:
     NetLogging(int level, int net_level, NetContext& net) : Logging(level), _net_level(net_level), _net(net), _file(net) { }
 
-    virtual void report(const std::string& message, int level);
-    virtual void report_factor(InputNum& input, const arithmetic::Giant& f);
+    virtual void report(const std::string& message, int level) override;
+    virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override;
+    virtual void report_progress() override;
 
 private:
     int _net_level;

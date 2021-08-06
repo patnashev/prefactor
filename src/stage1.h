@@ -49,8 +49,8 @@ public:
     class State : public TaskState
     {
     public:
-        State() : TaskState(1, 0) { }
-        State(int iteration, arithmetic::GWNum& X) : TaskState(1, iteration) { _X = X; }
+        State() : TaskState(1) { }
+        void set(int iteration, arithmetic::GWNum& X) { TaskState::set(iteration); _X = X; }
         arithmetic::Giant& X() { return _X; }
         bool read(Reader& reader) override { return TaskState::read(reader) && reader.read(_X); }
         void write(Writer& writer) override { TaskState::write(writer); writer.write(_X); }
@@ -81,9 +81,9 @@ public:
     class State : public TaskState
     {
     public:
-        State() : TaskState(2, 0) { }
-        State(arithmetic::Giant& P) : TaskState(2, 0) { _V = P; }
-        State(int iteration, arithmetic::LucasV& V) : TaskState(2, iteration) { _V = V.V(); }
+        State() : TaskState(2) { }
+        State(arithmetic::Giant& P) : TaskState(2) { _V = P; }
+        void set(int iteration, arithmetic::LucasV& V) { TaskState::set(iteration); _V = V.V(); }
         arithmetic::Giant& V() { return _V; }
         bool read(Reader& reader) override { return TaskState::read(reader) && reader.read(_V); }
         void write(Writer& writer) override { TaskState::write(writer); writer.write(_V); }
@@ -115,8 +115,8 @@ public:
     class State : public TaskState
     {
     public:
-        State() : TaskState(3, 0) { }
-        State(int iteration, arithmetic::EdPoint& p) : TaskState(3, iteration) { p.serialize(_X, _Y, _Z, _T); }
+        State() : TaskState(3) { }
+        void set(int iteration, arithmetic::EdPoint& p) { TaskState::set(iteration); p.serialize(_X, _Y, _Z, _T); }
         arithmetic::Giant& X() { return _X; }
         arithmetic::Giant& Y() { return _Y; }
         arithmetic::Giant& Z() { return _Z; }

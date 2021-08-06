@@ -7,7 +7,7 @@
 #include "cpuid.h"
 #include "logging.h"
 
-void Progress::update(double progress, int fft_count)
+void Progress::update(double progress, int op_count)
 {
     _cur_progress = progress;
     if (_timer == 0)
@@ -15,9 +15,9 @@ void Progress::update(double progress, int fft_count)
     double elapsed = (getHighResTimer() - _timer)/getHighResTimerFrequency();
     _timer = getHighResTimer();
     _time_total += elapsed;
-    if (_fft_count < fft_count)
-        _time_fft = elapsed/(fft_count - _fft_count);
-    _fft_count = fft_count;
+    if (_op_count < op_count)
+        _time_op = elapsed/(op_count - _op_count);
+    _op_count = op_count;
 }
 
 void Progress::time_init(double elapsed)
@@ -95,7 +95,10 @@ void Logging::report(const std::string& message, int level)
 
 void Logging::report_progress()
 {
-    info("%.1f%% stage / %.1f%% total, time per op: %.3f ms.\n", progress().progress_stage()*100, progress().progress_total()*100, progress().time_fft()*1000*2);
+    if (progress().num_stages() > 1)
+        info("%.1f%% stage / %.1f%% total, time per op: %.6f ms.\n", progress().progress_stage()*100, progress().progress_total()*100, progress().time_op()*1000);
+    else if (progress().num_stages() > 0)
+        info("%.1f%% done, time per op: %.3f ms.\n", progress().progress_stage()*100, progress().time_op()*1000);
 }
 
 void Logging::report_factor(InputNum& input, const arithmetic::Giant& f)

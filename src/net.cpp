@@ -52,6 +52,14 @@ void NetLogging::report_factor(InputNum& input, const Giant& f)
     _net.task()->factor = f;
 }
 
+void NetLogging::report_progress()
+{
+    Logging::report_progress();
+    _net.task()->progress = progress().progress_total();
+    _net.task()->time = progress().time_total();
+    _net.task()->time_op = progress().time_op()*1000;
+}
+
 void NetFile::on_upload()
 {
     _uploading = true;
@@ -240,8 +248,9 @@ void NetContext::upload(NetFile* file)
                     .Argument("uptime", uptime())
                     .Argument("fft_desc", _task->fft_desc)
                     .Argument("fft_len", _task->fft_len)
-                    .Argument("progress", _task->progress)
-                    .Argument("timer", _task->timer)
+                    .Argument("progress", std::to_string(_task->progress))
+                    .Argument("time", std::to_string(_task->time))
+                    .Argument("time_op", std::to_string(_task->time_op))
                     .Body(std::unique_ptr<RequestBody>(new RequestBodyData(data, size)))
                     .Execute();
 
@@ -421,28 +430,38 @@ int net_main(int argc, char *argv[])
 			continue;
 		}
 
-        InputNum input(net.task()->sk, net.task()->sb, net.task()->n, net.task()->c);
+        NetFile file_input(net, "input", 0);
+        InputNum input;
+        if (net.task()->n >= 0)
+            input.init(net.task()->sk, net.task()->sb, net.task()->n, net.task()->c);
+        else if (!input.read(file_input))
+        {
+            logging.error("Input file is missing or corrupted.\n");
+            std::this_thread::sleep_for(std::chrono::minutes(1));
+            continue;
+        }
         input.setup(gwstate);
         logging.info("Using %s.\n", gwstate.fft_description.data());
         net.task()->fft_desc = gwstate.fft_description;
         net.task()->fft_len = gwstate.fft_length;
         int maxSize = (int)(maxMem/(gwnum_size(gwstate.gwdata())/1048576.0));
-
-        logging.set_prefix(net.task_id() + ", ");
-        net.task()->factor = 1;
-        std::string dhash = "";
         if (!net.task()->factors.empty())
         {
             Giant factors;
             factors = net.task()->factors;
-            if (*gwstate.N % factors != 0)
+            if (*gwstate.N%factors != 0)
                 logging.error("Factors do not divide the number.\n");
             *gwstate.N /= factors;
         }
+
+        logging.set_prefix(net.task_id() + ", ");
+        logging.progress() = Progress();
+        logging.progress().time_init(net.task()->time);
+        net.task()->factor = 1;
+        std::string dhash = "";
         if (net.task()->b2 < net.task()->b1)
             net.task()->b2 = net.task()->b1;
 
-        NetFile file_input(net, "input", gwstate.fingerprint);
         NetFile file_output(net, "output", gwstate.fingerprint);
         NetFile file_checkpoint(net, "checkpoint", gwstate.fingerprint);
         NetFile file_checkpoint_m1(net, "checkpoint.m1", gwstate.fingerprint);
@@ -459,7 +478,7 @@ int net_main(int argc, char *argv[])
         {
             if (net.task()->type == "Fermat")
             {
-                Fermat fermat(net.task()->n, net.task_id(), gwstate, logging);
+                Fermat fermat(net.task()->n, gwstate, logging);
 
                 if (!fermat.read_points(file_input))
                 {
@@ -471,8 +490,10 @@ int net_main(int argc, char *argv[])
 
                 if (net.task()->b1 > fermat.B0())
                 {
+                    logging.progress().add_stage((int)fermat.points().size());
                     fermat.read_state(file_checkpoint, net.task()->b1);
                     fermat.stage1(net.task()->b1, file_checkpoint, file_output);
+                    logging.progress().next_stage();
                 }
                 else
                 {
@@ -647,6 +668,7 @@ int net_main(int argc, char *argv[])
 						.Argument("workerID", net.worker_id())
                         .Argument("result", net.task()->factor.to_string())
                         .Argument("dhash", dhash)
+                        .Argument("time", std::to_string(logging.progress().time_total()))
                         .Argument("version", NET_PREFACTOR_VERSION)
 
 						// Send the request

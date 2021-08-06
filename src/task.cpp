@@ -32,7 +32,7 @@ void Task::init(arithmetic::GWState* gwstate, File* file, TaskState* state, Logg
     _file = file;
     _state.reset(state);
     _logging = logging;
-    logging->progress().update(0, (int)gwstate->handle.fft_count);
+    logging->progress().update(0, (int)gwstate->handle.fft_count/2);
     _last_write = std::chrono::system_clock::now();
     _last_progress = std::chrono::system_clock::now();
 }
@@ -154,6 +154,7 @@ void Task::run()
             reliable->reset();
     }
     release();
+    _tmp_state.reset();
     _gw = nullptr;
 }
 
@@ -167,19 +168,18 @@ void Task::check()
     }
 }
 
-void Task::set_state(TaskState* state)
+void Task::on_state()
 {
-    _state.reset(state);
-    if (_file != nullptr && state != nullptr && (std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME || abort_flag()))
+    if (_file != nullptr && _state && (std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME || abort_flag()))
     {
-        _file->write(*state);
+        _file->write(*_state);
         _last_write = std::chrono::system_clock::now();
     }
     if (abort_flag())
         throw TaskAbortException();
     if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - _last_progress).count() >= 10)
     {
-        _logging->progress().update(state != nullptr ? state->iteration()/(double)iterations() : 0.0, (int)_gwstate->handle.fft_count);
+        _logging->progress().update(_state ? _state->iteration()/(double)iterations() : 0.0, (int)_gwstate->handle.fft_count/2);
         _logging->report_progress();
         _last_progress = std::chrono::system_clock::now();
     }

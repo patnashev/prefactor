@@ -11,15 +11,16 @@ public:
 
     void add_stage(int cost) { _total_cost += cost; _costs.push_back(cost); }
     void next_stage() { _cur_stage++; update(0, 0); }
-    void update(double progress, int fft_count);
+    void update(double progress, int op_count);
     void time_init(double elapsed);
 
     double progress_stage() { return _cur_progress; }
     double progress_total() { int cost = 0; for (int i = 0; i < _cur_stage; cost += _costs[i], i++); return (cost + _costs[_cur_stage]*_cur_progress)/_total_cost; }
     int cost_total() { return _total_cost; }
     double time_total() { return _time_total; }
-    double time_fft() { return _time_fft; }
-    int fft_count() { return _fft_count; }
+    double time_op() { return _time_op; }
+    int op_count() { return _op_count; }
+    int num_stages() { return (int)_costs.size(); }
 
 private:
     std::vector<int> _costs;
@@ -27,9 +28,9 @@ private:
     int _cur_stage = 0;
     double _cur_progress = 0;
     double _time_total = 0;
-    double _time_fft = 0;
+    double _time_op = 0;
     double _timer = 0;
-    int _fft_count = 0;
+    int _op_count = 0;
 };
 
 class Logging

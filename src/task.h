@@ -23,9 +23,10 @@ public:
 class TaskState
 {
 public:
-    TaskState(char type, int iteration) : _type(type), _iteration(iteration) { }
+    TaskState(char type) : _type(type), _iteration(0) { }
     virtual ~TaskState() { }
     
+    void set(int iteration) { _iteration = iteration; }
     virtual bool read(Reader& reader);
     virtual void write(Writer& writer);
 
@@ -77,7 +78,6 @@ public:
 
 protected:
     virtual void init(arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations);
-    virtual void set_state(TaskState* state);
     virtual void setup() = 0;
     virtual void execute() = 0;
     virtual void reinit_gwstate() = 0;
@@ -91,9 +91,25 @@ protected:
         if (iteration%state_update_period() == 0 || iteration == iterations() || abort_flag())
         {
             check();
-            set_state(new TState(iteration, std::forward<Args>(args)...));
+            set_state<TState>(iteration, std::forward<Args>(args)...);
         }
     }
+    template<class TState, class... Args>
+    void set_state(int iteration, Args&&... args)
+    {
+        if (!_tmp_state)
+            _tmp_state.reset(new TState());
+        static_cast<TState*>(_tmp_state.get())->set(iteration, std::forward<Args>(args)...);
+        _tmp_state.swap(_state);
+        on_state();
+    }
+    template<class TState>
+    void reset_state()
+    {
+        _state.reset(new TState());
+        on_state();
+    }
+    void on_state();
 
 protected:
     bool _error_check;
@@ -109,4 +125,5 @@ protected:
     static bool _abort_flag;
 private:
     int _restart_op = 0;
+    std::unique_ptr<TaskState> _tmp_state;
 };

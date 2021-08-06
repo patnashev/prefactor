@@ -251,7 +251,7 @@ bool Fermat::read_points(File& file)
     _seed = seed;
     _B0 = B0;
     _points = std::move(points);
-    _logging.info("%s, %d curves, B1 = %" PRId64 ".\n", _input.display_text().data(), _points.size(), _B0);
+    _logging.info("%d curves, B1 = %" PRId64 ".\n", _points.size(), _B0);
     return true;
 }
 
@@ -267,7 +267,7 @@ bool Fermat::read_state(File& file, uint64_t B1)
     if (B1 != b1)
         return false;
     _state = std::move(points);
-    _logging.info("Resuming from curve %d.\n", (int)_state.size());
+    _logging.info("resuming from curve %d.\n", (int)_state.size());
     return true;
 }
 
@@ -296,7 +296,7 @@ std::string Fermat::verify(bool verify_curve)
             }
             catch (const NoInverseException&)
             {
-                _logging.warning("Curve #%d found the factor.\n", _seed + i);
+                _logging.warning("curve #%d found the factor.\n", _seed + i);
                 _ed.gen_curve(_seed + i, _points[i]->X.get());
                 _points[i]->Z.reset();
             }
@@ -323,18 +323,18 @@ void Fermat::modulus(int curve, File& file_result)
     {
         i = curve - _seed;
         j = i + 1;
-        _logging.info("Applying modulus to curve #%d (offset %d).\n", curve, i);
+        _logging.info("applying modulus to curve #%d (offset %d).\n", curve, i);
     }
     else if (curve != 0)
     {
-        _logging.error("Curve #%d not found.\n", curve);
+        _logging.error("curve #%d not found.\n", curve);
         return;
     }
     else
     {
         i = 0;
         j = (int)_points.size();
-        _logging.info("Applying modulus to all curves.\n");
+        _logging.info("applying modulus to all curves.\n");
     }
     for (; i < j; i++)
     {
@@ -416,10 +416,9 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
     get_NAF_W(W, tmp, naf_w);
 
     _logging.info("%d bits, W = %d\n", len, W);
+    _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
 
     time_t last_write = time(NULL);
-    double timer = getHighResTimer();
-    int timer_i = (int)_state.size();
     while (_state.size() < _points.size())
     {
         i = (int)_state.size();
@@ -431,12 +430,10 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
 
         if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
         {
-            timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
+            _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
+            _logging.report_progress();
             write_file(file_state, B1, _state);
             last_write = time(NULL);
-            _logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len/(i + 1 - timer_i));
-            timer = getHighResTimer();
-            timer_i = i + 1;
         }
         if (Task::abort_flag())
             throw TaskAbortException();
@@ -678,7 +675,8 @@ int fermat_main(int argc, char *argv[])
             printf("\n");
         }
 
-        Fermat fermat(exponent, filename, gwstate, logging);
+        Fermat fermat(exponent, gwstate, logging);
+        logging.set_prefix(filename + ", ");
         File file_points(filename, 0);
         file_points.hash = false;
         std::string filename_state = filename + ".tmp";
@@ -687,20 +685,22 @@ int fermat_main(int argc, char *argv[])
 
         if (!fermat.read_points(file_points))
         {
-            logging.warning("File %s is missing or corrupted.\n", filename.data());
+            logging.warning("file is missing or corrupted.\n");
             return 1;
         }
 
         if (B1 > fermat.B0())
         {
+            logging.progress().add_stage((int)fermat.points().size());
             fermat.read_state(file_state, B1);
             fermat.stage1(B1, file_state, file_points);
             remove(filename_state.data());
+            logging.progress().next_stage();
         }
         else
         {
             if (B1 != 0)
-                logging.warning("File %s is at a higher B1.\n", filename.data());
+                logging.warning("file is at a higher B1.\n");
         }
 
         if (modulus)
@@ -720,7 +720,7 @@ int fermat_main(int argc, char *argv[])
                 {
                     hash[32] = 0;
                     if (dhash != hash)
-                        logging.error("File %s dhash mismatch!\n", filename.data());
+                        logging.error("dhash mismatch!\n");
                     else
                         logging.info("dhash ok.\n");
                 }

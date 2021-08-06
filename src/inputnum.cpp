@@ -4,9 +4,25 @@
 #include "gwnum.h"
 #include "cpuid.h"
 #include "inputnum.h"
+#include "file.h"
 #include "edwards.h"
 
 using namespace arithmetic;
+
+bool InputNum::read(File& file)
+{
+    std::unique_ptr<Reader> reader(file.get_reader());
+    if (!reader)
+        return false;
+    if (reader->type() != 0)
+        return false;
+    if (!reader->read(_gb))
+        return false;
+    _input_text = file.filename();
+    _display_text = file.filename();
+    _n = -1;
+    return true;
+}
 
 bool InputNum::parse(const std::string& s)
 {
@@ -332,7 +348,11 @@ std::string InputNum::build_text(int max_len)
 
 void InputNum::setup(GWState& state)
 {
-    if (k() != 0 && b() != 0)
+    if (n() < 0)
+    {
+        state.setup(_gb);
+    }
+    else if (k() != 0 && b() != 0)
     {
         state.setup(k(), b(), _n, _c);
     }

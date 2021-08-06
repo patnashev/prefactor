@@ -15,12 +15,10 @@ int fermat_main(int argc, char *argv[]);
 class Fermat
 {
 public:
-    Fermat(int exponent, const std::string& id, arithmetic::GWState& gwstate, Logging& logging) : _exponent(exponent), _input(1, 2, exponent, 1), _gwstate(gwstate), _logging(logging), _gw(gwstate), _ed(_gw)
+    Fermat(int exponent, arithmetic::GWState& gwstate, Logging& logging) : _exponent(exponent), _input(1, 2, exponent, 1), _gwstate(gwstate), _logging(logging), _gw(gwstate), _ed(_gw)
     {
         int j;
         for (j = 1, _exponent_c = 0; j < exponent; j <<= 1, _exponent_c++);
-        (std::string&)_input.input_text() = id;
-        (std::string&)_input.display_text() = id;
     }
 
     bool read_points(File& file);

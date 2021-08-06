@@ -5,13 +5,17 @@
 #include "giant.h"
 #include "arithmetic.h"
 
+class File;
+
 class InputNum
 {
 public:
     InputNum() { }
-    InputNum(int k, int b, int n, int c) { _gk = k; _gb = b; _n = n; _c = c; process(); }
-    InputNum(const std::string& sk, const std::string& sb, int n, int c) { _gk = sk; _gb = sb; _n = n; _c = c; process(); }
+    InputNum(int k, int b, int n, int c) { init(k, b, n, c); }
 
+    template<class TK, class TB>
+    void init(TK k, TB b, int n, int c) { _gk = k; _gb = b; _n = n; _c = c; process(); }
+    bool read(File& file);
     bool parse(const std::string& s);
     void setup(arithmetic::GWState& state);
     bool to_base2(InputNum& k, InputNum& base2);
