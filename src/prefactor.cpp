@@ -21,6 +21,7 @@
 #include "stage2.h"
 #include "file.h"
 #include "logging.h"
+#include "prob.h"
 #ifdef FERMAT
 #include "fermat.h"
 #endif
@@ -54,7 +55,6 @@ int main(int argc, char *argv[])
     int minus1 = 0;
     int plus1 = 0;
     int edecm = 0;
-    int gfn = 0;
     double sievingDepth = 0;
     int maxMem = 2048;
     int D, A, L;
@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
                         sievingDepth *= 1e6;
                 }
                 if (sievingDepth > 100)
-                    sievingDepth = log(sievingDepth)/log(2);
+                    sievingDepth = log2(sievingDepth);
             }
             else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
             {
@@ -208,8 +208,6 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    if (input.k() == 1 && input.c() == 1 && (input.n() & (input.n() - 1)) == 0)
-        gfn = input.n();
     if (!minus1 && !plus1 && !edecm)
         minus1 = 1;
 
@@ -224,15 +222,16 @@ int main(int argc, char *argv[])
     else
         primalityCost = gwstate.N->bitlen()*1.2;
 
-    double knownDivisors = 0;
-    if (minus1 && gfn > 0)
-        knownDivisors = log(gfn)/log(2);
+    ProbSmooth prob;
+    double knownDivisors = 1;
+    if (minus1 && input.gfn() > 0)
+        knownDivisors = input.gfn() + 1;
     if (!minus1 && plus1 && !edecm && (sP.empty() || sP == "2/7"))
-        knownDivisors = log(3)/log(2);
+        knownDivisors = log2(6);
     if (!minus1 && plus1 && !edecm && (sP == "6/5"))
-        knownDivisors = 1;
+        knownDivisors = log2(4);
     if (!minus1 && !plus1 && edecm)
-        knownDivisors = log(8)/log(2);
+        knownDivisors = log2(31); // by Yves
 
     int maxSize = (int)(maxMem/(gwnum_size(gwstate.gwdata())/1048576.0));
 
@@ -281,10 +280,13 @@ int main(int argc, char *argv[])
             size = size_ed1;
     }
     int cost = logging.progress().cost_total();
-    logging.info("Running at 1/%.0f cost of a primality test, using %.0f MB.\n", primalityCost/cost, gwnum_size(gwstate.gwdata())/1048576.0*size);
+    if (2*cost > primalityCost)
+        logging.info("Running at %.0f%% cost of a primality test, using %.0f MB.\n", cost/primalityCost*100, gwnum_size(gwstate.gwdata())/1048576.0*size);
+    else
+        logging.info("Running at 1/%.0f cost of a primality test, using %.0f MB.\n", primalityCost/cost, gwnum_size(gwstate.gwdata())/1048576.0*size);
     if (sievingDepth != 0)
     {
-        double value = prob_smooth(B1, B2, sievingDepth, knownDivisors);
+        double value = prob.factoring(log2(B1), log2(B2), sievingDepth, knownDivisors);
         logging.info("Probability of a factor 1/%.0f, overall speedup %.2f%%.\n", 1/value, 100*(value - cost/primalityCost));
     }
 

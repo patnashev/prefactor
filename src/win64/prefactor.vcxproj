@@ -24,6 +24,7 @@
     <ClCompile Include="..\precompute.c" />
     <ClCompile Include="..\prefactor.cpp" />
     <ClCompile Include="..\primelist.cpp" />
+    <ClCompile Include="..\prob.cpp" />
     <ClCompile Include="..\stage1.cpp" />
     <ClCompile Include="..\stage2.cpp" />
     <ClCompile Include="..\task.cpp" />
@@ -42,6 +43,7 @@
     <ClInclude Include="..\logging.h" />
     <ClInclude Include="..\md5.h" />
     <ClInclude Include="..\primelist.h" />
+    <ClInclude Include="..\prob.h" />
     <ClInclude Include="..\stage1.h" />
     <ClInclude Include="..\stage2.h" />
     <ClInclude Include="..\task.h" />

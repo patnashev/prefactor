@@ -124,7 +124,7 @@ namespace arithmetic
         gw().square(*res.Z, *res.Z, GWMUL_STARTNEXTFFT);
         gw().square(*res.Y, *res.Y, GWMUL_STARTNEXTFFT);
         gw().mulmuladd(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, (&a_minus_b == &res) ? *tmp : *res.ZpY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT_IF(safe11));
-        gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && (b.Z || safe1)));
+        gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && ((a.Z && b.Z) || safe1)));
         if (&a_minus_b == &res)
             swap(*res.ZpY, *tmp);
         if (gwnum_is_partially_ffted(gw().gwdata(), **res.ZpY))
