@@ -626,7 +626,7 @@ int fermat_main(int argc, char *argv[])
         }
     if (filename.empty())
     {
-        printf("Usage: prefactor -fermat [-n 4096] [-B1 10000] [-generate OFFSET COUNT PREFIX] [-mod [curve 123456]] [-verify [curve]] [-f knownFactors] [-p54] file\n");
+        printf("Usage: prefactor -fermat [-n 4096] [-B1 10000] [-generate OFFSET COUNT PREFIX] [-mod [curve 123456]] [-verify [curve]] [-split OFFSET COUNT FILE] [-merge FILE] [-f FACTOR] [-p54] FILE\n");
         return 0;
     }
 
