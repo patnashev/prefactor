@@ -251,7 +251,7 @@ bool Fermat::read_points(File& file)
     _seed = seed;
     _B0 = B0;
     _points = std::move(points);
-    _logging.info("%d curves, B1 = %" PRId64 ".\n", _points.size(), _B0);
+    _logging.info("%d curve%s starting with #%d, B1 = %" PRId64 ".\n", _points.size(), _points.size() > 1 ? "s" : "", _seed, _B0);
     return true;
 }
 
@@ -366,7 +366,7 @@ bool Fermat::merge(Fermat& other)
 {
     if (other._B0 != _B0)
     {
-        _logging.error("B0 mismatch.\n");
+        _logging.error("B1 mismatch.\n");
         return false;
     }
     if (other._seed != _seed + _points.size())
