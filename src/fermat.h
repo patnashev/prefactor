@@ -25,7 +25,10 @@ public:
     bool read_state(File& file, uint64_t B1);
     std::string verify(bool verify_curve);
     void modulus(int curve, File& file_result);
+    bool split(int offset, int count, Fermat& result);
+    bool merge(Fermat& other);
     void stage1(uint64_t B1, File& file_state, File& file_result);
+    void write_points(File& file);
 
     std::vector<std::unique_ptr<arithmetic::EdPoint>>& points() { return _points; }
     uint64_t B0() { return _B0; }

@@ -141,7 +141,7 @@ void gen_F12_ed_curve(const std::string& prefix, char exponent, int seed, int co
 
             std::string hash = hasher.hash_str();
             filename += ".dhash";
-            FILE *fp = fopen(filename.data(), "a");
+            FILE *fp = fopen(filename.data(), "w");
             if (fp)
             {
                 fwrite(hash.data(), 1, hash.length(), fp);
@@ -344,6 +344,43 @@ void Fermat::modulus(int curve, File& file_result)
     write_file(file_result, _B0, _points);
 }
 
+bool Fermat::split(int offset, int count, Fermat& result)
+{
+    if (offset < 0 || offset >= _points.size())
+    {
+        _logging.error("offset %d outside boundaries.\n", offset);
+        return false;
+    }
+    _logging.info("splitting %d curve%s starting with #%d.\n", count, count > 1 ? "s" : "", _seed + offset);
+
+    result._seed = _seed + offset;
+    result._B0 = _B0;
+    result._points.clear();
+    result._state.clear();
+    for (int i = 0; i < count; i++)
+        result._points.emplace_back(new EdPoint(*_points[offset + i]));
+    return true;
+}
+
+bool Fermat::merge(Fermat& other)
+{
+    if (other._B0 != _B0)
+    {
+        _logging.error("B0 mismatch.\n");
+        return false;
+    }
+    if (other._seed != _seed + _points.size())
+    {
+        _logging.error("first curve of merging file must follow the last curve of source file.\n");
+        return false;
+    }
+    _logging.info("merging %d curve%s starting with #%d.\n", other._points.size(), other._points.size() > 1 ? "s" : "", other._seed);
+
+    for (auto it = other._points.begin(); it != other._points.end(); it++)
+        _points.emplace_back(it->release());
+    return true;
+}
+
 Giant get_exp(std::vector<int>& primes)
 {
     uint64_t j, k;
@@ -445,6 +482,11 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
     _points = std::move(_state);
 }
 
+void Fermat::write_points(File& file)
+{
+    write_file(file, _B0, _points);
+}
+
 int fermat_main(int argc, char *argv[])
 {
     int i, j;
@@ -462,6 +504,12 @@ int fermat_main(int argc, char *argv[])
     int modCurve = 0;
     int exponent = 4096;
     char exponent_c = 12;
+    int split = 0;
+    int splitOffset = 0;
+    int splitCount = 0;
+    std::string splitName;
+    int merge = 0;
+    std::string mergeName;
     int log_level = Logging::LEVEL_INFO;
     Giant factors;
     factors = "45477879701734570611058964078361695337745924097";
@@ -544,6 +592,22 @@ int fermat_main(int argc, char *argv[])
                     modCurve = atoi(argv[i + 2]);
                     i += 2;
                 }
+            }
+            else if (i < argc - 3 && strcmp(argv[i], "-split") == 0)
+            {
+                split = 1;
+                i++;
+                splitOffset = atoi(argv[i]);
+                i++;
+                splitCount = atoi(argv[i]);
+                i++;
+                splitName = argv[i];
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-merge") == 0)
+            {
+                merge = 1;
+                i++;
+                mergeName = argv[i];
             }
             else if (strcmp(argv[i], "-p54") == 0)
             {
@@ -725,6 +789,46 @@ int fermat_main(int argc, char *argv[])
                         logging.info("dhash ok.\n");
                 }
                 fclose(fp);
+            }
+        }
+
+        if (split)
+        {
+            Fermat fermat_split(exponent, gwstate, logging);
+            if (fermat.split(splitOffset, splitCount, fermat_split))
+            {
+                File file_split(splitName, 0);
+                file_split.hash = false;
+                fermat_split.write_points(file_split);
+
+                std::string dhash = fermat_split.verify(false);
+                std::string dhashfile = splitName + ".dhash";
+                FILE* fp = fopen(dhashfile.data(), "w");
+                if (fp)
+                {
+                    fwrite(dhash.data(), 1, dhash.length(), fp);
+                    fclose(fp);
+                }
+            }
+        }
+
+        if (merge)
+        {
+            File file_merge(mergeName, 0);
+            file_merge.hash = false;
+            Fermat fermat_merge(exponent, gwstate, logging);
+            if (fermat_merge.read_points(file_merge) && fermat.merge(fermat_merge))
+            {
+                fermat.write_points(file_points);
+
+                std::string dhash = fermat.verify(false);
+                std::string dhashfile = filename + ".dhash";
+                FILE* fp = fopen(dhashfile.data(), "w");
+                if (fp)
+                {
+                    fwrite(dhash.data(), 1, dhash.length(), fp);
+                    fclose(fp);
+                }
             }
         }
     }

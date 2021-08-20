@@ -138,6 +138,7 @@ namespace arithmetic
         dbl(a, res, GWMUL_STARTNEXTFFT);
     }
 
+    // https://eprint.iacr.org/2021/1061
     void EdwardsArithmetic::add(EdPoint& a, EdPoint& b, EdPoint& res, int options)
     {
         bool safe11 = mul_safe(gw().gwdata(), 1, 1);
@@ -214,6 +215,7 @@ namespace arithmetic
             res.T.reset();
     }
 
+    // https://eprint.iacr.org/2021/1061
     void EdwardsArithmetic::dbl(EdPoint& a, EdPoint& res, int options)
     {
         bool safe21 = mul_safe(gw().gwdata(), 2, 1);
