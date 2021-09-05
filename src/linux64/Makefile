@@ -16,8 +16,8 @@ LIBS2  = -lm -lpthread -lstdc++ -static
 
 CC  = gcc
 CXX = g++
-CFLAGS   = -I.. -I../gwnum                 -DX86_64 -O2 -std=c99     -Wall -Wextra
-CXXFLAGS = -I.. -I../gwnum -I../arithmetic -DX86_64 -O2 -std=gnu++17 -Wall -Wextra
+CFLAGS   = -I.. -I../gwnum                           -DX86_64 -O2 -std=c99     -Wall -Wextra
+CXXFLAGS = -I.. -I../gwnum -I../arithmetic -DEXT_DAC -DX86_64 -O2 -std=gnu++17 -Wall -Wextra
 
 #########################################################################
 

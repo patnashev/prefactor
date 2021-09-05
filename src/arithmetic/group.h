@@ -331,6 +331,7 @@ namespace arithmetic
             }
         }
 
+        // https://eprint.iacr.org/2017/293.pdf
         virtual void mul(Element& a, int32_t prime, size_t index, Element& res)
         {
             if (prime < 14)
