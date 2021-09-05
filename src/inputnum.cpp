@@ -18,10 +18,24 @@ bool InputNum::read(File& file)
         return false;
     if (!reader->read(_gb))
         return false;
+    _gk = 1;
+    _n = 0;
+    _c = 0;
     _input_text = file.filename();
     _display_text = file.filename();
-    _n = -1;
     return true;
+}
+
+void InputNum::write(File& file)
+{
+    std::unique_ptr<Writer> writer(file.get_writer());
+    writer->write(File::MAGIC_NUM);
+    writer->write(FILE_APPID + (0 << 8) + (0 << 16) + (0 << 24));
+    if (_n == 0)
+        writer->write(_gb);
+    else
+        writer->write(_gk*power(_gb, _n) + _c);
+    file.commit_writer(*writer);
 }
 
 bool InputNum::parse(const std::string& s)
@@ -348,7 +362,7 @@ std::string InputNum::build_text(int max_len)
 
 void InputNum::setup(GWState& state)
 {
-    if (n() < 0)
+    if (_n == 0)
     {
         state.setup(_gb);
     }

@@ -7,7 +7,7 @@
 #include "cpuid.h"
 
 #include "net.h"
-#include "fermat.h"
+#include "factoring.h"
 #include "md5.h"
 #include "task.h"
 #include "exception.h"
@@ -430,13 +430,13 @@ int net_main(int argc, char *argv[])
 			continue;
 		}
 
-        NetFile file_input(net, "input", 0);
+        NetFile file_number(net, "number", 0);
         InputNum input;
-        if (net.task()->n >= 0)
+        if (net.task()->n > 0)
             input.init(net.task()->sk, net.task()->sb, net.task()->n, net.task()->c);
-        else if (!input.read(file_input))
+        else if (!input.read(file_number))
         {
-            logging.error("Input file is missing or corrupted.\n");
+            logging.error("Number file is missing or corrupted.\n");
             std::this_thread::sleep_for(std::chrono::minutes(1));
             continue;
         }
@@ -462,6 +462,7 @@ int net_main(int argc, char *argv[])
         if (net.task()->b2 < net.task()->b1)
             net.task()->b2 = net.task()->b1;
 
+        NetFile file_input(net, "input", gwstate.fingerprint);
         NetFile file_output(net, "output", gwstate.fingerprint);
         NetFile file_checkpoint(net, "checkpoint", gwstate.fingerprint);
         NetFile file_checkpoint_m1(net, "checkpoint.m1", gwstate.fingerprint);
@@ -476,11 +477,11 @@ int net_main(int argc, char *argv[])
 
         try
         {
-            if (net.task()->type == "Fermat")
+            if (net.task()->type == "Fermat" || net.task()->type == "Factoring")
             {
-                Fermat fermat(net.task()->n, gwstate, logging);
+                Factoring factoring(input, gwstate, logging);
 
-                if (!fermat.read_points(file_input))
+                if (!factoring.read_points(file_input))
                 {
                     logging.error("Input is missing or corrupted.\n");
                     std::this_thread::sleep_for(std::chrono::minutes(1));
@@ -488,11 +489,11 @@ int net_main(int argc, char *argv[])
                     throw TaskAbortException();
                 }
 
-                if (net.task()->b1 > fermat.B0())
+                if (net.task()->b1 > factoring.B0())
                 {
-                    logging.progress().add_stage((int)fermat.points().size());
-                    fermat.read_state(file_checkpoint, net.task()->b1);
-                    fermat.stage1(net.task()->b1, file_checkpoint, file_output);
+                    logging.progress().add_stage((int)factoring.points().size());
+                    factoring.read_state(file_checkpoint, net.task()->b1);
+                    factoring.stage1(net.task()->b1, file_checkpoint, file_output);
                     logging.progress().next_stage();
                 }
                 else
@@ -501,7 +502,7 @@ int net_main(int argc, char *argv[])
                         logging.warning("Input is at a higher B1.\n");
                 }
 
-                dhash = fermat.verify(true);
+                dhash = factoring.verify(true);
             }
             else
             {

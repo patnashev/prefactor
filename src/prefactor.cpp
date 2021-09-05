@@ -22,8 +22,8 @@
 #include "file.h"
 #include "logging.h"
 #include "prob.h"
-#ifdef FERMAT
-#include "fermat.h"
+#ifdef FACTORING
+#include "factoring.h"
 #endif
 #ifdef NETPF
 int net_main(int argc, char *argv[]);
@@ -65,6 +65,7 @@ int main(int argc, char *argv[])
     std::string curveY;
     int K = 0;
     InputNum input;
+    std::string toFile;
     int log_level = Logging::LEVEL_INFO;
     bool success = false;
 
@@ -175,14 +176,19 @@ int main(int argc, char *argv[])
                 plus1 = 1;
             else if (strcmp(argv[i], "-ecm") == 0 || strcmp(argv[i], "-eecm") == 0 || strcmp(argv[i], "-edecm") == 0)
                 edecm = 1;
-#ifdef FERMAT
-            else if (strcmp(argv[i], "-fermat") == 0)
-                return fermat_main(argc, argv);
+#ifdef FACTORING
+            else if (strcmp(argv[i], "-factoring") == 0)
+                return factoring_main(argc, argv);
 #endif
 #ifdef NETPF
             else if (strcmp(argv[i], "-net") == 0)
                 return net_main(argc, argv);
 #endif
+            else if (i < argc - 1 && strcmp(argv[i], "-file") == 0)
+            {
+                i++;
+                toFile = argv[i];
+            }
             else if (strcmp(argv[i], "-v") == 0)
             {
                 printf("Prefactor version " PREFACTOR_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
@@ -206,6 +212,11 @@ int main(int argc, char *argv[])
         printf("Usage: prefactor {-B1 10000 -B2 100000 | -S sievingDepth [-B1 10000] [-B2 100000]} [-minus1] [-plus1] [-edecm] options {\"K*B^N+C\" | file}\n");
         printf("Options: [-M maxMemory] [-t Threads] [-P 2/7] [-curve {curve2x8 | curve12 | random | seed 123 | xy 17/19 17/33}]\n");
         return 0;
+    }
+    if (!toFile.empty())
+    {
+        File file(toFile, 0);
+        input.write(file);
     }
 
     if (!minus1 && !plus1 && !edecm)

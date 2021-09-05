@@ -1,41 +1,128 @@
-#define PREFACTOR_FERMAT_VERSION "0.8.0"
+#define PREFACTOR_FACTORING_VERSION "0.8.0"
 
+#include <iostream>
 #include <stdlib.h>
 #include "gwnum.h"
 #include "cpuid.h"
-#include "fermat.h"
+#include "factoring.h"
 #include "exception.h"
 #include "task.h"
 #include "primelist.h"
 
 using namespace arithmetic;
 
-void writeToFileFermat(const std::string& filename, char exponent, int id, uint64_t b0, std::vector<std::unique_ptr<EdPoint>>& points)
+void write_dhash(const std::string& filename, const std::string& dhash)
 {
-    Writer writer;
-    writer.write(File::MAGIC_NUM);
-    writer.write(FERMAT_APPID + (0 << 8) + ((int)exponent << 16));
-    writer.write(id);
-    writer.write((int)points.size());
-    writer.write(b0);
+    FILE* fp = fopen(filename.data(), "w");
+    if (fp)
+    {
+        fwrite(dhash.data(), 1, dhash.length(), fp);
+        fclose(fp);
+    }
+}
+
+void Factoring::write_file(File& file, char type, uint64_t B1, std::vector<std::unique_ptr<EdPoint>>& points)
+{
+    std::unique_ptr<Writer> writer(file.get_writer());
+    writer->write(File::MAGIC_NUM);
+    writer->write(FACTORING_APPID + (0 << 8) + (type << 16) + (0 << 24));
+    writer->write(_gwstate.fingerprint);
+    writer->write(_seed);
+    writer->write((int)points.size());
+    writer->write(B1);
     Giant X, Y, Z, T;
     for (auto it = points.begin(); it != points.end(); it++)
     {
         (*it)->serialize(X, Y, Z, T);
-        writer.write(X);
-        writer.write(Y);
-        writer.write(Z);
-        writer.write(T);
+        writer->write(X);
+        writer->write(Y);
+        writer->write(Z);
+        writer->write(T);
     }
-    File file(filename, 0);
-    file.hash = false;
-    file.commit_writer(writer);
+    file.commit_writer(*writer);
 }
 
-void gen_F12_ed_curve(const std::string& prefix, char exponent, int seed, int count, EdwardsArithmetic& ed)
+bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B0, std::vector<std::unique_ptr<EdPoint>>& points)
 {
-    GWArithmetic& gw = ed.gw().carefully();
+    file.appid = FACTORING_APPID;
+    std::unique_ptr<Reader> reader(file.get_reader());
+    if (!reader)
+    {
+        file.appid = 2;
+        reader.reset(file.get_reader());
+        if (!reader)
+            return false;
+    }
+    else
+    {
+        if (!reader || reader->type() != type)
+            return false;
+        uint32_t fingerprint;
+        if (!reader->read(fingerprint) || fingerprint != _gwstate.fingerprint)
+            return false;
+    }
+    if (!reader->read(seed))
+        return false;
+    int count;
+    if (!reader->read(count))
+        return false;
+    if (!reader->read(B0))
+        return false;
+    points.resize(count);
+    for (int i = 0; i < count; i++)
+    {
+        points[i].reset(new EdPoint(_ed));
+        Giant X, Y, Z, T;
+        if (!reader->read(X) || !reader->read(Y) || !reader->read(Z) || !reader->read(T))
+            return false;
+        points[i]->deserialize(X, Y, Z, T);
+    }
+    return true;
+}
+
+void Factoring::write_points(File& file)
+{
+    write_file(file, 0, _B0, _points);
+}
+
+bool Factoring::read_points(File& file)
+{
+    int seed;
+    uint64_t B0;
     std::vector<std::unique_ptr<EdPoint>> points;
+    if (!read_file(file, 0, seed, B0, points))
+        return false;
+    _seed = seed;
+    _B0 = B0;
+    _points = std::move(points);
+    _logging.info("%d curve%s starting with #%d, B1 = %" PRId64 ".\n", _points.size(), _points.size() > 1 ? "s" : "", _seed, _B0);
+    return true;
+}
+
+bool Factoring::read_state(File& file, uint64_t B1)
+{
+    int seed;
+    uint64_t b1;
+    std::vector<std::unique_ptr<EdPoint>> points;
+    if (!read_file(file, 1, seed, b1, points))
+        return false;
+    if (_seed != seed)
+        return false;
+    if (B1 != b1)
+        return false;
+    _state = std::move(points);
+    _logging.info("resuming from curve %d.\n", (int)_state.size());
+    return true;
+}
+
+std::string Factoring::generate(int seed, int count)
+{
+    _seed = seed;
+    _B0 = 1;
+    _points.clear();
+    _state.clear();
+
+    GWArithmetic& gw = _gw.carefully();
     Writer hasher;
 
     int i, len;
@@ -60,7 +147,7 @@ void gen_F12_ed_curve(const std::string& prefix, char exponent, int seed, int co
         }
     }
 
-    for (i = 0; i < 1024*count; i++)
+    for (i = 0; i < count; i++)
     {
         // Asserting T^2 = S^3 - 8S - 32
         GWASSERT((gw.popg() = square(t))%gw.N() == (gw.popg() = (square(s) - 8)*s - 32)%gw.N());
@@ -127,28 +214,9 @@ void gen_F12_ed_curve(const std::string& prefix, char exponent, int seed, int co
         Giant gd = (gw.popg() = square(sqrt_d))%gw.N();
         hasher.write((char*)gd.data(), gd.size()*4);
 
-        if (i < 1024)
-            points.emplace_back(new EdPoint(ed));
-        points[i & 1023]->X.reset(new GWNum(std::move(x)));
-        points[i & 1023]->Y.reset(new GWNum(std::move(y)));
-
-        if (((i + 1) & 1023) == 0)
-        {
-            //ed.normalize(points.begin(), points.end(), 0);
-
-            std::string filename = prefix + std::to_string((seed + i - 1)/1024);
-            writeToFileFermat(filename, exponent, seed + i - 1023, 1, points);
-
-            std::string hash = hasher.hash_str();
-            filename += ".dhash";
-            FILE *fp = fopen(filename.data(), "w");
-            if (fp)
-            {
-                fwrite(hash.data(), 1, hash.length(), fp);
-                fclose(fp);
-            }
-            hasher.buffer().clear();
-        }
+        _points.emplace_back(new EdPoint(_ed));
+        _points.back()->X.reset(new GWNum(std::move(x)));
+        _points.back()->Y.reset(new GWNum(std::move(y)));
 
         if (i + seed == 1)
         {
@@ -168,110 +236,11 @@ void gen_F12_ed_curve(const std::string& prefix, char exponent, int seed, int co
         if ((i + 1)%1000 == 0)
             printf("%d\n", i + 1);
     }
+
+    return hasher.hash_str();
 }
 
-void ed_mul(EdPoint& p, Giant& exp)
-{
-    int i, len;
-    EdPoint p0 = p;
-    len = exp.bitlen() - 1;
-    for (i = 1; i <= len; i++)
-    {
-        p.arithmetic().dbl(p, p);
-        if (exp.bit(len - i))
-            p.arithmetic().add(p, p0, p);
-    }
-}
-
-void Fermat::write_file(File& file, uint64_t B1, std::vector<std::unique_ptr<EdPoint>>& points)
-{
-    std::unique_ptr<Writer> writer(file.get_writer());
-    writer->write(File::MAGIC_NUM);
-    writer->write(FERMAT_APPID + (0 << 8) + ((int)_exponent_c << 16) + (0 << 24));
-    writer->write(_seed);
-    writer->write((int)points.size());
-    writer->write(B1);
-    Giant X, Y, Z, T;
-    for (auto it = points.begin(); it != points.end(); it++)
-    {
-        (*it)->serialize(X, Y, Z, T);
-        writer->write(X);
-        writer->write(Y);
-        writer->write(Z);
-        writer->write(T);
-    }
-    file.commit_writer(*writer);
-}
-
-bool Fermat::read_file(File& file, int& seed, uint64_t& B0, std::vector<std::unique_ptr<EdPoint>>& points)
-{
-    file.appid = FERMAT_APPID;
-    std::unique_ptr<Reader> reader(file.get_reader());
-    if (!reader)
-    {
-        file.appid = FILE_APPID;
-        reader.reset(file.get_reader());
-        if (!reader)
-            return false;
-    }
-    if (reader->type() != _exponent_c)
-        return false;
-    if (!reader->read(seed))
-        return false;
-    int count;
-    if (!reader->read(count))
-        return false;
-    if (!reader->read(B0))
-        return false;
-    points.resize(count);
-    for (int i = 0; i < count; i++)
-    {
-        points[i].reset(new EdPoint(_ed));
-        Giant X, Y, Z, T;
-        if (!reader->read(X) || !reader->read(Y) || !reader->read(Z) || (file.appid == FERMAT_APPID && !reader->read(T)))
-            return false;
-        if (file.appid != FERMAT_APPID)
-        {
-            if (Z == 0)
-                Z = 1;
-            T = 0;
-        }
-        points[i]->deserialize(X, Y, Z, T);
-    }
-    return true;
-}
-
-bool Fermat::read_points(File& file)
-{
-    int seed;
-    uint64_t B0;
-    std::vector<std::unique_ptr<EdPoint>> points;
-    if (!read_file(file, seed, B0, points))
-        return false;
-    _seed = seed;
-    _B0 = B0;
-    _points = std::move(points);
-    _logging.info("%d curve%s starting with #%d, B1 = %" PRId64 ".\n", _points.size(), _points.size() > 1 ? "s" : "", _seed, _B0);
-    return true;
-}
-
-bool Fermat::read_state(File& file, uint64_t B1)
-{
-    int seed;
-    uint64_t b1;
-    std::vector<std::unique_ptr<EdPoint>> points;
-    if (!read_file(file, seed, b1, points))
-        return false;
-    if (_seed != seed)
-        return false;
-    if (B1 != b1)
-        return false;
-    _state = std::move(points);
-    _logging.info("resuming from curve %d.\n", (int)_state.size());
-    return true;
-}
-
-std::string Fermat::verify(bool verify_curve)
+std::string Factoring::verify(bool verify_curve)
 {
     int i;
     for (i = 0; i < _points.size(); i++)
@@ -316,7 +285,7 @@ std::string Fermat::verify(bool verify_curve)
     return dhash;
 }
 
-void Fermat::modulus(int curve, File& file_result)
+void Factoring::modulus(int curve, File& file_result)
 {
     int i, j;
     if (curve != 0 && curve - _seed >= 0 && curve - _seed < 1024)
@@ -341,10 +310,10 @@ void Fermat::modulus(int curve, File& file_result)
         *_points[i]->X = (_gw.popg() = *_points[i]->X)%_gw.N();
         *_points[i]->Y = (_gw.popg() = *_points[i]->Y)%_gw.N();
     }
-    write_file(file_result, _B0, _points);
+    write_file(file_result, 0, _B0, _points);
 }
 
-bool Fermat::split(int offset, int count, Fermat& result)
+bool Factoring::split(int offset, int count, Factoring& result)
 {
     if (offset < 0 || offset >= _points.size())
     {
@@ -362,7 +331,7 @@ bool Fermat::split(int offset, int count, Fermat& result)
     return true;
 }
 
-bool Fermat::merge(Fermat& other)
+bool Factoring::merge(Factoring& other)
 {
     if (other._B0 != _B0)
     {
@@ -381,7 +350,7 @@ bool Fermat::merge(Fermat& other)
     return true;
 }
 
-Giant get_exp(std::vector<int>& primes)
+Giant get_exp(std::vector<uint64_t>& primes)
 {
     uint64_t j, k;
 
@@ -420,7 +389,7 @@ Giant get_exp(std::vector<int>& primes)
     return tmp;
 }
 
-void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
+void Factoring::stage1(uint64_t B1, File& file_state, File& file_result)
 {
     int i, j;
 
@@ -435,14 +404,14 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
         _ed.set_gw(_gw);
         if (_B0 == B1)
         {
-            write_file(file_result, B1, _points);
+            write_file(file_result, 0, B1, _points);
             return;
         }
     }
 
     PrimeList primes(65536);
-    std::vector<int> plist;
-    primes.sieve_range((int)_B0 + 1, (int)B1 + 1, plist);
+    std::vector<uint64_t> plist;
+    primes.begin().sieve_range(_B0 + 1, B1 + 1, plist);
     Giant tmp = get_exp(plist);
     plist.clear();
 
@@ -469,7 +438,7 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
         {
             _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
             _logging.report_progress();
-            write_file(file_state, B1, _state);
+            write_file(file_state, 1, B1, _state);
             last_write = time(NULL);
         }
         if (Task::abort_flag())
@@ -477,17 +446,12 @@ void Fermat::stage1(uint64_t B1, File& file_state, File& file_result)
     }
 
     _ed.normalize(_state.begin(), _state.end(), _ed.ED_PROJECTIVE);
-    write_file(file_result, B1, _state);
+    write_file(file_result, 0, B1, _state);
     _B0 = B1;
     _points = std::move(_state);
 }
 
-void Fermat::write_points(File& file)
-{
-    write_file(file, _B0, _points);
-}
-
-int fermat_main(int argc, char *argv[])
+int factoring_main(int argc, char *argv[])
 {
     int i, j;
     GWState gwstate;
@@ -502,8 +466,6 @@ int fermat_main(int argc, char *argv[])
     int verifyCurve = 0;
     int modulus = 0;
     int modCurve = 0;
-    int exponent = 4096;
-    char exponent_c = 12;
     int split = 0;
     int splitOffset = 0;
     int splitCount = 0;
@@ -511,8 +473,9 @@ int fermat_main(int argc, char *argv[])
     int merge = 0;
     std::string mergeName;
     int log_level = Logging::LEVEL_INFO;
+    InputNum input;
     Giant factors;
-    factors = "45477879701734570611058964078361695337745924097";
+    factors = "1";
     Giant tmp;
 
     for (i = 1; i < argc; i++)
@@ -534,17 +497,14 @@ int fermat_main(int argc, char *argv[])
                     gwstate.thread_count = 1;
                 continue;
 
-            case 'n':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    exponent = atoi(argv[i] + 2);
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    exponent = atoi(argv[i]);
-                }
-                else
+            case 'q':
+                if (argv[i][2] != '\"' && !isdigit(argv[i][2]))
                     break;
-                for (j = 1, exponent_c = 0; j < exponent; j <<= 1, exponent_c++);
+                if (!input.parse(argv[i] + 2))
+                {
+                    printf("Invalid number format.\n");
+                    return 1;
+                }
                 continue;
 
             case 'f':
@@ -564,6 +524,17 @@ int fermat_main(int argc, char *argv[])
             {
                 i++;
                 B1 = atoll(argv[i]);
+                j = (int)strlen(argv[i]);
+                if (argv[i][j - 1] == 'P')
+                    B1 *= 1e15;
+                if (argv[i][j - 1] == 'T')
+                    B1 *= 1e12;
+                if (argv[i][j - 1] == 'G')
+                    B1 *= 1e9;
+                if (argv[i][j - 1] == 'M')
+                    B1 *= 1e6;
+                if (argv[i][j - 1] == 'K')
+                    B1 *= 1e3;
                 //if (B1 < 100)
                 //    B1 = 100;
             }
@@ -571,7 +542,7 @@ int fermat_main(int argc, char *argv[])
             {
                 generate = 1;
                 i++;
-                seed = atoi(argv[i])*1024 + 1;
+                seed = atoi(argv[i]);
                 i++;
                 count = atoi(argv[i]);
             }
@@ -616,21 +587,35 @@ int fermat_main(int argc, char *argv[])
             }
             else if (strcmp(argv[i], "-v") == 0)
             {
-                printf("Prefactor-Fermat version " PREFACTOR_FERMAT_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
+                printf("Prefactor-Factoring version " PREFACTOR_FACTORING_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
                 return 0;
             }
         }
         else
         {
-            filename = argv[i];
+            if (i < argc - 1 && strcmp(argv[i], "fermat") == 0)
+            {
+                i++;
+                int fermat_n = atoi(argv[i]);
+                input.init(1, 2, 1 << fermat_n, 1);
+                if (fermat_n == 12)
+                    factors = "45477879701734570611058964078361695337745924097";
+            }
+            else if (!input.parse(argv[i]))
+            {
+                File file(argv[i], 0);
+                if (!input.read(file))
+                {
+                    filename = argv[i];
+                }
+            }
         }
     if (filename.empty())
     {
-        printf("Usage: prefactor -fermat [-n 4096] [-B1 10000] [-generate OFFSET COUNT PREFIX] [-mod [curve 123456]] [-verify [curve]] [-split OFFSET COUNT FILE] [-merge FILE] [-f FACTOR] [-p54] FILE\n");
+        printf("Usage: prefactor -factoring {\"NUMBER\" | FILE | fermat N} [-generate CURVE COUNT] [-B1 10000] [-mod [curve CURVE]] [-verify [curve]] [-split OFFSET COUNT FILE] [-merge FILE] [-f FACTOR] FILE\n");
         return 0;
     }
 
-    InputNum input(1, 2, exponent, 1);
     Logging logging(log_level);
     input.setup(gwstate);
     logging.info("Using %s.\n", gwstate.fft_description.data());
@@ -638,126 +623,41 @@ int fermat_main(int argc, char *argv[])
 
     try
     {
-        if (generate)
-        {
-            gen_F12_ed_curve(filename, exponent_c, seed, count, ed);
-            return 0;
-        }
-
-        if (0)
-        {
-            factors = "568630647535356955169033410940867804839360742060818433";
-            EdPoint p0 = ed.gen_curve(7636607, nullptr);
-            EdPoint p(ed);
-            PrimeList primes(3000000);
-            std::vector<int> powers(primes.size());
-            uint64_t sqrtB1 = (uint64_t)1e9;
-            for (i = 0; i < primes.size(); i++)
-            {
-                uint64_t pp, k;
-                // Building exponent with prime powers <= B1
-                pp = primes[i];
-                powers[i] = 1;
-                if (primes[i] <= sqrtB1)
-                {
-                    k = ((uint64_t)1e18)/primes[i];
-                    while (pp <= k)
-                    {
-                        pp *= primes[i];
-                        powers[i]++;
-                    }
-                }
-            }
-
-            std::vector<int> rprimes;
-            std::vector<int> rpowers;
-            int r = (int)primes.size();
-            EdPoint pl = p0;
-            while (r > 1)
-            {
-                int l = 0;
-                while (l < r - 1)
-                {
-                    p = pl;
-                    int t = (l + r)/2;
-                    for (i = l; i < t; i++)
-                    {
-                        tmp = primes[i];
-                        for (j = 0; j < powers[i]; j++)
-                            ed_mul(p, tmp);
-                    }
-                    if ((gw.popg() = *p.X)%factors == 0)
-                    {
-                        r = t;
-                    }
-                    else
-                    {
-                        pl = p;
-                        l = t;
-                    }
-                }
-                rprimes.push_back(primes[l]);
-                rpowers.push_back(powers[l]);
-                pl = p0;
-                for (i = 0; i < rprimes.size(); i++)
-                {
-                    tmp = rprimes[i];
-                    for (j = 0; j < rpowers[i]; j++)
-                        ed_mul(pl, tmp);
-                }
-            }
-            for (r = 0; r < rprimes.size(); r++)
-            {
-                while (1)
-                {
-                    rpowers[r]--;
-                    pl = p0;
-                    for (i = 0; i < rprimes.size(); i++)
-                    {
-                        tmp = rprimes[i];
-                        for (j = 0; j < rpowers[i]; j++)
-                            ed_mul(pl, tmp);
-                    }
-                    if ((gw.popg() = *pl.X)%factors != 0)
-                    {
-                        rpowers[r]++;
-                        break;
-                    }
-                }
-            }
-            for (i = 0; i < rprimes.size(); i++)
-            {
-                if (i > 0)
-                    printf(" * ");
-                else
-                    printf("#E = ");
-                if (rpowers[i] > 1)
-                    printf("%d^%d", rprimes[i], rpowers[i]);
-                else
-                    printf("%d", rprimes[i]);
-            }
-            printf("\n");
-        }
-
-        Fermat fermat(exponent, gwstate, logging);
+        Factoring factoring(input, gwstate, logging);
         logging.set_prefix(filename + ", ");
-        File file_points(filename, 0);
+        File file_points(filename, gwstate.fingerprint);
         file_points.hash = false;
         std::string filename_state = filename + ".tmp";
-        File file_state(filename_state, 0);
+        File file_state(filename_state, gwstate.fingerprint);
         file_state.hash = false;
 
-        if (!fermat.read_points(file_points))
+        if (generate)
         {
-            logging.warning("file is missing or corrupted.\n");
+            if (seed <= 0)
+            {
+                logging.error("invalid curve #.\n");
+                return 1;
+            }
+            if (count <= 0)
+            {
+                logging.error("invalid # of curves.\n");
+                return 1;
+            }
+            std::string dhash = factoring.generate(seed, count);
+            factoring.write_points(file_points);
+            write_dhash(filename + ".dhash", dhash);
+        }
+        else if (!factoring.read_points(file_points))
+        {
+            logging.error("file is missing or corrupted.\n");
             return 1;
         }
 
-        if (B1 > fermat.B0())
+        if (B1 > factoring.B0())
         {
-            logging.progress().add_stage((int)fermat.points().size());
-            fermat.read_state(file_state, B1);
-            fermat.stage1(B1, file_state, file_points);
+            logging.progress().add_stage((int)factoring.points().size());
+            factoring.read_state(file_state, B1);
+            factoring.stage1(B1, file_state, file_points);
             remove(filename_state.data());
             logging.progress().next_stage();
         }
@@ -769,12 +669,12 @@ int fermat_main(int argc, char *argv[])
 
         if (modulus)
         {
-            fermat.modulus(modCurve, file_points);
+            factoring.modulus(modCurve, file_points);
         }
 
         if (verify)
         {
-            std::string dhash = fermat.verify(verifyCurve);
+            std::string dhash = factoring.verify(verifyCurve);
             std::string dhashfile = filename + ".dhash";
             FILE* fp = fopen(dhashfile.data(), "r");
             if (fp)
@@ -794,41 +694,25 @@ int fermat_main(int argc, char *argv[])
 
         if (split)
         {
-            Fermat fermat_split(exponent, gwstate, logging);
-            if (fermat.split(splitOffset, splitCount, fermat_split))
+            Factoring factoring_split(input, gwstate, logging);
+            if (factoring.split(splitOffset, splitCount, factoring_split))
             {
-                File file_split(splitName, 0);
+                File file_split(splitName, gwstate.fingerprint);
                 file_split.hash = false;
-                fermat_split.write_points(file_split);
-
-                std::string dhash = fermat_split.verify(false);
-                std::string dhashfile = splitName + ".dhash";
-                FILE* fp = fopen(dhashfile.data(), "w");
-                if (fp)
-                {
-                    fwrite(dhash.data(), 1, dhash.length(), fp);
-                    fclose(fp);
-                }
+                factoring_split.write_points(file_split);
+                write_dhash(splitName + ".dhash", factoring_split.verify(false));
             }
         }
 
         if (merge)
         {
-            File file_merge(mergeName, 0);
+            File file_merge(mergeName, gwstate.fingerprint);
             file_merge.hash = false;
-            Fermat fermat_merge(exponent, gwstate, logging);
-            if (fermat_merge.read_points(file_merge) && fermat.merge(fermat_merge))
+            Factoring factoring_merge(input, gwstate, logging);
+            if (factoring_merge.read_points(file_merge) && factoring.merge(factoring_merge))
             {
-                fermat.write_points(file_points);
-
-                std::string dhash = fermat.verify(false);
-                std::string dhashfile = filename + ".dhash";
-                FILE* fp = fopen(dhashfile.data(), "w");
-                if (fp)
-                {
-                    fwrite(dhash.data(), 1, dhash.length(), fp);
-                    fclose(fp);
-                }
+                factoring.write_points(file_points);
+                write_dhash(filename + ".dhash", factoring.verify(false));
             }
         }
     }

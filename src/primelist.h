@@ -34,6 +34,8 @@ public:
         return *this;
     }
 
+    void sieve_range(uint64_t start, uint64_t end, std::vector<uint64_t>& list);
+
     PrimeIterator& operator++();
     void operator++(int);
     PrimeIterator& operator+=(int offset);

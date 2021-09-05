@@ -16,14 +16,15 @@ public:
     template<class TK, class TB>
     void init(TK k, TB b, int n, int c) { _gk = k; _gb = b; _n = n; _c = c; process(); }
     bool read(File& file);
+    void write(File& file);
     bool parse(const std::string& s);
     void setup(arithmetic::GWState& state);
     bool to_base2(InputNum& k, InputNum& base2);
 
-    bool empty() const { return _n == 0; }
+    bool empty() const { return _gb == 0; }
     uint32_t k() { return _gk.size() == 1 ? *(_gk.data()) : 0; }
     uint32_t b() { return _gb.size() == 1 ? *(_gb.data()) : 0; }
-    uint32_t n() { return _n; }
+    uint32_t n() { return _n > 0 ? _n : 1; }
     int32_t c() { return _c; }
     arithmetic::Giant& gk() { return _gk; }
     arithmetic::Giant& gb() { return _gb; }

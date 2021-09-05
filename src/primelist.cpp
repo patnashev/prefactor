@@ -104,3 +104,26 @@ PrimeIterator& PrimeIterator::operator+=(int offset)
     }
     return *this;
 }
+
+void PrimeIterator::sieve_range(uint64_t start, uint64_t end, std::vector<uint64_t>& list)
+{
+    int i, j;
+    if (!(start & 1))
+        start++;
+    if (_cur == 0)
+        (*this)++;
+    list.clear();
+    list.reserve((int)((std::expint(log(end)) - std::expint(log(start)))*1.1) + 100);
+    std::vector<char> bitmap((end - start)/2, 0);
+    for (i = *(*this); i*(uint64_t)i < end; (*this)++, i = *(*this))
+    {
+        j = (i - start%i)%i;
+        for (j = ((j & 1) != 0 ? (j + i) : j)/2; j < bitmap.size(); j += i)
+            bitmap[j] = 1;
+        if (start <= i)
+            list.push_back(i);
+    }
+    for (j = 0; j < bitmap.size(); j++)
+        if (!bitmap[j])
+            list.push_back(start + j*2);
+}
