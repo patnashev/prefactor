@@ -1,7 +1,7 @@
 # Makefile for Linux
 
 EXE       = prefactor
-COMPOBJS  = precompute.o md5.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o prefactor.o
+COMPOBJS  = md5.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o prefactor.o
 LIB_GWNUM = ../gwnum/linux64/gwnum.a
 
 # Source directories

@@ -1,4 +1,4 @@
-#define PREFACTOR_VERSION "0.8.0"
+#define PREFACTOR_VERSION "0.9.0"
 
 #include <ctype.h>
 #include <string.h>
@@ -22,6 +22,7 @@
 #include "file.h"
 #include "logging.h"
 #include "prob.h"
+#include "params.h"
 #ifdef FACTORING
 #include "factoring.h"
 #endif
@@ -30,10 +31,6 @@ int net_main(int argc, char *argv[]);
 #endif
 
 using namespace arithmetic;
-
-#include "precompute.h"
-
-#include "prob.c"
 
 void sigterm_handler(int signo)
 {
@@ -57,13 +54,14 @@ int main(int argc, char *argv[])
     int edecm = 0;
     double sievingDepth = 0;
     int maxMem = 2048;
-    int D, A, L;
+    std::unique_ptr<PM1Params> params_pm1;
+    std::unique_ptr<PP1Params> params_pp1;
+    std::unique_ptr<EdECMParams> params_edecm;
     std::string sP;
     int curveType = 0;
     int curveSeed = 0;
     std::string curveX;
     std::string curveY;
-    int K = 0;
     InputNum input;
     std::string toFile;
     int log_level = Logging::LEVEL_INFO;
@@ -234,61 +232,102 @@ int main(int argc, char *argv[])
         primalityCost = gwstate.N->bitlen()*1.2;
 
     ProbSmooth prob;
-    double knownDivisors = 1;
+    double knownDivisors_pm1 = 1;
     if (minus1 && input.gfn() > 0)
-        knownDivisors = input.gfn() + 1;
-    if (!minus1 && plus1 && !edecm && (sP.empty() || sP == "2/7"))
-        knownDivisors = log2(6);
-    if (!minus1 && plus1 && !edecm && (sP == "6/5"))
-        knownDivisors = log2(4);
-    if (!minus1 && !plus1 && edecm)
-        knownDivisors = log2(31); // by Yves
+        knownDivisors_pm1 = input.gfn() + 1;
+    double knownDivisors_pp1 = 1;
+    if (plus1 && (sP.empty() || sP == "2/7"))
+        knownDivisors_pp1 = log2(6);
+    if (plus1 && (sP == "6/5"))
+        knownDivisors_pp1 = log2(4);
+    double knownDivisors_edecm = 1;
+    if (edecm && (curveType == 0 || curveType == 2))
+        knownDivisors_edecm = log2(31); // by Yves
+    if (edecm && (curveType == 1))
+        knownDivisors_edecm = log2(12);
 
     int maxSize = (int)(maxMem/(gwnum_size(gwstate.gwdata())/1048576.0));
 
     if (sievingDepth != 0 && B1 == 0)
     {
-        get_optimal_bounds(&B1, &B2, maxSize, sievingDepth, knownDivisors, primalityCost, minus1 ? 0 : plus1 ? 1 : 5);
-        logging.info("Optimal B1 = %d, B2 = %d.\n", B1, B2);
+        if (minus1)
+        {
+            params_pm1.reset(new PM1Params(maxSize, prob, sievingDepth, knownDivisors_pm1, primalityCost));
+            logging.info("Optimal P-1 B1 = %d, B2 = %d.\n", params_pm1->B1, params_pm1->B2);
+        }
+        if (plus1)
+        {
+            params_pp1.reset(new PP1Params(maxSize, prob, sievingDepth, knownDivisors_pp1, primalityCost));
+            logging.info("Optimal P+1 B1 = %d, B2 = %d.\n", params_pp1->B1, params_pp1->B2);
+        }
+        if (edecm)
+        {
+            logging.error("EdECM needs explicit B1 and B2\n");
+            return 1;
+        }
     }
-    if (sievingDepth != 0 && B1 != 0 && B2 == 0)
+    else if (sievingDepth != 0 && B1 != 0 && B2 == 0)
     {
-        get_optimal_B2(B1, &B2, maxSize, sievingDepth, knownDivisors, primalityCost, minus1 ? 0 : plus1 ? 1 : 5);
+        if (minus1)
+        {
+            params_pm1.reset(new PM1Params(B1, maxSize, prob, sievingDepth, knownDivisors_pm1, primalityCost));
+            logging.info("Optimal P-1 B2 = %d.\n", params_pm1->B2);
+        }
+        if (plus1)
+        {
+            params_pp1.reset(new PP1Params(B1, maxSize, prob, sievingDepth, knownDivisors_pp1, primalityCost));
+            logging.info("Optimal P+1 B2 = %d.\n", params_pp1->B2);
+        }
+        if (edecm)
+        {
+            logging.error("EdECM needs explicit B1 and B2\n");
+            return 1;
+        }
     }
-    if (B1 == 0)
+    else
     {
-        printf("B1 parameter is missing and no sievingDepth set to calculate it.\n");
-        return 1;
+        if (B1 == 0)
+        {
+            printf("B1 parameter is missing and no sievingDepth set to calculate it.\n");
+            return 1;
+        }
+        if (B2 < B1)
+            B2 = B1;
+        if (minus1)
+            params_pm1.reset(new PM1Params(B1, B2, maxSize));
+        if (plus1)
+            params_pp1.reset(new PP1Params(B1, B2, maxSize));
+        if (edecm)
+            params_edecm.reset(new EdECMParams(B1, B2, maxSize));
     }
-    if (B2 < B1)
-        B2 = B1;
 
     PrimeList primes(B2 + 100);
 
-    if (edecm)
-        get_edecm_stage1_params(B1, maxSize, &K);
-    double pairing;
-    get_stage2_params(B1, B2, maxSize, &D, &A, &L, &pairing);
     int size = 0;
-    if (minus1)
+    if (params_pm1)
     {
-        logging.progress().add_stage(get_stage1_cost(B1, 0));
-        logging.progress().add_stage(get_stage2_cost(B1, B2, D, A, L, pairing));
-        size = get_stage2_size(D, A, L);
+        logging.progress().add_stage(params_pm1->stage1_cost());
+        logging.progress().add_stage(params_pm1->stage2_cost());
+        size = params_pm1->stage2_size();
     }
-    if (plus1)
+    if (params_pp1)
     {
-        logging.progress().add_stage(get_stage1_cost(B1, 1));
-        logging.progress().add_stage(get_stage2_cost(B1, B2, D, A, L, pairing));
-        size = get_stage2_size(D, A, L);
+        logging.progress().add_stage(params_pp1->stage1_cost());
+        logging.progress().add_stage(params_pp1->stage2_cost());
+        int size_pp1 = params_pp1->stage2_size();
+        if (size < size_pp1)
+            size = size_pp1;
     }
-    if (edecm)
+    if (params_edecm)
     {
-        logging.progress().add_stage(get_stage1_cost(B1, K));
-        logging.progress().add_stage(get_stage2_cost(B1, B2, D, A, L, pairing)); // TODO:
-        int size_ed1 = get_edecm_stage1_size(K);
+        logging.progress().add_stage(params_edecm->stage1_cost());
+        logging.progress().add_stage(params_edecm->stage2_cost());
+        int size_ed1 = params_edecm->stage1_size();
         if (size < size_ed1)
             size = size_ed1;
+        int size_ed2 = params_edecm->stage2_size();
+        if (size < size_ed2)
+            size = size_ed2;
     }
     int cost = logging.progress().cost_total();
     if (2*cost > primalityCost)
@@ -297,13 +336,19 @@ int main(int argc, char *argv[])
         logging.info("Running at 1/%.0f cost of a primality test, using %.0f MB.\n", primalityCost/cost, gwnum_size(gwstate.gwdata())/1048576.0*size);
     if (sievingDepth != 0)
     {
-        double value = prob.factoring(log2(B1), log2(B2), sievingDepth, knownDivisors);
+        double value = 0;
+        if (params_pm1)
+            value += prob.factoring(log2(params_pm1->B1), log2(params_pm1->B2), sievingDepth, knownDivisors_pm1);
+        if (params_pp1)
+            value += prob.factoring(log2(params_pp1->B1), log2(params_pp1->B2), sievingDepth, knownDivisors_pp1);
+        if (params_edecm)
+            value += prob.factoring(log2(params_edecm->B1), log2(params_edecm->B2), sievingDepth, knownDivisors_edecm);
         logging.info("Probability of a factor 1/%.0f, overall speedup %.2f%%.\n", 1/value, 100*(value - cost/primalityCost));
     }
 
     try
     {
-        if (minus1 && !success)
+        if (params_pm1 && !success)
         {
             File file1(std::to_string(gwstate.fingerprint) + ".m1", gwstate.fingerprint);
             File file12(std::to_string(gwstate.fingerprint) + ".m12", gwstate.fingerprint);
@@ -311,11 +356,11 @@ int main(int argc, char *argv[])
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
-                PM1Stage1 stage1(primes, B1);
+                PM1Stage1 stage1(primes, params_pm1->B1);
                 stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
                 success = stage1.success();
-                if (!success && B2 > B1)
+                if (!success && params_pm1->B2 > params_pm1->B1)
                 {
                     interstate = new PP1Stage1::State();
                     interstate->V() = std::move(stage1.V());
@@ -325,7 +370,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(logging, primes, B1, B2, D, A, L);
+                PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                 stage2.run();
                 success = stage2.success();
@@ -335,7 +380,7 @@ int main(int argc, char *argv[])
             file12.clear();
             file2.clear();
         }
-        if (plus1 && !success)
+        if (params_pp1 && !success)
         {
             if (sP.empty())
                 //sP = "6/5";
@@ -346,11 +391,11 @@ int main(int argc, char *argv[])
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
-                PP1Stage1 stage1(primes, B1, sP);
+                PP1Stage1 stage1(primes, params_pp1->B1, sP);
                 stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
                 success = stage1.success();
-                if (!success && B2 > B1)
+                if (!success && params_pp1->B2 > params_pp1->B1)
                 {
                     interstate = new PP1Stage1::State(std::move(*stage1.state()));
                     file12.write(*interstate);
@@ -359,7 +404,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(logging, primes, B1, B2, D, A, L);
+                PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                 stage2.run();
                 success = stage2.success();
@@ -369,7 +414,7 @@ int main(int argc, char *argv[])
             file12.clear();
             file2.clear();
         }
-        if (edecm && !success)
+        if (params_edecm && !success)
         {
             Giant X, Y, Z, T, EdD;
             {
@@ -431,11 +476,11 @@ int main(int argc, char *argv[])
             EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
             if (interstate == nullptr)
             {
-                EdECMStage1 stage1(primes, B1, K);
+                EdECMStage1 stage1(primes, params_edecm->B1, params_edecm->W);
                 stage1.init(&input, &gwstate, &file1, &logging, X, Y, Z, T, EdD);
                 stage1.run();
                 success = stage1.success();
-                if (!success && B2 > B1)
+                if (!success && params_edecm->B2 > params_edecm->B1)
                 {
                     interstate = new EdECMStage1::State(std::move(*stage1.state()));
                     file12.write(*interstate);
@@ -444,7 +489,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                EdECMStage2 stage2(logging, primes, B1, B2, 210, 5, 20);
+                EdECMStage2 stage2(logging, primes, params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                 stage2.run();
                 success = stage2.success();

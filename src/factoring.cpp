@@ -1,4 +1,4 @@
-#define PREFACTOR_FACTORING_VERSION "0.8.0"
+#define PREFACTOR_FACTORING_VERSION "1.0.0"
 
 #include <iostream>
 #include <stdlib.h>
