@@ -4,9 +4,9 @@ EXE       = prefactor
 EXE_F     = prefactor_f
 LIB_GWNUM = ../gwnum/linux64/gwnum.a
 
-COMPOBJS_COMMON = md5.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o
-COMPOBJS   = $(COMPOBJS_COMMON) prefactor.o
-COMPOBJS_F = $(COMPOBJS_COMMON) prefactor_f.o factoring.o
+COMPOBJS_COMMON = md5.o arithmetic.o edwards.o giant.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o
+COMPOBJS   = $(COMPOBJS_COMMON) group.o   prefactor.o
+COMPOBJS_F = $(COMPOBJS_COMMON) group_f.o prefactor_f.o factoring.o
 
 # Source directories
 
@@ -37,6 +37,9 @@ $(EXE_F): $(COMPOBJS_F)
 
 prefactor_f.o: prefactor.cpp
 	$(CXX) -o $@ -c $(CXXFLAGS) -DFACTORING $<
+
+group_f.o: group.cpp
+	$(CXX) -o $@ -c $(CXXFLAGS) -UEXT_DAC $<
 
 clean:
 	rm -f $(EXE) $(COMPOBJS)

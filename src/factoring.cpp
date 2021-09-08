@@ -611,7 +611,7 @@ int factoring_main(int argc, char *argv[])
                 }
             }
         }
-    if (filename.empty())
+    if (input.empty() || filename.empty())
     {
         printf("Usage: prefactor -factoring {\"NUMBER\" | FILE | fermat N} [-generate CURVE COUNT] [-B1 10000] [-mod [curve CURVE]] [-verify [curve]] [-split OFFSET COUNT FILE] [-merge FILE] [-f FACTOR] FILE\n");
         return 0;
