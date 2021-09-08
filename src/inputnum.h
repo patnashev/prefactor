@@ -10,7 +10,7 @@ class File;
 class InputNum
 {
 public:
-    InputNum() { }
+    InputNum() { _gk = 0; _gb = 0; }
     InputNum(int k, int b, int n, int c) { init(k, b, n, c); }
 
     template<class TK, class TB>

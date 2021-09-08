@@ -1,8 +1,12 @@
 # Makefile for Linux
 
 EXE       = prefactor
-COMPOBJS  = md5.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o prefactor.o
+EXE_F     = prefactor_f
 LIB_GWNUM = ../gwnum/linux64/gwnum.a
+
+COMPOBJS_COMMON = md5.o arithmetic.o edwards.o giant.o group.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o
+COMPOBJS   = $(COMPOBJS_COMMON) prefactor.o
+COMPOBJS_F = $(COMPOBJS_COMMON) prefactor_f.o factoring.o
 
 # Source directories
 
@@ -23,8 +27,16 @@ CXXFLAGS = -I.. -I../gwnum -I../arithmetic -DEXT_DAC -DX86_64 -O2 -std=gnu++17 -
 
 all: $(EXE)
 
+factoring: $(EXE_F)
+
 $(EXE): $(COMPOBJS)
 	$(CC) -o $@ $(COMPOBJS) $(LIB_GWNUM) $(DUMMY2) $(LIBS2)
+
+$(EXE_F): $(COMPOBJS_F)
+	$(CC) -o $@ $(COMPOBJS_F) $(LIB_GWNUM) $(DUMMY2) $(LIBS2)
+
+prefactor_f.o: prefactor.cpp
+	$(CXX) -o $@ -c $(CXXFLAGS) -DFACTORING $<
 
 clean:
 	rm -f $(EXE) $(COMPOBJS)
