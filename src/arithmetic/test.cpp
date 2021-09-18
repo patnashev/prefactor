@@ -164,6 +164,22 @@ int main(int argc, char *argv[])
         std::cout << "prime\n";
     else
         printf("%016" PRIX64 "\n", *(uint64_t*)tmp.data());
+
+    GWState gwstateP;
+    gwstateP.setup(5, 2, 127, 1);
+    GWArithmetic gwP(gwstateP);
+    FFT fft(gwP, 8);
+    Poly poly1(fft);
+    poly1[3] = 1; poly1[2] = 2; poly1[1] = 3; poly1[0] = 4;
+    fft.transform(poly1, poly1);
+    Poly poly2(fft);
+    poly2[3] = 5; poly2[2] = 6; poly2[1] = 7; poly2[0] = 8;
+    fft.transform(poly2, poly2);
+    for (i = 0; i < poly1.size(); i++)
+        poly1[i] *= poly2[i];
+    fft.inv_transform(poly1, poly1);
+    for (int i = 7; i >= 0; i--)
+        std::cout << poly1[i].to_string() << std::endl;
  
     return 0;
 }
