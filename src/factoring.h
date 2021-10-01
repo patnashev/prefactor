@@ -28,14 +28,14 @@ public:
     void modulus(int curve, File& file_result);
     bool split(int offset, int count, Factoring& result);
     bool merge(Factoring& other);
-    void stage1(uint64_t B1, File& file_state, File& file_result);
+    void stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& file_state, File& file_result);
 
     std::vector<std::unique_ptr<arithmetic::EdPoint>>& points() { return _points; }
-    uint64_t B0() { return _B0; }
+    uint64_t B1() { return _B1; }
 
 private:
     void write_file(File& file, char type, uint64_t B1, std::vector<std::unique_ptr<arithmetic::EdPoint>>& points);
-    bool read_file(File& file, char type, int& seed, uint64_t& B0, std::vector<std::unique_ptr<arithmetic::EdPoint>>& points);
+    bool read_file(File& file, char type, int& seed, uint64_t& B1, std::vector<std::unique_ptr<arithmetic::EdPoint>>& points);
 
 private:
     InputNum& _input;
@@ -45,7 +45,7 @@ private:
     arithmetic::EdwardsArithmetic _ed;
 
     int _seed;
-    uint64_t _B0;
+    uint64_t _B1;
     std::vector<std::unique_ptr<arithmetic::EdPoint>> _points;
     std::vector<std::unique_ptr<arithmetic::EdPoint>> _state;
 };

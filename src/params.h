@@ -14,6 +14,7 @@ protected:
     void find_pp1_optimal_bounds(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
     void find_pp1_optimal_B2(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
     void find_pp1_stage2_optimal_params(int max_size);
+    void find_poly_stage2_optimal_params(int max_size);
 
 public:
     virtual int stage1_cost();
@@ -27,13 +28,15 @@ public:
     int D;
     int A;
     int L;
+    int LN;
+    int Poly;
     double pairing;
 };
 
 class PM1Params : public Params
 {
 public:
-    PM1Params(int B1, int B2, int max_size);
+    PM1Params(int B1, int B2, int max_size, bool poly);
     PM1Params(int B1, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
     PM1Params(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
 
@@ -42,7 +45,7 @@ public:
 class PP1Params : public Params
 {
 public:
-    PP1Params(int B1, int B2, int max_size);
+    PP1Params(int B1, int B2, int max_size, bool poly);
     PP1Params(int B1, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
     PP1Params(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
 
@@ -52,7 +55,7 @@ public:
 class EdECMParams : public Params
 {
 public:
-    EdECMParams(int B1, int B2, int max_size);
+    EdECMParams(int B1, int B2, int max_size, bool poly);
 
     virtual int stage1_cost() override;
     virtual int stage1_size() override;
@@ -61,5 +64,4 @@ public:
 
 public:
     int W;
-    int LN;
 };

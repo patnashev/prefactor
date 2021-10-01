@@ -2,7 +2,7 @@
 #include "math.h"
 
 #define PRECISION 50
-#define F_SIZE 10000
+#define F_SIZE 1000
 
 // Eric Bach and Rene Peralta
 // Asymptotic semismoothness probabilities
@@ -76,4 +76,17 @@ double ProbSmooth::factoring(double log_B1, double log_B2, double log_sieving_de
     }
 
     return sum;
+}
+
+double ProbSmooth::factoring_fixed(double log_B1, double log_B2, double log_factor, double log_known_divisors)
+{
+    int j;
+    double l = log_factor; // log(factor)
+    double a = log_B1/(log_factor - log_known_divisors); // B1 = (factor/knownDivisors)^a
+    double b = log_B2/(log_factor - log_known_divisors); // B2 = (factor/knownDivisors)^b
+    double stage1 = F(a); // probability of B1-smooth factor
+    double stage2 = 0; // integrating stage 2 probabilities
+    for (j = (int)(a*F_SIZE); j < (int)(b*F_SIZE); j++)
+        stage2 += F(a*F_SIZE/(double)(F_SIZE - j))/j;
+    return stage1 + stage2; // probability of successful factorization
 }

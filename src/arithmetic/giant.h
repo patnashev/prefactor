@@ -13,7 +13,7 @@ namespace arithmetic
 
     public:
         GiantsArithmetic() { }
-        virtual ~GiantsArithmetic() { }
+        virtual ~GiantsArithmetic();
 
         virtual void alloc(Giant& a) override;
         virtual void alloc(Giant& a, int capacity);
@@ -46,8 +46,13 @@ namespace arithmetic
         virtual int bitlen(const Giant& a);
         virtual bool bit(const Giant& a, int b);
         virtual void power(Giant& a, int32_t b, Giant& res);
+        virtual void rnd_seed(Giant& a);
+        virtual void rnd(Giant& res, int bits);
 
         static GiantsArithmetic& default_arithmetic();
+
+    private:
+        void* _rnd_state = nullptr;
     };
 
     class GWGiantsArithmetic : public GiantsArithmetic
@@ -239,6 +244,12 @@ namespace arithmetic
         {
             Giant res(std::move(a));
             res.power(b);
+            return res;
+        }
+        static Giant rnd(int bits)
+        {
+            Giant res;
+            res.arithmetic().rnd(res, bits);
             return res;
         }
 

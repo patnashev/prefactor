@@ -43,7 +43,7 @@ void Factoring::write_file(File& file, char type, uint64_t B1, std::vector<std::
     file.commit_writer(*writer);
 }
 
-bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B0, std::vector<std::unique_ptr<EdPoint>>& points)
+bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::vector<std::unique_ptr<EdPoint>>& points)
 {
     file.appid = FACTORING_APPID;
     std::unique_ptr<Reader> reader(file.get_reader());
@@ -67,7 +67,7 @@ bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B0, std::v
     int count;
     if (!reader->read(count))
         return false;
-    if (!reader->read(B0))
+    if (!reader->read(B1))
         return false;
     points.resize(count);
     for (int i = 0; i < count; i++)
@@ -83,20 +83,20 @@ bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B0, std::v
 
 void Factoring::write_points(File& file)
 {
-    write_file(file, 0, _B0, _points);
+    write_file(file, 0, _B1, _points);
 }
 
 bool Factoring::read_points(File& file)
 {
     int seed;
-    uint64_t B0;
+    uint64_t B1;
     std::vector<std::unique_ptr<EdPoint>> points;
-    if (!read_file(file, 0, seed, B0, points))
+    if (!read_file(file, 0, seed, B1, points))
         return false;
     _seed = seed;
-    _B0 = B0;
+    _B1 = B1;
     _points = std::move(points);
-    _logging.info("%d curve%s starting with #%d, B1 = %" PRId64 ".\n", _points.size(), _points.size() > 1 ? "s" : "", _seed, _B0);
+    _logging.info("%d curve%s starting with #%d, B1 = %" PRId64 ".\n", _points.size(), _points.size() > 1 ? "s" : "", _seed, _B1);
     return true;
 }
 
@@ -119,7 +119,7 @@ bool Factoring::read_state(File& file, uint64_t B1)
 std::string Factoring::generate(int seed, int count)
 {
     _seed = seed;
-    _B0 = 1;
+    _B1 = 1;
     _points.clear();
     _state.clear();
 
@@ -311,7 +311,7 @@ void Factoring::modulus(int curve, File& file_result)
         *_points[i]->X = (_gw.popg() = *_points[i]->X)%_gw.N();
         *_points[i]->Y = (_gw.popg() = *_points[i]->Y)%_gw.N();
     }
-    write_file(file_result, 0, _B0, _points);
+    write_file(file_result, 0, _B1, _points);
 }
 
 bool Factoring::split(int offset, int count, Factoring& result)
@@ -324,7 +324,7 @@ bool Factoring::split(int offset, int count, Factoring& result)
     _logging.info("splitting %d curve%s starting with #%d.\n", count, count > 1 ? "s" : "", _seed + offset);
 
     result._seed = _seed + offset;
-    result._B0 = _B0;
+    result._B1 = _B1;
     result._points.clear();
     result._state.clear();
     for (int i = 0; i < count; i++)
@@ -334,7 +334,7 @@ bool Factoring::split(int offset, int count, Factoring& result)
 
 bool Factoring::merge(Factoring& other)
 {
-    if (other._B0 != _B0)
+    if (other._B1 != _B1)
     {
         _logging.error("B1 mismatch.\n");
         return false;
@@ -351,13 +351,13 @@ bool Factoring::merge(Factoring& other)
     return true;
 }
 
-Giant get_exp(std::vector<uint64_t>& primes)
+Giant get_exp(std::vector<uint64_t>& primes, uint64_t B1)
 {
     uint64_t j, k;
 
     auto it = primes.begin();
 
-    uint64_t sqrtB1 = (uint64_t)1e9;
+    uint64_t sqrtB1 = (uint64_t)(sqrt(B1) + 0.5);
     Giant tmp(GiantsArithmetic::default_arithmetic(), (int)primes.size()*2 + 10);
     Giant tmp2(GiantsArithmetic::default_arithmetic(), 8192 < tmp.capacity() ? 8192 : tmp.capacity());
     tmp2 = 1;
@@ -370,7 +370,7 @@ Giant get_exp(std::vector<uint64_t>& primes)
         j = *it;
         if (*it <= sqrtB1)
         {
-            k = ((uint64_t)1e18)/(*it);
+            k = B1/(*it);
             while (j <= k)
                 j *= *it;
         }
@@ -390,35 +390,36 @@ Giant get_exp(std::vector<uint64_t>& primes)
     return tmp;
 }
 
-void Factoring::stage1(uint64_t B1, File& file_state, File& file_result)
+void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& file_state, File& file_result)
 {
     int i, j;
 
-    if (_B0 == 1)
+    if (_B1 == 1)
     {
         _ed.set_gw(_gw.carefully());
         for (i = 0; i < _points.size(); i++)
-            for (j = 0; j < 60; j++)
+            for (j = (int)ceil(log2(B1max)); j > 0; j--)
                 _ed.dbl(*_points[i], *_points[i], _ed.ED_PROJECTIVE);
         _ed.normalize(_points.begin(), _points.end(), _ed.ED_PROJECTIVE);
-        _B0 = 2;
+        _B1 = 2;
         _ed.set_gw(_gw);
-        if (_B0 == B1)
+        if (_B1 == B1next)
         {
-            write_file(file_result, 0, B1, _points);
+            write_file(file_result, 0, B1next, _points);
             return;
         }
     }
 
     PrimeList primes(65536);
     std::vector<uint64_t> plist;
-    primes.begin().sieve_range(_B0 + 1, B1 + 1, plist);
-    Giant tmp = get_exp(plist);
+    primes.begin().sieve_range(_B1 + 1, B1next + 1, plist);
+    Giant tmp = get_exp(plist, B1max);
     plist.clear();
 
     int W;
+    int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
     int len = tmp.bitlen();
-    for (W = 2; W < 15 && (14 << (W - 2)) + len*(7 + 7/(W + 1.0)) > (14 << (W - 1)) + len*(7 + 7/(W + 2.0)); W++);
+    for (W = 2; W < 16 && 3 + 3*(1 << (W - 1)) <= maxSize && (15 << (W - 2)) + len*(7 + 7/(W + 1.0)) > (15 << (W - 1)) + len*(7 + 7/(W + 2.0)); W++);
     std::vector<int16_t> naf_w;
     get_NAF_W(W, tmp, naf_w);
 
@@ -435,11 +436,11 @@ void Factoring::stage1(uint64_t B1, File& file_state, File& file_result)
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
 
-        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
+        if ((time(NULL) - last_write > 30 || Task::abort_flag()) && _state.size() < _points.size())
         {
             _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
             _logging.report_progress();
-            write_file(file_state, 1, B1, _state);
+            write_file(file_state, 1, B1next, _state);
             last_write = time(NULL);
         }
         if (Task::abort_flag())
@@ -447,8 +448,8 @@ void Factoring::stage1(uint64_t B1, File& file_state, File& file_result)
     }
 
     _ed.normalize(_state.begin(), _state.end(), _ed.ED_PROJECTIVE);
-    write_file(file_result, 0, B1, _state);
-    _B0 = B1;
+    write_file(file_result, 0, B1next, _state);
+    _B1 = B1next;
     _points = std::move(_state);
 }
 
@@ -458,7 +459,9 @@ int factoring_main(int argc, char *argv[])
     GWState gwstate;
     GWArithmetic gw(gwstate);
     EdwardsArithmetic ed(gw);
-    uint64_t B1 = 0;
+    uint64_t B1next = 0;
+    uint64_t B1max = 0;
+    uint64_t maxMem = 2048*1048576ULL;
     int seed = 0;
     int count = 0;
     std::string filename;
@@ -524,20 +527,25 @@ int factoring_main(int argc, char *argv[])
             if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
             {
                 i++;
-                B1 = atoll(argv[i]);
-                j = (int)strlen(argv[i]);
-                if (argv[i][j - 1] == 'P')
-                    B1 *= 1e15;
-                if (argv[i][j - 1] == 'T')
-                    B1 *= 1e12;
-                if (argv[i][j - 1] == 'G')
-                    B1 *= 1e9;
-                if (argv[i][j - 1] == 'M')
-                    B1 *= 1e6;
-                if (argv[i][j - 1] == 'K')
-                    B1 *= 1e3;
+                std::string sB1 = argv[i];
+                size_t sep = sB1.find("/");
+                if (sep != std::string::npos)
+                {
+                    B1next = InputNum::parse_numeral(sB1.substr(0, sep));
+                    B1max = InputNum::parse_numeral(sB1.substr(sep + 1));
+                }
+                else
+                {
+                    B1next = InputNum::parse_numeral(sB1);
+                    B1max = B1next;
+                }
                 //if (B1 < 100)
                 //    B1 = 100;
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
+            {
+                i++;
+                maxMem = InputNum::parse_numeral(argv[i]);
             }
             else if (i < argc - 2 && strcmp(argv[i], "-generate") == 0)
             {
@@ -654,17 +662,17 @@ int factoring_main(int argc, char *argv[])
             return 1;
         }
 
-        if (B1 > factoring.B0())
+        if (B1next > factoring.B1())
         {
             logging.progress().add_stage((int)factoring.points().size());
-            factoring.read_state(file_state, B1);
-            factoring.stage1(B1, file_state, file_points);
+            factoring.read_state(file_state, B1next);
+            factoring.stage1(B1next, B1max, maxMem, file_state, file_points);
             remove(filename_state.data());
             logging.progress().next_stage();
         }
         else
         {
-            if (B1 != 0)
+            if (B1next != 0)
                 logging.warning("file is at a higher B1.\n");
         }
 

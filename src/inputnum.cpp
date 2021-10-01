@@ -414,3 +414,30 @@ bool InputNum::to_base2(InputNum& k, InputNum& base2)
 
     return true;
 }
+
+uint64_t InputNum::parse_numeral(const std::string& s)
+{
+    size_t pos = 0;
+    uint64_t val = std::stoull(s, &pos);
+    for (auto it = s.begin() + pos; it != s.end(); it++)
+        switch (*it)
+        {
+        case 'k':
+        case 'K':
+            val *= 1000;
+            break;
+        case 'M':
+            val *= 1000000;
+            break;
+        case 'G':
+            val *= 1000000000;
+            break;
+        case 'T':
+            val *= 1000000000000ULL;
+            break;
+        case 'P':
+            val *= 1000000000000000ULL;
+            break;
+        }
+    return val;
+}

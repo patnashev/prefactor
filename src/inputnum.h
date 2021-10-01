@@ -21,6 +21,8 @@ public:
     void setup(arithmetic::GWState& state);
     bool to_base2(InputNum& k, InputNum& base2);
 
+    static uint64_t parse_numeral(const std::string& s);
+
     bool empty() const { return _gb == 0; }
     uint32_t k() { return _gk.size() == 1 ? *(_gk.data()) : 0; }
     uint32_t b() { return _gb.size() == 1 ? *(_gb.data()) : 0; }

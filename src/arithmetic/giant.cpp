@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "gwnum.h"
+#include "cpuid.h"
 #include "giant.h"
 #include "arithmetic.h"
 #include "exception.h"
@@ -14,6 +15,12 @@ namespace arithmetic
     GiantsArithmetic& GiantsArithmetic::default_arithmetic()
     {
         return _defaultGiantsArithmetic;
+    }
+
+    GiantsArithmetic::~GiantsArithmetic()
+    {
+        if (_rnd_state != nullptr)
+            delete _rnd_state;
     }
 
     void GiantsArithmetic::alloc(Giant& a)
@@ -44,6 +51,11 @@ namespace arithmetic
 
     void GiantsArithmetic::copy(const Giant& a, Giant& res)
     {
+        if (a._giant->sign == 0)
+        {
+            init(0, res);
+            return;
+        }
         if (res._giant == nullptr || res._capacity < abs(a._giant->sign))
             alloc(res, abs(a._giant->sign));
         gtog(a._giant, res._giant);
@@ -344,7 +356,75 @@ namespace arithmetic
             throw InvalidFFTDataException();
         return *this;
     }
-    
+
+    extern "C"
+    {
+        struct mt_state {
+            unsigned long mt[624]; /* the array for the state vector */
+            int mti;
+        };
+
+        void init_genrand(struct mt_state *x, unsigned long s);
+
+        unsigned long genrand_int32(struct mt_state *x);
+    }
+
+    void init_by_array(struct mt_state *x, uint32_t init_key[], int key_length)
+    {
+        const int N = 624;
+        int i, j, k;
+        init_genrand(x, 19650218UL);
+        i = 1; j = 0;
+        k = (N>key_length ? N : key_length);
+        for (; k; k--) {
+            x->mt[i] = (x->mt[i] ^ ((x->mt[i-1] ^ (x->mt[i-1] >> 30)) * 1664525UL))
+                + init_key[j] + j; /* non linear */
+            x->mt[i] &= 0xffffffffUL; /* for WORDSIZE > 32 machines */
+            i++; j++;
+            if (i>=N) { x->mt[0] = x->mt[N-1]; i = 1; }
+            if (j>=key_length) j = 0;
+        }
+        for (k = N-1; k; k--) {
+            x->mt[i] = (x->mt[i] ^ ((x->mt[i-1] ^ (x->mt[i-1] >> 30)) * 1566083941UL))
+                - i; /* non linear */
+            x->mt[i] &= 0xffffffffUL; /* for WORDSIZE > 32 machines */
+            i++;
+            if (i>=N) { x->mt[0] = x->mt[N-1]; i = 1; }
+        }
+
+        x->mt[0] = 0x80000000UL; /* MSB is 1; assuring non-zero initial array */
+    }
+
+    void GiantsArithmetic::rnd_seed(Giant& a)
+    {
+        if (_rnd_state == nullptr)
+            _rnd_state = new struct mt_state;
+        struct mt_state *state = (struct mt_state *)_rnd_state;
+        init_by_array(state, a.data(), a.size());
+    }
+
+    void GiantsArithmetic::rnd(Giant& res, int bits)
+    {
+        if (_rnd_state == nullptr)
+        {
+            Giant tmp(*this, 2);
+            *(double*)tmp._giant->n = getHighResTimer();
+            tmp._giant->sign = 2;
+            rnd_seed(tmp);
+        }
+        struct mt_state *state = (struct mt_state *)_rnd_state;
+        if (res._giant == nullptr || res._capacity < (bits + 31)/32)
+            alloc(res, (bits + 31)/32);
+        int i;
+        for (i = 0; i < (bits + 31)/32; i++)
+            res._giant->n[i] = genrand_int32(state);
+        if ((bits & 31) != 0)
+            res._giant->n[i - 1] &= (1 << (bits & 31)) - 1;
+        while (i > 0 && res._giant->n[i - 1] == 0)
+            i--;
+        res._giant->sign = i;
+    }
+
     void GWGiantsArithmetic::alloc(Giant& a)
     {
         a._capacity = _capacity;
