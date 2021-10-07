@@ -17,6 +17,7 @@
     <ClCompile Include="..\arithmetic\group.cpp" />
     <ClCompile Include="..\arithmetic\lucas.cpp" />
     <ClCompile Include="..\arithmetic\montgomery.cpp" />
+    <ClCompile Include="..\arithmetic\poly.cpp" />
     <ClCompile Include="..\file.cpp" />
     <ClCompile Include="..\inputnum.cpp" />
     <ClCompile Include="..\logging.cpp" />
@@ -38,6 +39,7 @@
     <ClInclude Include="..\arithmetic\group.h" />
     <ClInclude Include="..\arithmetic\lucas.h" />
     <ClInclude Include="..\arithmetic\montgomery.h" />
+    <ClCompile Include="..\arithmetic\poly.h" />
     <ClInclude Include="..\file.h" />
     <ClInclude Include="..\inputnum.h" />
     <ClInclude Include="..\logging.h" />

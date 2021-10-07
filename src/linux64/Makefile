@@ -4,7 +4,7 @@ EXE       = prefactor
 EXE_F     = prefactor_f
 LIB_GWNUM = ../gwnum/linux64/gwnum.a
 
-COMPOBJS_COMMON = md5.o arithmetic.o edwards.o giant.o lucas.o montgomery.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o
+COMPOBJS_COMMON = md5.o arithmetic.o edwards.o giant.o lucas.o montgomery.o poly.o inputnum.o primelist.o logging.o file.o stage1.o stage2.o task.o prob.o params.o
 COMPOBJS   = $(COMPOBJS_COMMON) group.o   prefactor.o
 COMPOBJS_F = $(COMPOBJS_COMMON) group_f.o prefactor_f.o factoring.o
 

@@ -196,8 +196,8 @@ namespace arithmetic
         }
         using FieldElement<GWArithmetic, GWNum>::operator=;
 
-        virtual std::string to_string() const override;
-        virtual GWNum& operator = (const Giant& a)
+        std::string to_string() const override;
+        GWNum& operator = (const Giant& a)
         {
             a.to_GWNum(*this);
             return *this;
