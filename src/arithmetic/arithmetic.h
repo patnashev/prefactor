@@ -23,6 +23,7 @@ namespace arithmetic
 
         void setup(int k, int b, int n, int c);
         void setup(const Giant& g);
+        void setup(int bitlen);
         void done();
 
         gwhandle* gwdata() { return &handle; }
@@ -41,6 +42,7 @@ namespace arithmetic
         uint32_t fingerprint;
         std::string fft_description;
         int fft_length;
+        int bit_length;
     };
 
     class CarefulGWArithmetic;

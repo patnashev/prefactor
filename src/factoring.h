@@ -29,6 +29,7 @@ public:
     bool split(int offset, int count, Factoring& result);
     bool merge(Factoring& other);
     void stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& file_state, File& file_result);
+    void stage2(uint64_t B2, uint64_t maxMem, bool poly, File& file_state);
 
     std::vector<std::unique_ptr<arithmetic::EdPoint>>& points() { return _points; }
     uint64_t B1() { return _B1; }

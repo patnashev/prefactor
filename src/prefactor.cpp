@@ -48,8 +48,8 @@ int main(int argc, char *argv[])
     int i, j;
     GWState gwstate;
     GWArithmetic gw(gwstate);
-    int B1 = 0;
-    int B2 = 0;
+    uint64_t B1 = 0;
+    uint64_t B2 = 0;
     int minus1 = 0;
     int plus1 = 0;
     int edecm = 0;
@@ -102,14 +102,14 @@ int main(int argc, char *argv[])
             if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
             {
                 i++;
-                B1 = (int)InputNum::parse_numeral(argv[i]);
+                B1 = InputNum::parse_numeral(argv[i]);
                 //if (B1 < 100)
                 //    B1 = 100;
             }
             else if (i < argc - 1 && strcmp(argv[i], "-B2") == 0)
             {
                 i++;
-                B2 = (int)InputNum::parse_numeral(argv[i]);
+                B2 = InputNum::parse_numeral(argv[i]);
             }
             else if (i < argc - 1 && strcmp(argv[i], "-S") == 0)
             {
@@ -257,12 +257,12 @@ int main(int argc, char *argv[])
         if (minus1)
         {
             params_pm1.reset(new PM1Params(maxSize, prob, sievingDepth, knownDivisors_pm1, primalityCost));
-            logging.info("Optimal P-1 B1 = %d, B2 = %d.\n", params_pm1->B1, params_pm1->B2);
+            logging.info("Optimal P-1 B1 = %" PRId64 ", B2 = %" PRId64 ".\n", params_pm1->B1, params_pm1->B2);
         }
         if (plus1)
         {
             params_pp1.reset(new PP1Params(maxSize, prob, sievingDepth, knownDivisors_pp1, primalityCost));
-            logging.info("Optimal P+1 B1 = %d, B2 = %d.\n", params_pp1->B1, params_pp1->B2);
+            logging.info("Optimal P+1 B1 = %" PRId64 ", B2 = %" PRId64 ".\n", params_pp1->B1, params_pp1->B2);
         }
         if (edecm)
         {
@@ -275,12 +275,12 @@ int main(int argc, char *argv[])
         if (minus1)
         {
             params_pm1.reset(new PM1Params(B1, maxSize, prob, sievingDepth, knownDivisors_pm1, primalityCost));
-            logging.info("Optimal P-1 B2 = %d.\n", params_pm1->B2);
+            logging.info("Optimal P-1 B2 = %" PRId64 ".\n", params_pm1->B2);
         }
         if (plus1)
         {
             params_pp1.reset(new PP1Params(B1, maxSize, prob, sievingDepth, knownDivisors_pp1, primalityCost));
-            logging.info("Optimal P+1 B2 = %d.\n", params_pp1->B2);
+            logging.info("Optimal P+1 B2 = %" PRId64 ".\n", params_pp1->B2);
         }
         if (edecm)
         {
@@ -318,7 +318,7 @@ int main(int argc, char *argv[])
         B2 = params_edecm->B1;
     if (params_edecm && params_edecm->Poly == 0 && B2 < params_edecm->B2)
         B2 = params_edecm->B2;
-    PrimeList primes(B2 + 100);
+    PrimeList primes((int)B2 + 100);
 
     int size = 0;
     if (params_pm1)
@@ -373,7 +373,7 @@ int main(int argc, char *argv[])
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
-                PM1Stage1 stage1(primes, params_pm1->B1);
+                PM1Stage1 stage1(primes, (int)params_pm1->B1);
                 stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
                 success = stage1.success();
@@ -387,7 +387,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L);
+                PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, params_pm1->Poly);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                 stage2.run();
                 success = stage2.success();
@@ -408,7 +408,7 @@ int main(int argc, char *argv[])
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
-                PP1Stage1 stage1(primes, params_pp1->B1, sP);
+                PP1Stage1 stage1(primes, (int)params_pp1->B1, sP);
                 stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
                 success = stage1.success();
@@ -421,7 +421,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L);
+                PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, params_pp1->Poly);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                 stage2.run();
                 success = stage2.success();
@@ -439,50 +439,52 @@ int main(int argc, char *argv[])
                 EdPoint P(ed);
                 GWNum ed_d(gw.carefully());
 
-                if (curveType == 0)
-                    P = ed.from_small(17, 19, 17, 33, &ed_d);
-                else if (curveType == 1)
-                    P = ed.from_small(5, 23, -1, 7, &ed_d);
-                else if (curveType == 2)
+                try
                 {
-                    try
+                    if (curveType == 0)
+                        P = ed.from_small(17, 19, 17, 33, &ed_d);
+                    else if (curveType == 1)
+                        P = ed.from_small(5, 23, -1, 7, &ed_d);
+                    else if (curveType == 2)
                     {
                         P = ed.gen_curve(curveSeed, &ed_d);
                     }
-                    catch (const NoInverseException& e)
+                    else if (curveType == 3)
                     {
-                        logging.set_prefix(input.display_text() + ", EdECM, ");
-                        logging.report_factor(input, e.divisor);
-                        return 0;
+                        int xa = stoi(curveX);
+                        int xb = 1;
+                        for (i = curveX[0] == '-' ? 1 : 0; isdigit(curveX[i]); i++);
+                        if (curveX[i] == '/')
+                            xb = stoi(curveX.substr(i + 1));
+                        int ya = stoi(curveY);
+                        int yb = 1;
+                        for (i = curveY[0] == '-' ? 1 : 0; isdigit(curveY[i]); i++);
+                        if (curveY[i] == '/')
+                            yb = stoi(curveY.substr(i + 1));
+                        P = ed.from_small(xa, xb, ya, yb, &ed_d);
                     }
-                    catch (const ArithmeticException&)
-                    {
-                        printf("Invalid curve.\n");
-                        return 1;
-                    }
+
+                    Giant tmp;
+                    tmp = ed.jinvariant(ed_d);
+                    if (tmp.size() > 1)
+                        logging.info("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                    else if (tmp.size() > 0)
+                        logging.info("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
+                    else
+                        logging.info("Curve j-invariant RES64: %08X%08X\n", 0, 0);
                 }
-                else if (curveType == 3)
+                catch (const NoInverseException& e)
                 {
-                    int xa = stoi(curveX);
-                    int xb = 1;
-                    for (i = curveX[0] == '-' ? 1 : 0; isdigit(curveX[i]); i++);
-                    if (curveX[i] == '/')
-                        xb = stoi(curveX.substr(i + 1));
-                    int ya = stoi(curveY);
-                    int yb = 1;
-                    for (i = curveY[0] == '-' ? 1 : 0; isdigit(curveY[i]); i++);
-                    if (curveY[i] == '/')
-                        yb = stoi(curveY.substr(i + 1));
-                    P = ed.from_small(xa, xb, ya, yb, &ed_d);
+                    logging.set_prefix(input.display_text() + ", EdECM, ");
+                    logging.report_factor(input, e.divisor);
+                    return 0;
                 }
-                Giant tmp;
-                tmp = ed.jinvariant(ed_d);
-                if (tmp.size() > 1)
-                    logging.info("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
-                else if (tmp.size() > 0)
-                    logging.info("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
-                else
-                    logging.info("Curve j-invariant RES64: %08X%08X\n", 0, 0);
+                catch (const ArithmeticException&)
+                {
+                    printf("Invalid curve.\n");
+                    return 1;
+                }
+
                 P.serialize(X, Y, Z, T);
                 EdD = ed_d;
             };
@@ -493,7 +495,7 @@ int main(int argc, char *argv[])
             EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
             if (interstate == nullptr)
             {
-                EdECMStage1 stage1(primes, params_edecm->B1, params_edecm->W);
+                EdECMStage1 stage1(primes, (int)params_edecm->B1, params_edecm->W);
                 stage1.init(&input, &gwstate, &file1, &logging, X, Y, Z, T, EdD);
                 stage1.run();
                 success = stage1.success();

@@ -422,7 +422,7 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
         _D /= _A;
     int dist = 1;
     int precomp_size = 1;
-    for (i = 1; i < _D/2*_A; i++)
+    for (i = 1; i < (_L == 1 ? _D/4*_A : _D/2*_A); i++)
     {
         if (gcd(2*i + 1, 2*dist) != 1)
             continue;
@@ -465,7 +465,17 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
     }
     // V_D
     swap(XD, Xn);
-    if (_D/2/dist != 1)
+    if (_L == 1 && _D%4 != 0)
+    {
+        arithmetic.init(XD);
+        for (j = 0; j < _D/4; j++)
+            if (precomp[j] && gcd(2*j + 1, _D) != 1)
+            {
+                precomp[j].reset();
+                precomp_size--;
+            }
+    }
+    else if (_D/2/dist != 1)
     {
         int pd = _D/2/dist;
         for (j = 0; (pd & 1) == 0; pd >>= 1, j++);
@@ -496,13 +506,12 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
             }
         arithmetic.dbl(Xn, Xn);
     }
-    if (!is_poly())
-        for (j = _D/4 + 0; j < _D/2; j++)
-            if (precomp[j])
-            {
-                precomp[j].reset();
-                precomp_size--;
-            }
+    for (j = _D/4 + 0; j < _D/2; j++)
+        if (precomp[j])
+        {
+            precomp[j].reset();
+            precomp_size--;
+        }
     /*for (i = 1; i < _D/2*_L; i++)
         if (gcd(_D/_A, i%(_D/2)) == 1)
         {
@@ -519,18 +528,8 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
 {
     int i, j;
 
-    if (_poly_mul.size() <= poly_power())
-    {
-        std::shared_ptr<PolyMul> poly_mul(new PolyMul(gw()));
-        std::shared_ptr<PolyMul> poly_mul_k(new PolyMulKaratsuba(gw()));
-        for (j = _poly_mul.size(); j <= poly_power(); j++)
-        {
-            if (j < 2)
-                _poly_mul.push_back(poly_mul);
-            else
-                _poly_mul.push_back(poly_mul_k);
-        }
-    }
+    if (!_poly_mul)
+        _poly_mul.reset(new PolyMulOptimal(gw()));
 
     int transforms = -(int)gw().gwdata()->fft_count;
 
@@ -558,9 +557,9 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
         {
             while (_poly_mod[j].size() <= i)
                 _poly_mod[j].emplace_back(gw(), (1 << j) + 1);
-            _poly_mul[j - 1]->mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i]);
+            _poly_mul->mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i]);
         }
-    Poly polyR = _poly_mul[poly_power()]->reciprocal(_poly_mod[poly_power()][0], 1 << poly_power());
+    Poly polyR = _poly_mul->reciprocal(_poly_mod[poly_power()][0], 1 << poly_power());
     while (polyR.degree() + _poly_mod[poly_power()][0].degree() < (1 << (poly_power() + 1)))
         polyR.emplace(polyR.begin());
     _poly_mod[poly_power()][0] = std::move(polyR);
@@ -573,9 +572,9 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
 
 void Stage2::poly_release()
 {
-    _poly_mul.clear();
     _poly_mod.clear();
     _poly_prod.clear();
+    _poly_mul.reset();
 }
 
 void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
@@ -605,17 +604,26 @@ void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
         {
             while (_poly_prod[j].size() <= i)
                 _poly_prod[j].emplace_back(gw(), (1 << j) + 1);
-            _poly_mul[j - 1]->mul(_poly_prod[j - 1][2*i], _poly_prod[j - 1][2*i + 1], _poly_prod[j][i]);
+            _poly_mul->mul(_poly_prod[j - 1][2*i], _poly_prod[j - 1][2*i + 1], _poly_prod[j][i]);
         }
 
-    Poly po1 = _poly_mul[poly_power()]->mul_half(_poly_prod[poly_power()][0], _poly_mod[poly_power()][0], 1 << poly_power());
+    PolyMul* poly_mul = &_poly_mul->get_optimal(_poly_prod[poly_power()][0], _poly_mod[poly_power()][0], 1 << poly_power());
+    if (dynamic_cast<PolyMulFFT*>(poly_mul) != nullptr)
+        _poly_mod[poly_power()][0].set_preserve_fft(true);
+    Poly po1 = poly_mul->mul_half(_poly_prod[poly_power()][0], _poly_mod[poly_power()][0], 1 << poly_power());
     _poly_prod[poly_power()][0] = std::move(po1);
 
     for (j = poly_power() - 1; j >= 0; j--)
         for (i = 0; i < (1 << (poly_power() - j)); i++)
-            _poly_mul[j]->mul_half(_poly_prod[j + 1][i/2], _poly_mod[j][i^1], _poly_prod[j][i], 1 << j);
+        {
+            poly_mul = &_poly_mul->get_optimal(_poly_prod[j + 1][i/2], _poly_mod[j][i^1], 1 << j);
+            if (dynamic_cast<PolyMulFFT*>(poly_mul) != nullptr)
+                _poly_mod[j][i^1].set_preserve_fft(true);
+            poly_mul->mul_half(_poly_prod[j + 1][i/2], _poly_mod[j][i^1], _poly_prod[j][i], 1 << j);
+        }
 
-    /*std::vector<GWNum> polyTest;
+#ifdef _DEBUG
+    std::vector<GWNum> polyTest;
     for (i = 0; i < (1 << poly_power()) && !_poly_mod[0][i][1].is_zero(); i++)
     {
         polyTest.emplace_back(gw());
@@ -623,7 +631,8 @@ void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
         for (int j = 0; j < roots.size(); j++)
             polyTest.back() *= *roots[j] - _poly_mod[0][i][0].value();
         GWASSERT(polyTest.back() == _poly_prod[0][i][0].value());
-    }*/
+    }
+#endif
 
     for (i = (1 << poly_power()) - 1; i >= 0; i--)
         if (!_poly_mod[0][i][1].is_zero())
@@ -638,6 +647,7 @@ void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
     _input = input;
     _timer = getHighResTimer();
     _transforms = -(int)gwstate->handle.fft_count;
+    _success = false;
 }
 
 void Stage2::reinit_gwstate()
@@ -681,7 +691,7 @@ void PP1Stage2::init(InputNum* input, GWState* gwstate, File* file, Logging* log
     Stage2::init(input, gwstate, file, read_state<State>(file), logging);
     _state_update_period = MULS_PER_STATE_UPDATE/10;
     _logging->set_prefix(input->display_text() + (minus1 ? ", P-1 stage 2, " : ", P+1 stage 2, "));
-    _logging->info("B2 = %d", _B2);
+    _logging->info("B2 = %" PRId64, _B2);
     if (state() != nullptr)
         _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
     _logging->info(".\n");
@@ -712,6 +722,8 @@ void PP1Stage2::setup()
         _Vn->V() = _P;
         std::vector<std::unique_ptr<LucasV>> precomp;
         int precomp_size = precompute<LucasV>(*lucas, *_Vn, *_W, _Wa ? *_Wa : *_Vn1, precomp);
+        if (_L == 1 && _D%4 != 0)
+            lucas->mul(*_Vn, _D, *_W, *_Vn1);
         commit_setup();
         _precomp = std::move(precomp);
 
@@ -818,7 +830,7 @@ void EdECMStage2::init(InputNum* input, GWState* gwstate, File* file, Logging* l
     if (_LN > 0 && _state_update_period%_LN != 0)
         _state_update_period += _LN - _state_update_period%_LN;
     _logging->set_prefix(input->display_text() + ", EdECM stage 2, ");
-    _logging->info("B2 = %d", _B2);
+    _logging->info("B2 = %" PRId64, _B2);
     if (state() != nullptr)
         _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
     _logging->info(".\n");
@@ -847,12 +859,22 @@ void EdECMStage2::setup()
     if (!_W)
         _W.reset(new EdY(*montgomery));
 
+    EdwardsArithmetic ed(gw());
+    EdPoint EdP(ed);
+    EdP.deserialize(_X, _Y, _Z, _T);
+    EdPoint EdW(ed);
+    Giant tmp;
+    tmp = _D;
+    ed.mul(EdP, tmp, EdW);
+
     if (_precomp.empty())
     {
         int transforms = -(int)gw().gwdata()->fft_count;
-        _Pn->deserialize(_Y, _Z);
+        *_Pn = EdP;
         std::vector<std::unique_ptr<EdY>> precomp;
         int precomp_size = precompute<EdY>(*montgomery, *_Pn, *_W, *_Pn1, precomp);
+        if (_L == 1 && _D%4 != 0)
+            *_W = EdW;
 
         precomp.emplace_back(_W.release());
         try
@@ -865,6 +887,7 @@ void EdECMStage2::setup()
             return;
         }
         _W.reset(precomp.back().release());
+        //GWASSERT((gw().popg() = *EdW.Y)%gw().N() == (gw().popg() = (*_W->Y)*(*EdW.Z))%gw().N());
         commit_setup();
         _precomp = std::move(precomp);
 
@@ -884,24 +907,15 @@ void EdECMStage2::setup()
     *_Pn1 = *_W;
     if (v > 0)
     {
-        EdwardsArithmetic ed(gw());
-        EdPoint P(ed);
-        P.deserialize(_X, _Y, _Z, _T);
-        EdPoint EdW(ed);
-        Giant tmp;
-        tmp = _D;
-        ed.mul(P, tmp, EdW);
-        //GWASSERT(*EdW.Y == (*_W->Y)*(*EdW.Z));
         tmp = v;
-        EdPoint EdPn(ed);
-        ed.mul(EdW, tmp, EdPn);
-        *_Pn = EdPn;
+        ed.mul(EdW, tmp, EdP);
+        *_Pn = EdP;
         montgomery->optimize(*_Pn);
         if (v > 1)
-            ed.add(EdPn, EdW, EdPn, ed.ED_PROJECTIVE);
+            ed.add(EdP, EdW, EdP, ed.ED_PROJECTIVE);
         else
-            ed.dbl(EdPn, EdPn, ed.ED_PROJECTIVE);
-        *_Pn1 = EdPn;
+            ed.dbl(EdP, EdP, ed.ED_PROJECTIVE);
+        *_Pn1 = EdP;
         montgomery->optimize(*_Pn1);
     }
     commit_setup();

@@ -48,14 +48,14 @@ public:
     };
 
 public:
-    Stage2(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, int poly_power = 0) : Task(true), _primes(primes), _B1(B1), _B2(B2), _D(D), _A(A), _L(L), _poly_power(poly_power)
+    Stage2(Logging& logging, PrimeList& primes, uint64_t B1, uint64_t B2, int D, int A, int L, int poly_power) : Task(true), _primes(primes), _B1(B1), _B2(B2), _D(D), _A(A), _L(L), _poly_power(poly_power)
     {
         if (poly_power == 0)
-            _pairing = get_pairing(logging, primes, B1, B2, D, A, L, true);
+            _pairing = get_pairing(logging, primes, (int)B1, (int)B2, D, A, L, true);
         else
         {
-            _pairing.first_D = B1/D + 1;
-            _pairing.last_D = (B2 + D - 1)/D;
+            _pairing.first_D = (int)(B1/D + 1);
+            _pairing.last_D = (int)((B2 + D - 1)/D);
         }
     }
 
@@ -82,8 +82,8 @@ private:
     PrimeList& _primes;
 
 protected:
-    int _B1;
-    int _B2;
+    uint64_t _B1;
+    uint64_t _B2;
     int _D;
     int _A;
     int _L;
@@ -95,7 +95,7 @@ protected:
     bool _success = false;
 
     int _poly_power;
-    std::vector<std::shared_ptr<arithmetic::PolyMul>> _poly_mul;
+    std::unique_ptr<arithmetic::PolyMulOptimal> _poly_mul;
     std::vector<std::vector<arithmetic::Poly>> _poly_mod;
     std::vector<std::vector<arithmetic::Poly>> _poly_prod;
 };
@@ -103,7 +103,7 @@ protected:
 class PP1Stage2 : public Stage2
 {
 public:
-    PP1Stage2(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L) : Stage2(logging, primes, B1, B2, D, A, L) { }
+    PP1Stage2(Logging& logging, PrimeList& primes, uint64_t B1, uint64_t B2, int D, int A, int L, int poly_power) : Stage2(logging, primes, B1, B2, D, A, L, poly_power) { }
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& P, bool minus1);
 
@@ -128,7 +128,7 @@ private:
 class EdECMStage2 : public Stage2
 {
 public:
-    EdECMStage2(Logging& logging, PrimeList& primes, int B1, int B2, int D, int L, int LN, int poly_power = 0) : Stage2(logging, primes, B1, B2, D, 1, L, poly_power), _LN(LN) { }
+    EdECMStage2(Logging& logging, PrimeList& primes, uint64_t B1, uint64_t B2, int D, int L, int LN, int poly_power) : Stage2(logging, primes, B1, B2, D, 1, L, poly_power), _LN(LN) { }
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
 

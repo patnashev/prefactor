@@ -462,6 +462,9 @@ int net_main(int argc, char *argv[])
         std::string dhash = "";
         if (net.task()->b2 < net.task()->b1)
             net.task()->b2 = net.task()->b1;
+        bool poly = false;
+        if (net.task()->options.find("poly") != net.task()->options.end())
+            poly = net.task()->options["poly"] == "true";
 
         NetFile file_dhash(net, "dhash", 0);
         NetFile file_input(net, "input", gwstate.fingerprint);
@@ -520,8 +523,16 @@ int net_main(int argc, char *argv[])
                 }
                 else
                 {
-                    if (net.task()->b1 != 0)
+                    if (net.task()->b1 != 0 && net.task()->b2 <= factoring.B1())
                         logging.warning("Input is at a higher B1.\n");
+                }
+
+                if (net.task()->b2 > factoring.B1())
+                {
+                    logging.progress().add_stage((int)factoring.points().size());
+                    factoring.read_state(file_checkpoint, net.task()->b2);
+                    factoring.stage2(net.task()->b2, maxMem, poly, file_checkpoint);
+                    logging.progress().next_stage();
                 }
 
                 dhash = factoring.verify(true);
@@ -533,14 +544,14 @@ int net_main(int argc, char *argv[])
                 if (net.task()->type == "P-1")
                 {
                     std::unique_ptr<PM1Params> params_pm1;
-                    params_pm1.reset(new PM1Params((int)net.task()->b1, (int)net.task()->b2, maxSize));
+                    params_pm1.reset(new PM1Params(net.task()->b1, net.task()->b2, maxSize, poly));
                     logging.progress().add_stage(params_pm1->stage1_cost());
                     logging.progress().add_stage(params_pm1->stage2_cost());
 
                     PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file_checkpoint_m12);
                     if (interstate == nullptr)
                     {
-                        PM1Stage1 stage1(primes, params_pm1->B1);
+                        PM1Stage1 stage1(primes, (int)params_pm1->B1);
                         stage1.init(&input, &gwstate, &file_checkpoint_m1, &logging);
                         stage1.run();
                         if (!stage1.success() && params_pm1->B2 > params_pm1->B1)
@@ -553,7 +564,7 @@ int net_main(int argc, char *argv[])
                     logging.progress().next_stage();
                     if (interstate != nullptr)
                     {
-                        PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L);
+                        PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, params_pm1->Poly);
                         stage2.init(&input, &gwstate, &file_checkpoint_m2, &logging, interstate->V(), true);
                         stage2.run();
                     }
@@ -564,14 +575,14 @@ int net_main(int argc, char *argv[])
                     if (net.task()->seed.empty())
                         net.task()->seed = "2/7";
                     std::unique_ptr<PP1Params> params_pp1;
-                    params_pp1.reset(new PP1Params((int)net.task()->b1, (int)net.task()->b2, maxSize));
+                    params_pp1.reset(new PP1Params(net.task()->b1, net.task()->b2, maxSize, poly));
                     logging.progress().add_stage(params_pp1->stage1_cost());
                     logging.progress().add_stage(params_pp1->stage2_cost());
 
                     PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file_checkpoint_p12);
                     if (interstate == nullptr)
                     {
-                        PP1Stage1 stage1(primes, params_pp1->B1, net.task()->seed);
+                        PP1Stage1 stage1(primes, (int)params_pp1->B1, net.task()->seed);
                         stage1.init(&input, &gwstate, &file_checkpoint_p1, &logging);
                         stage1.run();
                         if (!stage1.success() && params_pp1->B2 > params_pp1->B1)
@@ -583,7 +594,7 @@ int net_main(int argc, char *argv[])
                     logging.progress().next_stage();
                     if (interstate != nullptr)
                     {
-                        PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L);
+                        PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, params_pp1->Poly);
                         stage2.init(&input, &gwstate, &file_checkpoint_p2, &logging, interstate->V(), false);
                         stage2.run();
                     }
@@ -632,14 +643,14 @@ int net_main(int argc, char *argv[])
                     }
 
                     std::unique_ptr<EdECMParams> params_edecm;
-                    params_edecm.reset(new EdECMParams((int)net.task()->b1, (int)net.task()->b2, maxSize));
+                    params_edecm.reset(new EdECMParams(net.task()->b1, net.task()->b2, maxSize, poly));
                     logging.progress().add_stage(params_edecm->stage1_cost());
                     logging.progress().add_stage(params_edecm->stage2_cost());
 
                     EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file_checkpoint_ed12);
                     if (interstate == nullptr)
                     {
-                        EdECMStage1 stage1(primes, params_edecm->B1, params_edecm->W);
+                        EdECMStage1 stage1(primes, (int)params_edecm->B1, params_edecm->W);
                         stage1.init(&input, &gwstate, &file_checkpoint_ed1, &logging, X, Y, Z, T, EdD);
                         stage1.run();
                         if (!stage1.success() && params_edecm->B2 > params_edecm->B1)
@@ -651,7 +662,7 @@ int net_main(int argc, char *argv[])
                     logging.progress().next_stage();
                     if (interstate != nullptr)
                     {
-                        EdECMStage2 stage2(logging, primes, params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN);
+                        EdECMStage2 stage2(logging, primes, params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->Poly);
                         stage2.init(&input, &gwstate, &file_checkpoint_ed2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                         stage2.run();
                     }

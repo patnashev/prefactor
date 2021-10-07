@@ -141,6 +141,7 @@ namespace arithmetic
         bool safe1 = square_safe(gw().gwdata(), 1);
         bool safe11 = mul_safe(gw().gwdata(), 1, 1);
 
+        bool normalized = !a.Z;
         if (!res.Y)
             res.Y.reset(new GWNum(gw()));
         if (!res.Z)
@@ -157,7 +158,10 @@ namespace arithmetic
         // z_2 = t1 + t2
 
         gw().square(*a.Y, *res.Y, GWMUL_STARTNEXTFFT_IF(safe11)); // yy
-        gw().square(*a.Z, *res.Z, GWMUL_STARTNEXTFFT_IF(safe11)); // zz
+        if (!normalized)
+            gw().square(*a.Z, *res.Z, GWMUL_STARTNEXTFFT_IF(safe11)); // zz
+        else
+            gw().init(1, *res.Z);
         gw().sub(*res.Z, *res.Y, *res.ZmY, GWADD_DELAYNORM_IF(safe11)); // zz - yy
         gw().mul(ed_d(), *res.Y, *res.ZpY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT); // d*yy
         gw().submul(*res.Z, *res.ZpY, *res.ZmY, *res.ZmY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1)); // t2

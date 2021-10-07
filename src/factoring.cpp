@@ -9,6 +9,8 @@
 #include "exception.h"
 #include "task.h"
 #include "primelist.h"
+#include "params.h"
+#include "stage2.h"
 
 using namespace arithmetic;
 
@@ -374,6 +376,9 @@ Giant get_exp(std::vector<uint64_t>& primes, uint64_t B1)
             while (j <= k)
                 j *= *it;
         }
+        g64 = 1;
+        if (j >= (1ULL << 32))
+            g64 <<= 32;
         *(uint64_t*)g64.data() = j;
         tmp2 *= g64;
         it++;
@@ -453,15 +458,75 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
+void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, File& file_state)
+{
+    int i;
+
+    int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
+    EdECMParams params_edecm((int)_B1, (int)B2, maxSize, poly);
+    PrimeList primes(params_edecm.Poly > 0 ? 65536 : (int)B2 + 100);
+    SubLogging logging(_logging);
+    logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
+    EdECMStage2 stage2(logging, primes, params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.Poly);
+
+    _logging.info("stage 2, B2 = %" PRId64 ", D = %d, LN = %d.\n", B2, params_edecm.D, params_edecm.LN);
+
+    if (_state.size() == 0)
+    {
+        for (i = 0; i < _points.size(); i++)
+        {
+            _state.emplace_back(new EdPoint(_ed));
+            _state.back()->X.reset(new GWNum(_gw));
+            _state.back()->Z.reset(new GWNum(_gw));
+            _ed.d_ratio(*_points[i], *_state.back()->X, *_state.back()->Z);
+        }
+        _ed.normalize(_state.begin(), _state.end(), _ed.ED_PROJECTIVE);
+    }
+
+    _logging.progress().update(_state.size()/(double)_points.size(), (int)(_points.size() - _state.size()));
+
+    Giant X, Y, Z, T, EdD;
+    time_t last_write = time(NULL);
+    while (_state.size() > 0)
+    {
+        i = (int)_state.size() - 1;
+        if (!_ed.on_curve(*_points[i], *_state[i]->X))
+            throw ArithmeticException();
+        //_ed.dbl(*_points[i], *_points[i]);
+        _points[i]->serialize(X, Y, Z, T);
+        EdD = *_state[i]->X;
+        //double timer = getHighResTimer();
+        stage2.init(&_input, &_gwstate, nullptr, &logging, X, Y, Z, T, EdD);
+        stage2.run();
+        if (stage2.success())
+            _logging.warning("curve #%d found the factor.\n", _seed + i);
+        _state.pop_back();
+        //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
+        //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
+
+        if ((time(NULL) - last_write > 30 || Task::abort_flag()) && _state.size() > 0)
+        {
+            _logging.progress().update((_points.size() - _state.size())/(double)_points.size(), (int)(_points.size() - _state.size()));
+            _logging.report_progress();
+            write_file(file_state, 1, B2, _state);
+            last_write = time(NULL);
+        }
+        if (Task::abort_flag())
+            throw TaskAbortException();
+    }
+}
+
 int factoring_main(int argc, char *argv[])
 {
-    int i, j;
+    int i;
     GWState gwstate;
     GWArithmetic gw(gwstate);
     EdwardsArithmetic ed(gw);
     uint64_t B1next = 0;
     uint64_t B1max = 0;
+    uint64_t B2 = 0;
     uint64_t maxMem = 2048*1048576ULL;
+    bool poly = false;
     int seed = 0;
     int count = 0;
     std::string filename;
@@ -542,11 +607,18 @@ int factoring_main(int argc, char *argv[])
                 //if (B1 < 100)
                 //    B1 = 100;
             }
+            else if (i < argc - 1 && strcmp(argv[i], "-B2") == 0)
+            {
+                i++;
+                B2 = InputNum::parse_numeral(argv[i]);
+            }
             else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
             {
                 i++;
                 maxMem = InputNum::parse_numeral(argv[i]);
             }
+            else if (strcmp(argv[i], "-poly") == 0)
+                poly = true;
             else if (i < argc - 2 && strcmp(argv[i], "-generate") == 0)
             {
                 generate = 1;
@@ -676,29 +748,18 @@ int factoring_main(int argc, char *argv[])
                 logging.warning("file is at a higher B1.\n");
         }
 
+        if (B2 > factoring.B1())
+        {
+            logging.progress().add_stage((int)factoring.points().size());
+            factoring.read_state(file_state, B2);
+            factoring.stage2(B2, maxMem, poly, file_state);
+            remove(filename_state.data());
+            logging.progress().next_stage();
+        }
+
         if (modulus)
         {
             factoring.modulus(modCurve, file_points);
-        }
-
-        if (verify)
-        {
-            std::string dhash = factoring.verify(verifyCurve);
-            std::string dhashfile = filename + ".dhash";
-            FILE* fp = fopen(dhashfile.data(), "r");
-            if (fp)
-            {
-                char hash[33];
-                if (fread(hash, 1, 32, fp) == 32)
-                {
-                    hash[32] = 0;
-                    if (dhash != hash)
-                        logging.error("dhash mismatch!\n");
-                    else
-                        logging.info("dhash ok.\n");
-                }
-                fclose(fp);
-            }
         }
 
         if (split)
@@ -722,6 +783,26 @@ int factoring_main(int argc, char *argv[])
             {
                 factoring.write_points(file_points);
                 write_dhash(filename + ".dhash", factoring.verify(false));
+            }
+        }
+
+        if (verify)
+        {
+            std::string dhash = factoring.verify(verifyCurve);
+            std::string dhashfile = filename + ".dhash";
+            FILE* fp = fopen(dhashfile.data(), "r");
+            if (fp)
+            {
+                char hash[33];
+                if (fread(hash, 1, 32, fp) == 32)
+                {
+                    hash[32] = 0;
+                    if (dhash != hash)
+                        logging.error("dhash mismatch!\n");
+                    else
+                        logging.info("dhash ok.\n");
+                }
+                fclose(fp);
             }
         }
     }

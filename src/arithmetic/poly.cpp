@@ -1,3 +1,4 @@
+#define GDEBUG
 #include <algorithm>
 #include <stdlib.h>
 #include "gwnum.h"
@@ -70,6 +71,7 @@ namespace arithmetic
     {
         for (auto it = begin(); it != end(); it++)
             it->clear_fft();
+        _fft.reset();
     }
 
     SubPoly::SubPoly(const Poly& poly, int offset, int count, bool transpose) : Poly(poly.gw(), 0)
@@ -99,9 +101,9 @@ namespace arithmetic
     {
         int i, j;
         int d = a.degree();
-        Poly g(gw(), 1);
-        Poly tmp(gw(), size/2);
-        Poly tmp2(gw(), size/2);
+        Poly g(gw(), 1, true);
+        Poly tmp(gw(), size/2, false);
+        Poly tmp2(gw(), size/2, false);
 
         if (a[d].is_small() && abs(a[d].small()) == 1)
             g[0].set_small(a[d].small());
@@ -118,10 +120,11 @@ namespace arithmetic
         for (i = 1; 2*i <= size; i <<= 1)
         {
             SubPolyFFT f(a, d - 2*i, 2*i);
-            mul_half(f, g, tmp, i);
+            mul_half(g, f, tmp, i);
             tmp.emplace(tmp.begin());
             mul_half(g, tmp, tmp2, i);
             tmp.erase(tmp.begin());
+            g.fft().reset();
             for (j = i - 1; j >= 0; j--)
             {
                 g.emplace(g.begin());
@@ -130,7 +133,7 @@ namespace arithmetic
                 else
                 {
                     g.front().own(gw());
-                    g.front().value() -= tmp2[j].value();
+                    gw().sub(g.front().value(), tmp2[j].value(), g.front().value(), GWADD_FORCE_NORMALIZE);
                 }
             }
         }
@@ -153,6 +156,10 @@ namespace arithmetic
 
     void PolyMul::mul(Poly& a, Poly& b, Poly& res)
     {
+        if (a.preserve_fft())
+            a.do_fft();
+        if (b.preserve_fft())
+            b.do_fft();
         res.clear_fft();
         res.set_zero();
         if (res.size() < a.degree() + b.degree() + 1)
@@ -163,6 +170,10 @@ namespace arithmetic
     void PolyMul::mul_half(Poly& a, Poly& b, Poly& res, int half)
     {
         GWASSERT(a.degree() + b.degree() < 3*half);
+        if (a.preserve_fft())
+            a.do_fft();
+        if (b.preserve_fft())
+            b.do_fft();
         res.clear_fft();
         res.set_zero();
         if (res.size() < half)
@@ -442,7 +453,7 @@ namespace arithmetic
         return *tmp_poly;
     }
 
-    void PolyMulKaratsuba::karatsuba(const Poly& a, const Poly& b, PolyCoeff* res, int size, int level)
+    void PolyMulKaratsuba::karatsuba(const Poly& a, const Poly& b, PolyCoeff* res, size_t size, int level)
     {
         int i;
         int da = a.degree();
@@ -485,7 +496,7 @@ namespace arithmetic
             poly_add(poly1[i], res[i + 2*d]);
     }
 
-    void PolyMulKaratsuba::karatsuba_half(const Poly& a, const Poly& b, PolyCoeff* res, int size, int half, int level)
+    void PolyMulKaratsuba::karatsuba_half(const Poly& a, const Poly& b, PolyCoeff* res, size_t size, int half, int level)
     {
         int i;
         int da = a.degree();
@@ -514,7 +525,7 @@ namespace arithmetic
             poly_add(poly1[i], res[half - 1 - i]);
     }
 
-    void PolyMulKaratsuba::karatsuba_halfother(const Poly& a, const Poly& b, PolyCoeff* res, int size, int half, int level)
+    void PolyMulKaratsuba::karatsuba_halfother(const Poly& a, const Poly& b, PolyCoeff* res, size_t size, int half, int level)
     {
         int i;
         int da = a.degree();
@@ -535,14 +546,232 @@ namespace arithmetic
         karatsuba_halfother(SubPoly(a, 0, d), SubPoly(b, half - d, d), poly01.data(), poly01.size(), d, level + 1);
         karatsuba_halfother(SubPoly(b, 0, d), SubPoly(a, half - d, d), poly10.data(), poly10.size(), d, level + 1);
 
-        GWASSERT(poly01.degree() < size);
-        GWASSERT(poly10.degree() < size);
+        GWASSERT(poly01.degree() < (int)size);
+        GWASSERT(poly10.degree() < (int)size);
         for (i = poly01.degree(); i >= 0; i--)
             poly_add(poly01[i], res[i]);
         for (i = poly10.degree(); i >= 0; i--)
             poly_add(poly10[i], res[i]);
     }
     
+    PolyMulFFT::PolyMulFFT(GWArithmetic& gw, int size) : PolyMul(gw), _size(size), _gwstate(), _gwpoly(_gwstate)
+    {
+        _coeff_size = (int)(2*gw.state().bit_length + 16 + 31)/32;
+        _gwstate.safety_margin = 0.25;
+        _gwstate.setup(_coeff_size*size*32);
+        _tmp_g.arithmetic().alloc(_tmp_g, _gwstate.giants.capacity());
+    }
+
+    PolyMulFFT::~PolyMulFFT()
+    {
+    }
+
+    void PolyMulFFT::poly_fft(Poly& a)
+    {
+        if (a.fft() && &a.fft()->arithmetic() == &gwpoly())
+            return;
+        a.fft().reset(new GWNum(gwpoly()));
+
+        int i;
+        memset(_tmp_g.data(), 0, 4*_coeff_size*(a.degree() + 1));
+        for (i = a.degree(); i >= 0; i--)
+        {
+            uint32_t* coeff = _tmp_g.data() + _coeff_size*i;
+            if (a[i].is_small())
+                coeff[0] = a[i].small();
+            else if (gwtobinary(gw().gwdata(), *a[i].value(), coeff, _coeff_size) < 0)
+                throw InvalidFFTDataException();
+        }
+        binarytogw(gwdata(), _tmp_g.data(), _coeff_size*(a.degree() + 1), **a.fft());
+    }
+
+    extern "C" void emulate_mod(gwhandle *gwdata, gwnum	s);
+
+    void PolyMulFFT::reduce_coeff(uint32_t* data, int count, PolyCoeff& res)
+    {
+        int reduced_size = (int)(gw().state().bit_length + 31)/32;
+        giantstruct g0;
+        setmaxsize(&g0, reduced_size);
+        giantstruct g1;
+        setmaxsize(&g1, reduced_size);
+
+        if (gw().gwdata()->GENERAL_MOD)
+        {
+            setmaxsize(&g0, _coeff_size);
+            g0.n = data;
+            g0.sign = count;
+            while (g0.sign > 0 && g0.n[g0.sign - 1] == 0)
+                g0.sign--;
+            gianttogw(gw().gwdata(), &g0, *_tmp);
+            emulate_mod(gw().gwdata(), *_tmp);
+            res.own_swap(_tmp);
+        }
+        else if (gw().gwdata()->k == 1.0 && gw().gwdata()->b == 2 && gw().gwdata()->c == 1 && (gw().gwdata()->n & 31) == 0)
+        {
+            g0.n = data;
+            g0.sign = reduced_size;
+            if (g0.sign > count)
+                g0.sign = count;
+            while (g0.sign > 0 && g0.n[g0.sign - 1] == 0)
+                g0.sign--;
+            g1.n = data + reduced_size;
+            g1.sign = reduced_size;
+            if (g1.sign > count - reduced_size)
+                g1.sign = count - reduced_size;
+            if (g1.sign < 0)
+                g1.sign = 0;
+            while (g1.sign > 0 && g1.n[g1.sign - 1] == 0)
+                g1.sign--;
+            subg(&g1, &g0);
+            setmaxsize(&g0, 2*reduced_size);
+            if (2*reduced_size < count)
+                uladdg(data[2*reduced_size], &g0);
+            if (g0.sign < 0)
+            {
+                g0.sign = reduced_size;
+                for (int j = 0; j < g0.sign; j++)
+                    g0.n[j] = ~g0.n[j];
+                while (g0.sign > 0 && g0.n[g0.sign - 1] == 0)
+                    g0.sign--;
+                uladdg(2, &g0);
+            }
+            if (g0.sign == 0)
+                res.set_zero();
+            else if (g0.sign == 1 && g0.n[0] < PolyCoeff::POLY_MAX_SMALL)
+                res.set_small(g0.n[0]);
+            else
+            {
+                gianttogw(gw().gwdata(), &g0, *_tmp);
+                res.own_swap(_tmp);
+            }
+        }
+        else
+        {
+            setmaxsize(&g0, _coeff_size);
+            g0.n = data;
+            g0.sign = count;
+            while (g0.sign > 0 && g0.n[g0.sign - 1] == 0)
+                g0.sign--;
+            specialmodg(gw().gwdata(), &g0);
+            gianttogw(gw().gwdata(), &g0, *_tmp);
+            res.own_swap(_tmp);
+        }
+    }
+
+    void PolyMulFFT::mul(Poly& a, Poly& b, Poly& res)
+    {
+        GWASSERT(a.degree() + b.degree() < size());
+        res.clear_fft();
+        res.set_zero();
+        if (res.size() < a.degree() + b.degree() + 1)
+            res.resize(a.degree() + b.degree() + 1);
+
+        poly_fft(a);
+        poly_fft(b);
+        if (a.preserve_fft() && b.preserve_fft())
+        {
+            GWNum tmp(gwpoly());
+            gwpoly().mul(*a.fft(), *b.fft(), tmp, 0);
+            _tmp_g = tmp;
+        }
+        else if (b.preserve_fft())
+        {
+            gwpoly().mul(*a.fft(), *b.fft(), *a.fft(), 0);
+            _tmp_g = *a.fft();
+            a.fft().reset();
+        }
+        else
+        {
+            gwpoly().mul(*a.fft(), *b.fft(), *b.fft(), 0);
+            _tmp_g = *b.fft();
+            b.fft().reset();
+            if (!a.preserve_fft())
+                a.fft().reset();
+        }
+
+        int len = _tmp_g.size();
+        for (int i = 0; len > 0; i++, len -= _coeff_size)
+            reduce_coeff(_tmp_g.data() + _coeff_size*i, len > _coeff_size ? _coeff_size : len, res[i]);
+    }
+
+    void PolyMulFFT::mul_half(Poly& a, Poly& b, Poly& res, int half)
+    {
+        GWASSERT(a.degree() + b.degree() < 3*half);
+        GWASSERT(2*half <= size());
+        res.clear_fft();
+        res.set_zero();
+        if (res.size() < half)
+            res.resize(half);
+
+        poly_fft(a);
+        poly_fft(b);
+        if (a.preserve_fft() && b.preserve_fft())
+        {
+            GWNum tmp(gwpoly());
+            gwpoly().mul(*a.fft(), *b.fft(), tmp, 0);
+            _tmp_g = tmp;
+        }
+        else if (b.preserve_fft())
+        {
+            gwpoly().mul(*a.fft(), *b.fft(), *a.fft(), 0);
+            _tmp_g = *a.fft();
+            a.fft().reset();
+        }
+        else
+        {
+            gwpoly().mul(*a.fft(), *b.fft(), *b.fft(), 0);
+            _tmp_g = *b.fft();
+            b.fft().reset();
+            if (!a.preserve_fft())
+                a.fft().reset();
+        }
+
+        int len = _tmp_g.size() - _coeff_size*half;
+        for (int i = 0; len > 0 && i < half; i++, len -= _coeff_size)
+            reduce_coeff(_tmp_g.data() + _coeff_size*(i + half), len > _coeff_size ? _coeff_size : len, res[i]);
+    }
+
+    PolyMul& PolyMulOptimal::get_optimal(const Poly& a, const Poly& b, int half)
+    {
+        int da = a.degree();
+        int db = b.degree();
+        int sda, sdb;
+        for (sda = da; sda >= 0 && a[sda].is_small(); sda--);
+        for (sdb = db; sdb >= 0 && b[sdb].is_small(); sdb--);
+        if (std::min(sda, sdb) < 4)
+        {
+            if (!_mul)
+                _mul.reset(new PolyMul(gw()));
+            return *_mul;
+        }
+        if (std::max(sda, sdb) < 32 || (!gw().gwdata()->GENERAL_MOD && std::max(sda, sdb) < 1024))
+        {
+            if (!_karatsuba)
+                _karatsuba.reset(new PolyMulKaratsuba(gw()));
+            return *_karatsuba;
+        }
+        int i = da + db + 1;
+        if (half > 0)
+            i = 2*half;
+        if (_ffts.size() < i + 1)
+            _ffts.resize(i + 1);
+        if (!_ffts[i])
+            _ffts[i].reset(new PolyMulFFT(gw(), i));
+        return *_ffts[i];
+    }
+
+    void PolyMulOptimal::mul(Poly& a, Poly& b, Poly& res)
+    {
+        PolyMul& optimal = get_optimal(a, b, 0);
+        optimal.mul(a, b, res);
+    }
+
+    void PolyMulOptimal::mul_half(Poly& a, Poly& b, Poly& res, int half)
+    {
+        PolyMul& optimal = get_optimal(a, b, half);
+        optimal.mul_half(a, b, res, half);
+    }
+
     /*PolyMulPrime::PolyMulPrime(GWArithmetic& gw, int size) : PolyMul(gw), _size(size)
     {
         int i, j;

@@ -68,3 +68,17 @@ private:
     std::string _prefix;
     bool _print_prefix = true;
 };
+
+class SubLogging : public Logging
+{
+public:
+    SubLogging(Logging& parent, int level = LEVEL_WARNING) : Logging(level), _parent(parent) { }
+
+    virtual void report(const std::string& message, int level) override { _parent.report(message, level); }
+    virtual void report_progress() override { }
+    virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override { _parent.report_factor(input, f); }
+    virtual void report_result(const std::string& message) override { }
+
+private:
+    Logging& _parent;
+};

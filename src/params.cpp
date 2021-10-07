@@ -21,15 +21,15 @@ int Params::stage1_size()
     return 1;
 }
 
-PM1Params::PM1Params(int B1_, int B2_, int max_size, bool poly) : Params(B1_, B2_)
+PM1Params::PM1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly) : Params(B1_, B2_)
 {
-    if (poly || max_size > 60000)
-        find_poly_stage2_optimal_params(max_size);
-    else
+    //if (poly || max_size > 30000)
+    //    find_poly_stage2_optimal_params(max_size);
+    //else
         find_pp1_stage2_optimal_params(max_size);
 }
 
-PM1Params::PM1Params(int B1_, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
+PM1Params::PM1Params(uint64_t B1_, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
 {
     B1 = B1_;
     find_pp1_optimal_B2(max_size, prob, log_sieving_depth, log_known_divisors, primality_cost);
@@ -42,15 +42,15 @@ PM1Params::PM1Params(int max_size, ProbSmooth& prob, double log_sieving_depth, d
     find_pp1_stage2_optimal_params(max_size);
 }
 
-PP1Params::PP1Params(int B1_, int B2_, int max_size, bool poly) : Params(B1_, B2_)
+PP1Params::PP1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly) : Params(B1_, B2_)
 {
-    if (poly || max_size > 60000)
-        find_poly_stage2_optimal_params(max_size);
-    else
+    //if (poly || max_size > 30000)
+    //    find_poly_stage2_optimal_params(max_size);
+    //else
         find_pp1_stage2_optimal_params(max_size);
 }
 
-PP1Params::PP1Params(int B1_, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
+PP1Params::PP1Params(uint64_t B1_, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
 {
     B1 = B1_;
     find_pp1_optimal_B2(max_size, prob, log_sieving_depth, log_known_divisors, primality_cost);
@@ -68,13 +68,13 @@ int PP1Params::stage1_cost()
     return (int)(B1/0.69*1.5);
 }
 
-EdECMParams::EdECMParams(int B1_, int B2_, int max_size, bool poly) : Params(B1_, B2_)
+EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly) : Params(B1_, B2_)
 {
     int k;
     for (k = 2; k < 16 && 3 + 3*(1 << (k - 1)) <= max_size && (15 << (k - 2)) + B1/0.69*(7 + 7/(k + 1.0)) > (15 << (k - 1)) + B1/0.69*(7 + 7/(k + 2.0)); k++);
     W = k;
     
-    if (poly || max_size > 60000)
+    if (poly || max_size > 30000)
         find_poly_stage2_optimal_params(max_size);
     else
     {
@@ -98,22 +98,40 @@ int EdECMParams::stage1_size()
 
 void Params::find_poly_stage2_optimal_params(int max_size)
 {
-    D = 4620;
+    D = 4410;
     A = 1;
     L = 1;
-    LN = 960 - 1;
-    Poly = 10;
+    LN = 504 - 1;
+    Poly = 9;
     if ((B2 - B1)/D/LN > 4 && max_size > 6*(Poly + 1)*(1 << (Poly + 1)))
     {
-        D = 9240;
-        LN = 1920 - 1;
-        Poly = 11;
+        D = 9030;
+        LN = 1008 - 1;
+        Poly = 10;
     }
     if ((B2 - B1)/D/LN > 4 && max_size > 6*(Poly + 1)*(1 << (Poly + 1)))
     {
         D = 19110;
+        LN = 2016 - 1;
+        Poly = 11;
+    }
+    if ((B2 - B1)/D/LN > 4 && max_size > 6*(Poly + 1)*(1 << (Poly + 1)))
+    {
+        D = 38220;
         LN = 4032 - 1;
         Poly = 12;
+    }
+    if ((B2 - B1)/D/LN > 4 && max_size > 6*(Poly + 1)*(1 << (Poly + 1)))
+    {
+        D = 79170;
+        LN = 8064 - 1;
+        Poly = 13;
+    }
+    if ((B2 - B1)/D/LN > 4 && max_size > 6*(Poly + 1)*(1 << (Poly + 1)))
+    {
+        D = 158340;
+        LN = 16128 - 1;
+        Poly = 14;
     }
 }
 
@@ -121,10 +139,10 @@ void Params::find_pp1_stage2_optimal_params(int max_size)
 {
     int i;
     int b2mul[] = { 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 23, 26, 30, 35, 40, 50, 60, 75, 100 };
-    int b2 = B2/B1;
+    int b2 = (int)(B2/B1);
     for (i = 0; i < 19 && b2 >= b2mul[i + 1]; i++);
     b2 = b2mul[i];
-    int b1 = B1/1000;
+    int b1 = B1 > 1000000000 ? 1000000 : (int)B1/1000;
     if (b1 < 1)
         b1 = 1;
     if (b1 > 10)
@@ -166,13 +184,13 @@ int Params::stage2_cost()
     double num_primes = std::expint(log(B2)) - std::expint(log(B1));
     stage2cost += (int)(num_primes - pairing*num_primes/2);
 
-    int first_D = B1/D;
-    int last_D = B2/D;
-    PrimeList primes(B2/B1 + 100);
+    int first_D = (int)(B1/D);
+    int last_D = (int)(B2/D);
+    PrimeList primes((int)(B2/B1) + 100);
     for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
         if (D/A%(*it) != 0)
         {
-            first_D = B2/(*it)/D;
+            first_D = (int)(B2/(*it)/D);
             break;
         }
 
@@ -275,7 +293,7 @@ int Params::stage2_size()
     return size;
 }
 
-double Params::get_profit(int B1_, int B2_, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
+double Params::get_profit(uint64_t B1_, uint64_t B2_, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
 {
     B1 = B1_;
     B2 = B2_;
@@ -287,11 +305,11 @@ double Params::get_profit(int B1_, int B2_, int max_size, ProbSmooth& prob, doub
 void Params::find_pp1_optimal_bounds(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
 {
     int i, j;
-    int b1, b2;
-    int b1min = 0;
-    int b1max = 1024000;
-    int b2min = 0;
-    int b2max = 81920000;
+    uint64_t b1, b2;
+    uint64_t b1min = 0;
+    uint64_t b1max = 1024000;
+    uint64_t b2min = 0;
+    uint64_t b2max = 81920000;
     double p0, p1;
 
     for (i = 0; i < 10; i++)
@@ -325,9 +343,9 @@ void Params::find_pp1_optimal_bounds(int max_size, ProbSmooth& prob, double log_
 void Params::find_pp1_optimal_B2(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost)
 {
     int j;
-    int b2;
-    int b2min = 0;
-    int b2max = 81920000;
+    uint64_t b2;
+    uint64_t b2min = 0;
+    uint64_t b2max = 81920000;
     double p0, p1;
 
     b2min = 0;
@@ -352,13 +370,13 @@ int EdECMParams::stage2_cost()
     int stage2cost = 0;
     double num_primes = std::expint(log(B2)) - std::expint(log(B1));
 
-    int first_D = B1/D;
-    int last_D = B2/D;
-    PrimeList primes(B2/B1 + 100);
+    int first_D = (int)(B1/D);
+    int last_D = (int)(B2/D);
+    PrimeList primes((int)(B2/B1) + 100);
     for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
         if (D%(*it) != 0)
         {
-            first_D = B2/(*it)/D;
+            first_D = (int)(B2/(*it)/D);
             break;
         }
 

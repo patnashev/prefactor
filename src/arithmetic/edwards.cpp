@@ -541,7 +541,7 @@ namespace arithmetic
         d_ratio(a, ed_d_a, ed_d_b);
         gw.mul(ed_d_b, ed_d, ed_d_b);
         gw.sub(ed_d_a, ed_d_b, ed_d_a);
-        return ed_d_a == 0;
+        return (gw.popg() = ed_d_a)%gw.N() == 0;
     }
 
     void EdwardsArithmetic::d_ratio(EdPoint& a, GWNum& ed_d_a, GWNum& ed_d_b)

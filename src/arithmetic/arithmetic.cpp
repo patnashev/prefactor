@@ -18,11 +18,14 @@ namespace arithmetic
             gwset_use_large_pages(gwdata());
         if (gwsetup(gwdata(), k, b, n, c))
             throw std::exception();
-        giants._capacity = ((int)gwdata()->bit_length >> 5) + 10;
+        bit_length = (int)gwdata()->bit_length;
+        giants._capacity = (bit_length >> 5) + 10;
         if (N != nullptr)
             delete N;
         N = new Giant(giants);
         *N = k*power(std::move(*N = b), n) + c;
+        if (gwdata()->GENERAL_MOD)
+            bit_length = N->bitlen();
         fingerprint = *N%3417905339UL;
         char buf[200];
         gwfft_description(gwdata(), buf);
@@ -42,12 +45,36 @@ namespace arithmetic
             gwset_use_large_pages(gwdata());
         if (gwsetup_general_mod(gwdata(), g.data(), g.size()))
             throw std::exception();
-        giants._capacity = ((int)gwdata()->bit_length >> 5) + 10;
+        bit_length = g.bitlen();
+        giants._capacity = (bit_length >> 5) + 10;
         if (N != nullptr)
             delete N;
         N = new Giant(giants);
         *N = g;
         fingerprint = *N%3417905339UL;
+        char buf[200];
+        gwfft_description(gwdata(), buf);
+        fft_description = buf;
+        fft_length = gwfftlen(gwdata());
+    }
+
+    void GWState::setup(int bitlen)
+    {
+        gwset_num_threads(gwdata(), thread_count);
+        gwset_larger_fftlen_count(gwdata(), next_fft_count);
+        gwset_safety_margin(gwdata(), safety_margin);
+        gwset_maxmulbyconst(gwdata(), maxmulbyconst);
+        if (will_error_check)
+            gwset_will_error_check(gwdata());
+        if (large_pages)
+            gwset_use_large_pages(gwdata());
+        if (gwsetup_without_mod(gwdata(), bitlen))
+            throw std::exception();
+        bit_length = (int)gwdata()->bit_length;;
+        giants._capacity = (bit_length >> 5) + 10;
+        if (N != nullptr)
+            delete N;
+        fingerprint = 0;
         char buf[200];
         gwfft_description(gwdata(), buf);
         fft_description = buf;
