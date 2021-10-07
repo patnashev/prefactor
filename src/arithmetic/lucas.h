@@ -49,7 +49,7 @@ namespace arithmetic
         LucasV(const LucasV& a) : DifferentialGroupElement<LucasVArithmetic, LucasV>(a.arithmetic()), _V(a._V)
         {
         }
-        LucasV(LucasV&& a) : DifferentialGroupElement<LucasVArithmetic, LucasV>(a.arithmetic()), _V(std::move(a._V))
+        LucasV(LucasV&& a) noexcept : DifferentialGroupElement<LucasVArithmetic, LucasV>(a.arithmetic()), _V(std::move(a._V))
         {
         }
 
@@ -58,7 +58,7 @@ namespace arithmetic
             arithmetic().copy(a, *this);
             return *this;
         }
-        LucasV& operator = (LucasV&& a)
+        LucasV& operator = (LucasV&& a) noexcept
         {
             arithmetic().move(std::move(a), *this);
             return *this;

@@ -58,7 +58,7 @@ namespace arithmetic
         {
             arithmetic().copy(a, *this);
         }
-        EdY(EdY&& a) : DifferentialGroupElement<MontgomeryArithmetic, EdY>(a.arithmetic())
+        EdY(EdY&& a) noexcept : DifferentialGroupElement<MontgomeryArithmetic, EdY>(a.arithmetic())
         {
             arithmetic().move(std::move(a), *this);
         }
@@ -68,7 +68,7 @@ namespace arithmetic
             arithmetic().copy(a, *this);
             return *this;
         }
-        EdY& operator = (EdY&& a)
+        EdY& operator = (EdY&& a) noexcept
         {
             arithmetic().move(std::move(a), *this);
             return *this;

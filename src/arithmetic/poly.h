@@ -19,8 +19,8 @@ namespace arithmetic
         PolyCoeff() : _flag(0), _value(nullptr), _fft(nullptr) { }
         PolyCoeff(GWArithmetic& gw) : _flag(POLY_OWN), _value(new GWNum(gw)), _fft(nullptr) { }
         ~PolyCoeff() { reset(); }
-        PolyCoeff(PolyCoeff&& a) : _flag(a._flag), _value(a._value), _fft(a._fft) { a._flag = 0; a._value = nullptr; a._fft = nullptr; }
-        PolyCoeff& operator = (PolyCoeff&& a) { reset(); _flag = a._flag; _value = a._value; _fft = a._fft; a._flag = 0; a._value = nullptr; a._fft = nullptr; return *this; }
+        PolyCoeff(PolyCoeff&& a) noexcept : _flag(a._flag), _value(a._value), _fft(a._fft) { a._flag = 0; a._value = nullptr; a._fft = nullptr; }
+        PolyCoeff& operator = (PolyCoeff&& a) noexcept { reset(); _flag = a._flag; _value = a._value; _fft = a._fft; a._flag = 0; a._value = nullptr; a._fft = nullptr; return *this; }
 
         bool operator == (const PolyCoeff& a) { if (is_small() && a.is_small()) return small() == a.small(); if (is_small() && !a.is_small()) return small() == a.value();  if (!is_small() && a.is_small()) return value() == a.small(); return value() == a.value(); }
         bool operator != (const PolyCoeff& a) { return !(*this == a); }
@@ -160,9 +160,9 @@ namespace arithmetic
             for (int i = 0; i < size; i++)
                 emplace_back();
         }
-        Poly(Poly&& a) : vector(std::move(a)), _gw(a.gw()), _fft(std::move(a._fft)), _preserve_fft(a._preserve_fft){ }
+        Poly(Poly&& a) noexcept : vector(std::move(a)), _gw(a.gw()), _fft(std::move(a._fft)), _preserve_fft(a._preserve_fft){ }
         virtual ~Poly() { }
-        Poly& operator = (Poly&& a) { std::vector<PolyCoeff>::operator=(std::move(a)); _fft = std::move(a._fft); _preserve_fft = a._preserve_fft; return *this; }
+        Poly& operator = (Poly&& a) noexcept { std::vector<PolyCoeff>::operator=(std::move(a)); _fft = std::move(a._fft); _preserve_fft = a._preserve_fft; return *this; }
 
         void set_zero() { for (auto it = begin(); it != end(); it++) it->set_zero(); }
         virtual void do_fft();

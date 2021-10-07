@@ -76,7 +76,7 @@ namespace arithmetic
         {
             arithmetic().copy(a, *this);
         }
-        EdPoint(EdPoint&& a) : GroupElement<EdwardsArithmetic, EdPoint>(a.arithmetic())
+        EdPoint(EdPoint&& a) noexcept : GroupElement<EdwardsArithmetic, EdPoint>(a.arithmetic())
         {
             arithmetic().move(std::move(a), *this);
         }
@@ -86,7 +86,7 @@ namespace arithmetic
             arithmetic().copy(a, *this);
             return *this;
         }
-        EdPoint& operator = (EdPoint&& a)
+        EdPoint& operator = (EdPoint&& a) noexcept
         {
             arithmetic().move(std::move(a), *this);
             return *this;

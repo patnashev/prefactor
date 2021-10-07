@@ -101,7 +101,7 @@ namespace arithmetic
         {
             arithmetic().copy(a, *this);
         }
-        Giant(Giant&& a) : FieldElement<GiantsArithmetic, Giant>(a.arithmetic())
+        Giant(Giant&& a) noexcept : FieldElement<GiantsArithmetic, Giant>(a.arithmetic())
         {
             arithmetic().move(std::move(a), *this);
         }
@@ -111,7 +111,7 @@ namespace arithmetic
             arithmetic().copy(a, *this);
             return *this;
         }
-        Giant& operator = (Giant&& a)
+        Giant& operator = (Giant&& a) noexcept
         {
             arithmetic().move(std::move(a), *this);
             return *this;

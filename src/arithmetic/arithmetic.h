@@ -179,7 +179,7 @@ namespace arithmetic
         {
             arithmetic().copy(a, *this);
         }
-        GWNum(GWNum&& a) : FieldElement<GWArithmetic, GWNum>(a.arithmetic())
+        GWNum(GWNum&& a) noexcept : FieldElement<GWArithmetic, GWNum>(a.arithmetic())
         {
             arithmetic().move(std::move(a), *this);
         }
@@ -189,7 +189,7 @@ namespace arithmetic
             arithmetic().copy(a, *this);
             return *this;
         }
-        GWNum& operator = (GWNum&& a)
+        GWNum& operator = (GWNum&& a) noexcept
         {
             arithmetic().move(std::move(a), *this);
             return *this;
