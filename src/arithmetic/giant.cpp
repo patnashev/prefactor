@@ -17,12 +17,6 @@ namespace arithmetic
         return _defaultGiantsArithmetic;
     }
 
-    GiantsArithmetic::~GiantsArithmetic()
-    {
-        if (_rnd_state != nullptr)
-            delete _rnd_state;
-    }
-
     void GiantsArithmetic::alloc(Giant& a)
     {
         a._capacity = 0;
@@ -367,6 +361,13 @@ namespace arithmetic
         void init_genrand(struct mt_state *x, unsigned long s);
 
         unsigned long genrand_int32(struct mt_state *x);
+    }
+
+    GiantsArithmetic::~GiantsArithmetic()
+    {
+        struct mt_state *state = (struct mt_state *)_rnd_state;
+        if (state != nullptr)
+            delete state;
     }
 
     void init_by_array(struct mt_state *x, uint32_t init_key[], int key_length)

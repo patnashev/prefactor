@@ -1,6 +1,7 @@
 #define GDEBUG
 #include <algorithm>
 #include <stdlib.h>
+#include <string.h>
 #include "gwnum.h"
 #include "poly.h"
 #include "exception.h"

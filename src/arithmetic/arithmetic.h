@@ -170,7 +170,7 @@ namespace arithmetic
         {
             arithmetic.alloc(*this);
         }
-        ~GWNum()
+        virtual ~GWNum()
         {
             if (_gwnum != nullptr)
                 arithmetic().free(*this);
@@ -196,7 +196,7 @@ namespace arithmetic
         }
         using FieldElement<GWArithmetic, GWNum>::operator=;
 
-        std::string to_string() const override;
+        virtual std::string to_string() const override;
         GWNum& operator = (const Giant& a)
         {
             a.to_GWNum(*this);
