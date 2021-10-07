@@ -79,7 +79,7 @@ namespace arithmetic
     {
         for (int i = offset; (count < 0 && i < (int)poly.size()) || (count > 0 && i < offset + count); i++)
             if (i >= 0 && i < (int)poly.size())
-                emplace(transpose ? begin() : end(), poly[i]);
+                emplace(transpose ? begin() : end())->set(poly[i]);
             else
                 emplace(transpose ? begin() : end());
     }
@@ -92,7 +92,7 @@ namespace arithmetic
             {
                 if (force_fft)
                     _poly[i].do_fft();
-                emplace(_transpose ? begin() : end(), _poly[i]);
+                emplace(_transpose ? begin() : end())->set(_poly[i]);
             }
             else
                 emplace(_transpose ? begin() : end());
@@ -320,9 +320,9 @@ namespace arithmetic
             if (a[i].is_zero() && b[i].is_zero())
                 continue;
             else if (a[i].is_zero())
-                res[i] = b[i];
+                res[i].set(b[i]);
             else if (b[i].is_zero())
-                res[i] = a[i];
+                res[i].set(a[i]);
             else if (a[i].is_small() && b[i].is_small())
             {
                 int small = a[i].small() + b[i].small();
@@ -366,9 +366,9 @@ namespace arithmetic
             }
         }
         for (; i <= da; i++)
-            res[i] = a[i];
+            res[i].set(a[i]);
         for (; i <= db; i++)
-            res[i] = b[i];
+            res[i].set(b[i]);
     }
 
     void PolyMulKaratsuba::poly_add(const PolyCoeff& a, PolyCoeff& res)

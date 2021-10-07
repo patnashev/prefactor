@@ -21,9 +21,17 @@ namespace arithmetic
         ~PolyCoeff() { reset(); }
         PolyCoeff(PolyCoeff&& a) : _flag(a._flag), _value(a._value), _fft(a._fft) { a._flag = 0; a._value = nullptr; a._fft = nullptr; }
         PolyCoeff& operator = (PolyCoeff&& a) { reset(); _flag = a._flag; _value = a._value; _fft = a._fft; a._flag = 0; a._value = nullptr; a._fft = nullptr; return *this; }
-        PolyCoeff(const PolyCoeff& a) : _flag(0), _value(nullptr), _fft(nullptr) { *this = a; }
 
-        PolyCoeff& operator = (const PolyCoeff& a)
+        bool operator == (const PolyCoeff& a) { if (is_small() && a.is_small()) return small() == a.small(); if (is_small() && !a.is_small()) return small() == a.value();  if (!is_small() && a.is_small()) return value() == a.small(); return value() == a.value(); }
+        bool operator != (const PolyCoeff& a) { return !(*this == a); }
+
+        void set_zero() { _flag &= (POLY_OWN | POLY_FFT); }
+        void set_small(int value) { GWASSERT(abs(value) < POLY_MAX_SMALL); _flag = (_flag & (POLY_OWN | POLY_FFT)) | (value << 8); }
+        void reset() { reset_fft(); if (_flag & POLY_OWN) delete _value; _value = nullptr; _flag &= ~(POLY_OWN | POLY_NOT_SMALL); }
+        void reset_fft() { if ((_flag & POLY_OWN) && _fft != nullptr) delete _fft; _fft = nullptr; _flag &= ~POLY_FFT; }
+        void clear_fft() { if (!(_flag & POLY_OWN)) _fft = nullptr; _flag &= ~POLY_FFT; }
+
+        void set(const PolyCoeff& a)
         {
             if (!has_own())
                 _flag = (a._flag & ~POLY_OWN);
@@ -48,17 +56,7 @@ namespace arithmetic
                         value().arithmetic().fft(value(), fft());
                 }
             }
-            return *this;
         }
-
-        bool operator == (const PolyCoeff& a) { if (is_small() && a.is_small()) return small() == a.small(); if (is_small() && !a.is_small()) return small() == a.value();  if (!is_small() && a.is_small()) return value() == a.small(); return value() == a.value(); }
-        bool operator != (const PolyCoeff& a) { return !(*this == a); }
-
-        void set_zero() { _flag &= (POLY_OWN | POLY_FFT); }
-        void set_small(int value) { GWASSERT(abs(value) < POLY_MAX_SMALL); _flag = (_flag & (POLY_OWN | POLY_FFT)) | (value << 8); }
-        void reset() { reset_fft(); if (_flag & POLY_OWN) delete _value; _value = nullptr; _flag &= ~(POLY_OWN | POLY_NOT_SMALL); }
-        void reset_fft() { if ((_flag & POLY_OWN) && _fft != nullptr) delete _fft; _fft = nullptr; _flag &= ~POLY_FFT; }
-        void clear_fft() { if (!(_flag & POLY_OWN)) _fft = nullptr; _flag &= ~POLY_FFT; }
 
         void set(GWNum* a)
         {
