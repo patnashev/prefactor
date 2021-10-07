@@ -1,6 +1,7 @@
 #define PREFACTOR_FACTORING_VERSION "1.0.0"
 
 #include <iostream>
+#include <cmath>
 #include <string.h>
 #include <stdlib.h>
 #include "gwnum.h"
