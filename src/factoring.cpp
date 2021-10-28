@@ -464,13 +464,14 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, File& file_state
     int i;
 
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
-    EdECMParams params_edecm((int)_B1, (int)B2, maxSize, poly);
+    EdECMParams params_edecm(_B1, B2, maxSize, poly);
     PrimeList primes(params_edecm.Poly > 0 ? 65536 : (int)B2 + 100);
     SubLogging logging(_logging);
     logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
     EdECMStage2 stage2(logging, primes, params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.Poly);
 
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, LN = %d.\n", B2, params_edecm.D, params_edecm.LN);
+    std::string prefix = _logging.prefix();
 
     if (_state.size() == 0)
     {
@@ -487,25 +488,27 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, File& file_state
     _logging.progress().update(_state.size()/(double)_points.size(), (int)(_points.size() - _state.size()));
 
     Giant X, Y, Z, T, EdD;
-    time_t last_write = time(NULL);
+    time_t last_write = time(NULL) - 270;
     while (_state.size() > 0)
     {
         i = (int)_state.size() - 1;
         if (!_ed.on_curve(*_points[i], *_state[i]->X))
             throw ArithmeticException();
+        _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         //_ed.dbl(*_points[i], *_points[i]);
         _points[i]->serialize(X, Y, Z, T);
         EdD = *_state[i]->X;
         //double timer = getHighResTimer();
         stage2.init(&_input, &_gwstate, nullptr, &logging, X, Y, Z, T, EdD);
         stage2.run();
-        if (stage2.success())
-            _logging.warning("curve #%d found the factor.\n", _seed + i);
+        //if (stage2.success())
+        //    _logging.warning("curve #%d found the factor.\n", _seed + i);
         _state.pop_back();
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
+        _logging.set_prefix(prefix);
 
-        if ((time(NULL) - last_write > 30 || Task::abort_flag()) && _state.size() > 0)
+        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() > 0)
         {
             _logging.progress().update((_points.size() - _state.size())/(double)_points.size(), (int)(_points.size() - _state.size()));
             _logging.report_progress();
@@ -682,6 +685,8 @@ int factoring_main(int argc, char *argv[])
                 input.init(1, 2, 1 << fermat_n, 1);
                 if (fermat_n == 12)
                     factors = "45477879701734570611058964078361695337745924097";
+                if (fermat_n == 13)
+                    factors = "8314626596650587038214450998145116566054205961594349402971227571059785400321";
             }
             else if (!input.parse(argv[i]))
             {

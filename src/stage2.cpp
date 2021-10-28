@@ -524,7 +524,8 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
     return precomp_size;
 }
 
-void Stage2::poly_setup(std::vector<GWNum*>& roots)
+// http://cr.yp.to/arith/scaledmod-20040820.pdf
+void Stage2::poly_setup(std::vector<GWNum*>& roots, int LN)
 {
     int i, j;
 
@@ -559,9 +560,14 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
                 _poly_mod[j].emplace_back(gw(), (1 << j) + 1);
             _poly_mul->mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i]);
         }
-    Poly polyR = _poly_mul->reciprocal(_poly_mod[poly_power()][0], 1 << poly_power());
-    while (polyR.degree() + _poly_mod[poly_power()][0].degree() < (1 << (poly_power() + 1)))
+    Poly polyR = _poly_mul->reciprocal(_poly_mod[poly_power()][0], LN < roots.size() ? (1 << poly_power()) : (1 << (poly_power() + 0)));
+    int degree = (1 << (poly_power() + 1)) - _poly_mod[poly_power()][0].degree();
+    //if (polyR.degree() < degree)
+    //    polyR.insert(polyR.begin(), degree - polyR.degree(), PolyCoeff());
+    while (polyR.degree() < degree)
         polyR.emplace(polyR.begin());
+    if (polyR.degree() > degree)
+        polyR.erase(polyR.begin(), polyR.end() - degree - 1);
     _poly_mod[poly_power()][0] = std::move(polyR);
 
     commit_setup();
@@ -926,7 +932,7 @@ void EdECMStage2::setup()
         for (auto it = _precomp.begin(); it != _precomp.end(); it++)
             if (*it)
                 poly_r.push_back((*it)->Y.get());
-        poly_setup(poly_r);
+        poly_setup(poly_r, _LN);
     }
 }
 

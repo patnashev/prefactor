@@ -255,6 +255,9 @@ namespace arithmetic
 
     class PolyMulFFT : public PolyMul
     {
+    protected:
+        PolyMulFFT(GWArithmetic& gw) : PolyMul(gw), _gwstate(), _gwpoly(_gwstate) { }
+
     public:
         PolyMulFFT(GWArithmetic& gw, int size);
         ~PolyMulFFT();
@@ -268,11 +271,11 @@ namespace arithmetic
         gwhandle* gwdata() { return _gwstate.gwdata(); }
         GWArithmetic& gwpoly() { return _gwpoly; }
 
-    private:
+    protected:
         void poly_fft(Poly& a);
         void reduce_coeff(uint32_t* data, int count, PolyCoeff& res);
 
-    private:
+    protected:
         int _size;
         int _coeff_size;
         GWState _gwstate;
@@ -298,26 +301,25 @@ namespace arithmetic
         std::vector<std::unique_ptr<PolyMulFFT>> _ffts;
     };
 
-    /*class PolyMulPrime : public PolyMul
+    class PolyMulPrime : public PolyMulFFT
     {
     public:
-        PolyMulPrime(GWArithmetic& gw, int size);
+        PolyMulPrime(GWArithmetic& gw, int k, int b, int n, int c, int size);
 
-        virtual Poly mul(Poly&a, Poly&b) override;
-        virtual Poly mul_half(Poly&a, Poly&b, int half) override;
+        //virtual Poly mul(Poly&a, Poly&b) override;
+        //virtual Poly mul_half(Poly&a, Poly&b, int half) override;
 
-        void transform(Poly& src, Poly& dst);
-        void inv_transform(Poly& dst);
+        void transform(const Poly& a, Poly& res);
+        void inv_transform(Poly& a, Poly& res);
 
         int size() const { return _size; }
 
     private:
-        void transform(Poly& src, Poly& dst, int offset, int count, int depth);
-        void inv_transform(Poly& dst, int offset, int count, int depth);
+        void transform(Poly& a, int offset, int count, int depth);
+        void inv_transform(Poly& a, int offset, int count, int depth);
 
     private:
-        int _size;
         std::vector<GWNum> _roots;
         std::vector<GWNum> _inv_roots;
-    };*/
+    };
 }

@@ -98,6 +98,7 @@ namespace arithmetic
                 emplace(_transpose ? begin() : end());
     }
 
+    // http://cr.yp.to/fastnewton/fastnewton-20040309.pdf
     Poly PolyMul::reciprocal(Poly& a, int size)
     {
         int i, j;
@@ -773,30 +774,34 @@ namespace arithmetic
         optimal.mul_half(a, b, res, half);
     }
 
-    /*PolyMulPrime::PolyMulPrime(GWArithmetic& gw, int size) : PolyMul(gw), _size(size)
+    PolyMulPrime::PolyMulPrime(GWArithmetic& gw, int k, int b, int n, int c, int size) : PolyMulFFT(gw)
     {
+        _size = size;
+        _coeff_size = (int)(2*gw.state().bit_length + 16 + 31)/32;
+        _gwstate.setup(k, b, n, c);
+        _tmp_g.arithmetic().alloc(_tmp_g, _gwstate.giants.capacity());
+
         int i, j;
-        Giant tmp;
         int len, depth, a;
         std::vector<GWNum> roots;
 
         GWASSERT((size & (size - 1)) == 0);
         for (depth = 0; (1 << depth) < size; depth++);
-        a = 3; // Jacobi check!!!
-        roots.emplace_back(gw);
+        a = 5; // Jacobi check!!!
+        roots.emplace_back(gwpoly());
         roots.front() = a;
-        gw.setmulbyconst(a);
-        gwset_carefully_count(gw.gwdata(), 30);
-        len = gw.N().bitlen() - 1;
-        for (j = 1; !gw.N().bit(j); j++);
+        gwpoly().setmulbyconst(a);
+        gwset_carefully_count(gwpoly().gwdata(), 30);
+        len = gwpoly().N().bitlen() - 1;
+        for (j = 1; !gwpoly().N().bit(j); j++);
         for (i = 1; i <= len - j; i++)
-            gw.square(roots.front(), roots.front(), (gw.N().bit(len - i) ? GWMUL_MULBYCONST : 0) | GWMUL_STARTNEXTFFT);
+            gwpoly().square(roots.front(), roots.front(), (gwpoly().N().bit(len - i) ? GWMUL_MULBYCONST : 0) | GWMUL_STARTNEXTFFT);
         for (; i <= len - depth; i++)
-            gw.square(roots.front(), roots.front(), i < len - depth ? GWMUL_STARTNEXTFFT : 0);
+            gwpoly().square(roots.front(), roots.front(), i < len - depth ? GWMUL_STARTNEXTFFT : 0);
         for (; i <= len; i++)
         {
-            roots.emplace(roots.begin(), gw);
-            gw.carefully().square(roots[1], roots[0], 0);
+            roots.emplace(roots.begin(), gwpoly());
+            gwpoly().carefully().square(roots[1], roots[0], 0);
         }
         if (roots.size() != depth + 1)
             throw ArithmeticException("Not enough roots of unity.");
@@ -810,11 +815,11 @@ namespace arithmetic
             _roots.emplace_back(std::move(roots[i]));
             for (j = 1; i > 2 && j < (1 << (i - 2)); j++)
             {
-                _roots.emplace_back(gw);
-                gw.carefully().mul(_roots[j], _roots[_roots.size() - 1 - j], _roots.back(), 0);
+                _roots.emplace_back(gwpoly());
+                gwpoly().carefully().mul(_roots[j], _roots[_roots.size() - 1 - j], _roots.back(), 0);
             }
         }
-        GWASSERT(_roots.size() == size/2);
+        /*GWASSERT(_roots.size() == size/2);
         for (i = 1; i < _roots.size(); i++)
         {
             if (i%2 == 0)
@@ -823,18 +828,18 @@ namespace arithmetic
                 GWASSERT(_roots[i]*_roots[i] + _roots[i >> 1] == 0);
             for (j = 0; j < _roots.size(); j++)
                 GWASSERT(i == j || (_roots[i] != _roots[j] && _roots[i] + _roots[j] != 0));
-        }
+        }*/
         for (auto it = _roots.begin(); it != _roots.end(); it++)
         {
-            _inv_roots.emplace_back(gw);
-            tmp = *it;
+            _inv_roots.emplace_back(gwpoly());
+            _tmp_g = *it;
             if (it == _roots.begin())
-                tmp = size;
-            _inv_roots.back() = inv(tmp, gw.N());
+                _tmp_g = size;
+            _inv_roots.back() = inv(_tmp_g, gwpoly().N());
         }
     }
 
-    Poly PolyMulPrime::mul(Poly&a, Poly&b)
+    /*Poly PolyMulPrime::mul(Poly&a, Poly&b)
     {
         Poly fft_a(gw(), size());
         Poly fft_b(gw(), size());
@@ -857,70 +862,109 @@ namespace arithmetic
         inv_transform(fft_a);
         GWASSERT(0);
         return fft_a;
-    }
-
-    void PolyMulPrime::transform(Poly& src, Poly& dst)
-    {
-        transform(src, dst, 0, _size, 0);
-    }
-
-    void PolyMulPrime::transform(Poly& src, Poly& dst, int offset, int count, int root)
-    {
-        if (count == 1)
-            return;
-        int i, m;
-        m = count/2;
-        for (i = 0; i < m; i++)
-        {
-            if (!src[offset + i] && !src[offset + m + i])
-            {
-                dst[offset + i].reset();
-                dst[offset + m + i].reset();
-                continue;
-            }
-            if (!src[offset + m + i])
-            {
-                dst.a(offset + i) = src.a(offset + i);
-                dst.a(offset + m + i) = src.a(offset + i);
-                continue;
-            }
-            if (root != 0)
-                gw().mul(src.a(offset + m + i), _roots[root], dst.a(offset + m + i), GWMUL_FFT_S2);
-            else if (&dst.a(offset + m + i) != &src.a(offset + m + i))
-                dst.a(offset + m + i) = src.a(offset + m + i);
-            if (!src[offset + i])
-            {
-                dst.a(offset + i) = dst.a(offset + m + i);
-                gw().neg(dst.a(offset + m + i), dst.a(offset + m + i));
-                continue;
-            }
-            gw().addsub(src.a(offset + i), dst.a(offset + m + i), dst.a(offset + i), dst.a(offset + m + i), GWADD_FORCE_NORMALIZE);
-        }
-        transform(dst, dst, offset, count/2, root*2);
-        transform(dst, dst, offset + m, count/2, root*2 + 1);
-    }
-
-    void PolyMulPrime::inv_transform(Poly& dst)
-    {
-        inv_transform(dst, 0, _size, 0);
-        for (auto it = dst.begin(); it != dst.end(); it++)
-            if (*it)
-                gw().mul(_inv_roots[0], **it, **it, GWMUL_FFT_S1);
-    }
-
-    void PolyMulPrime::inv_transform(Poly& dst, int offset, int count, int root)
-    {
-        if (count == 1)
-            return;
-        int i, m;
-        m = count/2;
-        inv_transform(dst, offset, count/2, root*2);
-        inv_transform(dst, offset + m, count/2, root*2 + 1);
-        for (i = 0; i < m; i++)
-        {
-            gw().addsub(dst.a(offset + i), dst.a(offset + m + i), dst.a(offset + i), dst.a(offset + m + i), GWADD_FORCE_NORMALIZE);
-            if (root != 0)
-                gw().mul(dst.a(offset + m + i), _inv_roots[root], dst.a(offset + m + i), GWMUL_FFT_S2);
-        }
     }*/
+
+    void PolyMulPrime::transform(const Poly& a, Poly& res)
+    {
+        GWASSERT(a.degree() < size());
+        GWASSERT(&a.gw() == &gw());
+        GWASSERT(&res.gw() == &gwpoly());
+        res.set_zero();
+        if (res.size() < size())
+            res.resize(size());
+        for (int i = a.degree(); i >= 0; i--)
+        {
+            if (a[i].is_zero())
+                continue;
+            if (a[i].is_small())
+                res[i].own_set(gwpoly(), a[i].small());
+            else
+                res[i].own_set(gwpoly(), _tmp_g = a[i].value());
+        }
+        transform(res, 0, _size, 0);
+    }
+
+    void PolyMulPrime::transform(Poly& a, int offset, int count, int root)
+    {
+        if (count == 1)
+            return;
+        int i, m;
+        m = count/2;
+        for (i = 0; i < m; i++)
+        {
+            if (a[offset + i].is_zero() && a[offset + m + i].is_zero())
+                continue;
+            if (a[offset + m + i].is_zero())
+            {
+                if (a[offset + i].is_small())
+                    a[offset + m + i].set_small(a[offset + i].small());
+                else
+                    a[offset + m + i].own_set(gwpoly(), a[offset + i].value());
+                continue;
+            }
+            if (root != 0)
+            {
+                if (a[offset + m + i].is_small() && a[offset + m + i].small() == 1)
+                    a[offset + m + i].own_set(gwpoly(), _roots[root]);
+                else
+                {
+                    a[offset + m + i].own(gwpoly());
+                    gwpoly().mul(a[offset + m + i].value(), _roots[root], a[offset + m + i].value(), GWMUL_FFT_S2);
+                }
+            }
+            if (a[offset + i].is_zero())
+            {
+                if (a[offset + m + i].is_small())
+                {
+                    a[offset + i].set_small(a[offset + m + i].small());
+                    a[offset + m + i].set_small(-a[offset + m + i].small());
+                }
+                else
+                {
+                    a[offset + i].own_set(gwpoly(), a[offset + m + i].value());
+                    gwpoly().neg(a[offset + m + i].value(), a[offset + m + i].value());
+                }
+                continue;
+            }
+            a[offset + i].own(gwpoly());
+            a[offset + m + i].own(gwpoly());
+            gwpoly().addsub(a[offset + i].value(), a[offset + m + i].value(), a[offset + i].value(), a[offset + m + i].value(), GWADD_FORCE_NORMALIZE);
+        }
+        transform(a, offset, count/2, root*2);
+        transform(a, offset + m, count/2, root*2 + 1);
+    }
+
+    void PolyMulPrime::inv_transform(Poly& a, Poly& res)
+    {
+        GWASSERT(&a.gw() == &gwpoly());
+        GWASSERT(&res.gw() == &gw());
+        inv_transform(a, 0, _size, 0);
+        res.set_zero();
+        for (int i = 0; i < size(); i++)
+        {
+            gwpoly().mul(_inv_roots[0], a[i].value(), a[i].value(), GWMUL_FFT_S1);
+            _tmp_g = a[i].value();
+            if (_tmp_g == 0)
+                continue;
+            if (res.size() < i + 1)
+                res.resize(i + 1);
+            reduce_coeff(_tmp_g.data(), _tmp_g.size(), res[i]);
+        }
+    }
+
+    void PolyMulPrime::inv_transform(Poly& a, int offset, int count, int root)
+    {
+        if (count == 1)
+            return;
+        int i, m;
+        m = count/2;
+        inv_transform(a, offset, count/2, root*2);
+        inv_transform(a, offset + m, count/2, root*2 + 1);
+        for (i = 0; i < m; i++)
+        {
+            gwpoly().addsub(a[offset + i].value(), a[offset + m + i].value(), a[offset + i].value(), a[offset + m + i].value(), GWADD_FORCE_NORMALIZE);
+            if (root != 0)
+                gwpoly().mul(a[offset + m + i].value(), _inv_roots[root], a[offset + m + i].value(), GWMUL_FFT_S2);
+        }
+    }
 }

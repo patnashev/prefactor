@@ -74,7 +74,7 @@ protected:
 
     bool is_poly() { return _poly_power > 0; }
     int poly_power() { return _poly_power; }
-    void poly_setup(std::vector<arithmetic::GWNum*>& roots);
+    void poly_setup(std::vector<arithmetic::GWNum*>& roots, int LN);
     void poly_release();
     void poly_execute(std::vector<arithmetic::GWNum*>& roots, arithmetic::GWNum& G);
 
