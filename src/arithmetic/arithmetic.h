@@ -28,6 +28,7 @@ namespace arithmetic
 
         gwhandle* gwdata() { return &handle; }
         Giant popg() { return Giant(giants); }
+        int max_polymult_output();
 
         int thread_count = 1;
         int next_fft_count = 0;
@@ -35,6 +36,20 @@ namespace arithmetic
         int maxmulbyconst = 3;
         bool will_error_check = false;
         bool large_pages = false;
+        bool force_general_mod = false;
+        Giant known_factors;
+
+        void copy(const GWState& a)
+        {
+            thread_count = a.thread_count;
+            next_fft_count = a.next_fft_count;
+            safety_margin = a.safety_margin;
+            maxmulbyconst = a.maxmulbyconst;
+            will_error_check = a.will_error_check;
+            large_pages = a.large_pages;
+            force_general_mod = a.force_general_mod;
+            known_factors = a.known_factors;
+        }
 
         gwhandle handle;
         GWGiantsArithmetic giants;
@@ -164,7 +179,11 @@ namespace arithmetic
     class GWNum : public FieldElement<GWArithmetic, GWNum>
     {
         friend class GWArithmetic;
+        friend class PolyMult;
+        friend class GWNumWrapper;
 
+    protected:
+        GWNum(GWArithmetic& arithmetic, gwnum a) : FieldElement<GWArithmetic, GWNum>(arithmetic), _gwnum(a) { }
     public:
         GWNum(GWArithmetic& arithmetic) : FieldElement<GWArithmetic, GWNum>(arithmetic)
         {
@@ -184,12 +203,12 @@ namespace arithmetic
             arithmetic().move(std::move(a), *this);
         }
 
-        GWNum& operator = (const GWNum& a)
+        virtual GWNum& operator = (const GWNum& a)
         {
             arithmetic().copy(a, *this);
             return *this;
         }
-        GWNum& operator = (GWNum&& a) noexcept
+        virtual GWNum& operator = (GWNum&& a) noexcept
         {
             arithmetic().move(std::move(a), *this);
             return *this;
@@ -265,7 +284,23 @@ namespace arithmetic
             return a.inv();
         }
 
-    private:
+    protected:
         gwnum _gwnum = nullptr;
     };
+
+    class GWNumWrapper : public GWNum
+    {
+    public:
+        GWNumWrapper(GWArithmetic& gw, gwnum a) : GWNum(gw, a) { }
+        GWNumWrapper(const GWNum& a) : GWNum(a.arithmetic(), a._gwnum) { }
+        ~GWNumWrapper() { _gwnum = nullptr; }
+        GWNum& operator = (const GWNum& a) override { _gwnum = a._gwnum; return *this; }
+        GWNum& operator = (GWNum&& a) noexcept override { return *this; }
+    };
 }
+
+int gwconvert(
+    gwhandle *gwdata_s,	/* Handle initialized by gwsetup */
+    gwhandle *gwdata_d,	/* Handle initialized by gwsetup */
+    gwnum	s,
+    gwnum	d);

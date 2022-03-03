@@ -65,6 +65,7 @@ public:
     File(const std::string& filename, uint32_t fingerprint) : _filename(filename), _fingerprint(fingerprint) { }
     virtual ~File() { }
 
+    virtual File* add_child(const std::string& name);
     virtual Writer* get_writer();
     virtual Reader* get_reader();
     virtual void commit_writer(Writer& writer);

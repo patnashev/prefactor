@@ -324,14 +324,27 @@ bool Factoring::split(int offset, int count, Factoring& result)
         _logging.error("offset %d outside boundaries.\n", offset);
         return false;
     }
+    if (count <= 0 || offset + count > _points.size())
+    {
+        _logging.error("can't find %d curves at offset %d.\n", count, offset);
+        return false;
+    }
     _logging.info("splitting %d curve%s starting with #%d.\n", count, count > 1 ? "s" : "", _seed + offset);
 
     result._seed = _seed + offset;
     result._B1 = _B1;
-    result._points.clear();
     result._state.clear();
-    for (int i = 0; i < count; i++)
-        result._points.emplace_back(new EdPoint(*_points[offset + i]));
+    if (&result != this)
+    {
+        result._points.clear();
+        for (int i = 0; i < count; i++)
+            result._points.emplace_back(new EdPoint(*_points[offset + i]));
+    }
+    else
+    {
+        result._points.erase(result._points.begin(), result._points.begin() + offset);
+        result._points.resize(count);
+    }
     return true;
 }
 
@@ -352,6 +365,19 @@ bool Factoring::merge(Factoring& other)
     for (auto it = other._points.begin(); it != other._points.end(); it++)
         _points.emplace_back(it->release());
     return true;
+}
+
+void Factoring::copy(Factoring& result)
+{
+    if (&result == this)
+        return;
+
+    result._seed = _seed;
+    result._B1 = _B1;
+    result._state.clear();
+    result._points.clear();
+    for (size_t i = 0; i < _points.size(); i++)
+        result._points.emplace_back(new EdPoint(*_points[i]));
 }
 
 Giant get_exp(std::vector<uint64_t>& primes, uint64_t B1)
@@ -442,7 +468,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
 
-        if ((time(NULL) - last_write > 30 || Task::abort_flag()) && _state.size() < _points.size())
+        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
         {
             _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
             _logging.report_progress();
@@ -459,16 +485,28 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, File& file_state)
+void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, File& file_state)
 {
     int i;
 
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
-    EdECMParams params_edecm(_B1, B2, maxSize, poly);
-    PrimeList primes(params_edecm.Poly > 0 ? 65536 : (int)B2 + 100);
-    SubLogging logging(_logging);
+    EdECMParams params_edecm(_B1, B2, maxSize, poly, threads);
+    if (params_edecm.Poly > 0 && _gwstate.max_polymult_output() < 2*(1 << params_edecm.Poly))
+    {
+        _logging.error("FFT size too small for polynomial stage 2. Set -fft+1.\n");
+        return;
+    }
+    SubLogging logging(_logging, _logging.level() + 1);
     logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
-    EdECMStage2 stage2(logging, primes, params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.Poly);
+
+    EdECMStage2 stage2(params_edecm.B1, params_edecm.B2);
+    if (params_edecm.Poly == 0)
+    {
+        PrimeList primes((int)B2 + 100);
+        stage2.stage2_pairing(params_edecm.D, params_edecm.L, params_edecm.LN, logging, primes);
+    }
+    else
+        stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.Poly, params_edecm.PolyThreads);
 
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, LN = %d.\n", B2, params_edecm.D, params_edecm.LN);
     std::string prefix = _logging.prefix();
@@ -531,10 +569,14 @@ int factoring_main(int argc, char *argv[])
     uint64_t B2 = 0;
     uint64_t maxMem = 2048*1048576ULL;
     bool poly = false;
+    int polyThreads = 1;
     int seed = 0;
     int count = 0;
     std::string filename;
     int generate = 0;
+    bool range = false;
+    int rangeOffset = 0;
+    int rangeCount = 0;
     int verify = 0;
     int verifyCurve = 0;
     int modulus = 0;
@@ -547,8 +589,6 @@ int factoring_main(int argc, char *argv[])
     std::string mergeName;
     int log_level = Logging::LEVEL_INFO;
     InputNum input;
-    Giant factors;
-    factors = "1";
     Giant tmp;
 
     for (i = 1; i < argc; i++)
@@ -582,11 +622,11 @@ int factoring_main(int argc, char *argv[])
 
             case 'f':
                 if (argv[i][2] && isdigit(argv[i][2]))
-                    factors = argv[i] + 2;
+                    gwstate.known_factors = argv[i] + 2;
                 else if (!argv[i][2] && i < argc - 1)
                 {
                     i++;
-                    factors = argv[i];
+                    gwstate.known_factors = argv[i];
                 }
                 else
                     break;
@@ -621,8 +661,32 @@ int factoring_main(int argc, char *argv[])
                 i++;
                 maxMem = InputNum::parse_numeral(argv[i]);
             }
+            else if (strncmp(argv[i], "-fft", 4) == 0 && ((!argv[i][4] && i < argc - 1) || argv[i][4] == '+'))
+            {
+                if (argv[i][4] == '+')
+                    gwstate.next_fft_count = atoi(argv[i] + 5);
+                else if (argv[i + 1][0] == '+')
+                {
+                    i++;
+                    gwstate.next_fft_count = atoi(argv[i] + 1);
+                }
+            }
+            else if (strcmp(argv[i], "-generic") == 0)
+                gwstate.force_general_mod = true;
             else if (strcmp(argv[i], "-poly") == 0)
+            {
                 poly = true;
+                if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
+                {
+                    i += 2;
+                    polyThreads = atoi(argv[i]);
+                }
+                if (i < argc - 1 && argv[i + 1][0] == 't')
+                {
+                    i++;
+                    polyThreads = atoi(argv[i] + 1);
+                }
+            }
             else if (i < argc - 2 && strcmp(argv[i], "-generate") == 0)
             {
                 generate = 1;
@@ -649,6 +713,14 @@ int factoring_main(int argc, char *argv[])
                     i += 2;
                 }
             }
+            else if (i < argc - 2 && strcmp(argv[i], "-range") == 0)
+            {
+                range = true;
+                i++;
+                rangeOffset = atoi(argv[i]);
+                i++;
+                rangeCount = atoi(argv[i]);
+            }
             else if (i < argc - 3 && strcmp(argv[i], "-split") == 0)
             {
                 split = 1;
@@ -668,7 +740,19 @@ int factoring_main(int argc, char *argv[])
             else if (strcmp(argv[i], "-p54") == 0)
             {
                 tmp = "568630647535356955169033410940867804839360742060818433";
-                factors *= tmp;
+                gwstate.known_factors *= tmp;
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
+            {
+                i++;
+                if (strcmp(argv[i], "debug") == 0)
+                    log_level = Logging::LEVEL_DEBUG;
+                if (strcmp(argv[i], "info") == 0)
+                    log_level = Logging::LEVEL_INFO;
+                if (strcmp(argv[i], "warning") == 0)
+                    log_level = Logging::LEVEL_WARNING;
+                if (strcmp(argv[i], "error") == 0)
+                    log_level = Logging::LEVEL_ERROR;
             }
             else if (strcmp(argv[i], "-v") == 0)
             {
@@ -684,10 +768,22 @@ int factoring_main(int argc, char *argv[])
                 int fermat_n = atoi(argv[i]);
                 input.init(1, 2, 1 << fermat_n, 1);
                 if (fermat_n == 12)
-                    factors = "45477879701734570611058964078361695337745924097";
+                    gwstate.known_factors = "45477879701734570611058964078361695337745924097";
                 if (fermat_n == 13)
-                    factors = "8314626596650587038214450998145116566054205961594349402971227571059785400321";
+                    gwstate.known_factors = "8314626596650587038214450998145116566054205961594349402971227571059785400321";
+                if (fermat_n == 15)
+                    gwstate.known_factors = "476875482933546652582154243389358929222507544696763973633";
+                if (fermat_n == 16)
+                    gwstate.known_factors = "156052367171184321737113706005266433";
+                if (fermat_n == 17)
+                    gwstate.known_factors = "31065037602817";
+                if (fermat_n == 18)
+                    gwstate.known_factors = "1107895052308076834874643709953";
+                if (fermat_n == 19)
+                    gwstate.known_factors = "1714509847183606156843894401498451927424901089206317613057";
             }
+            else if (!input.empty())
+                filename = argv[i];
             else if (!input.parse(argv[i]))
             {
                 File file(argv[i], 0);
@@ -706,7 +802,6 @@ int factoring_main(int argc, char *argv[])
     Logging logging(log_level);
     input.setup(gwstate);
     logging.info("Using %s.\n", gwstate.fft_description.data());
-    *gwstate.N /= factors;
 
     try
     {
@@ -740,8 +835,17 @@ int factoring_main(int argc, char *argv[])
             return 1;
         }
 
+        if (range)
+            factoring.split(rangeOffset, rangeCount, factoring);
+
         if (B1next > factoring.B1())
         {
+            if (range)
+            {
+                Factoring factoring_range(input, gwstate, logging);
+                factoring.copy(factoring_range);
+                write_dhash(filename + ".dhash", factoring_range.verify(false));
+            }
             logging.progress().add_stage((int)factoring.points().size());
             factoring.read_state(file_state, B1next);
             factoring.stage1(B1next, B1max, maxMem, file_state, file_points);
@@ -758,7 +862,7 @@ int factoring_main(int argc, char *argv[])
         {
             logging.progress().add_stage((int)factoring.points().size());
             factoring.read_state(file_state, B2);
-            factoring.stage2(B2, maxMem, poly, file_state);
+            factoring.stage2(B2, maxMem, poly, polyThreads, file_state);
             remove(filename_state.data());
             logging.progress().next_stage();
         }
@@ -789,6 +893,7 @@ int factoring_main(int argc, char *argv[])
             {
                 factoring.write_points(file_points);
                 write_dhash(filename + ".dhash", factoring.verify(false));
+                verify = 0;
             }
         }
 

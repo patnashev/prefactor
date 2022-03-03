@@ -4,322 +4,140 @@
 #include <vector>
 
 #include "arithmetic.h"
+#include "polymult.h"
 
 namespace arithmetic
 {
-    class PolyCoeff
+    class Poly;
+
+    class PolyMult
     {
     public:
-        static const int POLY_NOT_SMALL = 0x01;
-        static const int POLY_OWN = 0x02;
-        static const int POLY_FFT = 0x04;
-        static const int POLY_MAX_SMALL = 32;
+        PolyMult(GWArithmetic& gw);
+        ~PolyMult();
 
-    public:
-        PolyCoeff() : _flag(0), _value(nullptr), _fft(nullptr) { }
-        PolyCoeff(GWArithmetic& gw) : _flag(POLY_OWN), _value(new GWNum(gw)), _fft(nullptr) { }
-        ~PolyCoeff() { reset(); }
-        PolyCoeff(PolyCoeff&& a) noexcept : _flag(a._flag), _value(a._value), _fft(a._fft) { a._flag = 0; a._value = nullptr; a._fft = nullptr; }
-        PolyCoeff& operator = (PolyCoeff&& a) noexcept { reset(); _flag = a._flag; _value = a._value; _fft = a._fft; a._flag = 0; a._value = nullptr; a._fft = nullptr; return *this; }
-
-        bool operator == (const PolyCoeff& a) { if (is_small() && a.is_small()) return small() == a.small(); if (is_small() && !a.is_small()) return small() == a.value();  if (!is_small() && a.is_small()) return value() == a.small(); return value() == a.value(); }
-        bool operator != (const PolyCoeff& a) { return !(*this == a); }
-
-        void set_zero() { _flag &= (POLY_OWN | POLY_FFT); }
-        void set_small(int value) { GWASSERT(abs(value) < POLY_MAX_SMALL); _flag = (_flag & (POLY_OWN | POLY_FFT)) | (value << 8); }
-        void reset() { reset_fft(); if (_flag & POLY_OWN) delete _value; _value = nullptr; _flag &= ~(POLY_OWN | POLY_NOT_SMALL); }
-        void reset_fft() { if ((_flag & POLY_OWN) && _fft != nullptr) delete _fft; _fft = nullptr; _flag &= ~POLY_FFT; }
-        void clear_fft() { if (!(_flag & POLY_OWN)) _fft = nullptr; _flag &= ~POLY_FFT; }
-
-        void set(const PolyCoeff& a)
-        {
-            if (!has_own())
-                _flag = (a._flag & ~POLY_OWN);
-            else
-                _flag = (a._flag & ~POLY_FFT) | (_flag & POLY_FFT) | POLY_OWN;
-            if (!is_small())
-            {
-                if (!has_own())
-                {
-                    _value = a._value;
-                    if (has_fft())
-                        _fft = a._fft;
-                    else
-                        _fft = nullptr;
-                }
-                else
-                {
-                    value() = a.value();
-                    if (has_fft() && a.has_fft())
-                        fft() = a.fft();
-                    if (has_fft() && !a.has_fft())
-                        value().arithmetic().fft(value(), fft());
-                }
-            }
-        }
-
-        void set(GWNum* a)
-        {
-            if (!has_own())
-                _value = a;
-            else
-            {
-                value() = *a;
-                if (has_fft())
-                    value().arithmetic().fft(value(), fft());
-            }
-            _flag |= POLY_NOT_SMALL;
-        }
-
-        void do_fft()
-        {
-            if (!has_own() || has_fft())
-                return;
-            if (_fft == nullptr)
-                _fft = new GWNum(value().arithmetic());
-            _flag |= POLY_FFT;
-            if (!is_small())
-                value().arithmetic().fft(value(), fft());
-        }
-
-        void own(GWArithmetic& gw)
-        {
-            GWNum* newval = has_own() ? _value : new GWNum(gw);
-            if (is_small())
-                *newval = small();
-            else if (!has_own())
-                *newval = *_value;
-            _value = newval;
-            if (has_fft())
-            {
-                newval = has_own() ? _fft : new GWNum(gw);
-                if (is_small())
-                    gw.fft(value(), *newval);
-                else if (!has_own())
-                    *newval = *_fft;
-                _fft = newval;
-            }
-            _flag = POLY_OWN | POLY_NOT_SMALL | (_flag & POLY_FFT);
-        }
-
-        template<class T>
-        void own_set(GWArithmetic& gw, const T& value)
-        {
-            if (!has_own())
-                _value = new GWNum(gw);
-            if (!has_own() && has_fft())
-                _fft = new GWNum(gw);
-            *_value = value;
-            if (has_fft())
-                gw.fft(*_value, *_fft);
-            _flag = POLY_OWN | POLY_NOT_SMALL | (_flag & POLY_FFT);
-        }
-
-        void own_swap(GWNum& value)
-        {
-            if (!has_own())
-                _value = new GWNum(value.arithmetic());
-            if (!has_own() && has_fft())
-                _fft = new GWNum(value.arithmetic());
-            swap(value, *_value);
-            if (has_fft())
-                value.arithmetic().fft(*_value, *_fft);
-            _flag = POLY_OWN | POLY_NOT_SMALL | (_flag & POLY_FFT);
-        }
-
-        void own_swap(GWNum& value, GWNum& fft)
-        {
-            if (!has_own())
-                _value = new GWNum(value.arithmetic());
-            if (!has_own() || _fft == nullptr)
-                _fft = new GWNum(fft.arithmetic());
-            swap(value, *_value);
-            swap(fft, *_fft);
-            _flag = POLY_OWN | POLY_NOT_SMALL | POLY_FFT;
-        }
-
-        bool is_zero() const { return (_flag & ~(POLY_OWN | POLY_FFT)) == 0; }
-        bool is_small() const { return (_flag & POLY_NOT_SMALL) == 0; }
-        bool has_own() const { return (_flag & POLY_OWN) != 0; }
-        bool has_fft() const { return (_flag & POLY_FFT) != 0; }
-        int32_t small() const { return _flag >> 8; }
-        GWNum& value() const { return *_value; }
-        GWNum& fft() const { return *_fft; }
-
-    private:
-        int _flag;
-        GWNum* _value;
-        GWNum* _fft;
-    };
-
-    class Poly : public std::vector<PolyCoeff>
-    {
-    public:
-        Poly(GWArithmetic& gw, int size, bool preserve_fft = false) : _gw(gw), _preserve_fft(preserve_fft)
-        {
-            for (int i = 0; i < size; i++)
-                emplace_back();
-        }
-        Poly(Poly&& a) noexcept : vector(std::move(a)), _gw(a.gw()), _fft(std::move(a._fft)), _preserve_fft(a._preserve_fft){ }
-        virtual ~Poly() { }
-        Poly& operator = (Poly&& a) noexcept { std::vector<PolyCoeff>::operator=(std::move(a)); _fft = std::move(a._fft); _preserve_fft = a._preserve_fft; return *this; }
-
-        void set_zero() { for (auto it = begin(); it != end(); it++) it->set_zero(); }
-        virtual void do_fft();
-        void clear_fft();
-        GWNum eval(GWNum& x);
-        Poly mul(Poly& b);
-        Poly mul_half(Poly& b, int half);
-        Poly reciprocal(int size);
+        void alloc(Poly& a);
+        void alloc(Poly& a, int size);
+        void free(Poly& a);
+        void copy(const Poly& a, Poly& res);
+        void move(Poly&& a, Poly& res);
+        void init(bool monic, Poly& res);
+        void init(const GWNum& a, bool monic, Poly& res);
+        void init(GWNum&& a, bool monic, Poly& res);
+        void mul(Poly& a, Poly& b, Poly& res, int options);
+        void mul(Poly&& a, Poly&& b, Poly& res, int options);
+        void mul_half(Poly& a, Poly& b, Poly& res, int options);
+        void preprocess(Poly& res, int size);
+        void preprocess_and_mul(Poly& a, Poly& b, Poly& res, int size, int options);
+        void mul_half_preprocessed(Poly&& a, Poly& b, Poly& res, int half, int options);
+        void mul_half_preprocessed(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
+        void reciprocal(Poly& a, Poly& res, int options);
+        void shiftleft(Poly& a, int b, Poly& res);
+        void shiftright(Poly& a, int b, Poly& res);
+        void convert(const Poly& a, Poly& res);
+        void insert(GWNum&& a, Poly& res, size_t pos);
+        GWNum remove(Poly& a, size_t pos);
 
         GWArithmetic& gw() const { return _gw; }
-        int degree() const { for (size_t i = size(); i > 0; i--) if (!at(i - 1).is_zero()) return (int)(i - 1); return -1; }
-        bool empty() const { return degree() == -1; }
-        std::unique_ptr<GWNum>& fft() { return _fft; }
-        bool preserve_fft() const { return _preserve_fft; }
-        void set_preserve_fft(bool value) { _preserve_fft = value; }
+        int max_output() const { return _max_output; }
+        pmhandle* pmdata() { return &_pmdata; }
 
     private:
         GWArithmetic& _gw;
-        std::unique_ptr<GWNum> _fft;
-        bool _preserve_fft;
+        int _max_output;
+        pmhandle _pmdata;
     };
 
-    class SubPoly : public Poly
+    class Poly
     {
-    public:
-        SubPoly(const Poly& poly, int offset, int count = -1, bool transpose = false);
-    };
+        friend class PolyMult;
 
-    class SubPolyFFT : public Poly
-    {
     public:
-        SubPolyFFT(Poly& poly, int offset, int count = -1, bool transpose = false) : Poly(poly.gw(), 0), _poly(poly), _offset(offset), _count(count), _transpose(transpose) { init(false); }
+        Poly(PolyMult& pm) : _pm(pm), _cache(nullptr), _cache_size(0), _monic(false)
+        {
+        }
+        Poly(PolyMult& pm, int size, bool monic) : _pm(pm), _poly(size), _cache(nullptr), _cache_size(0), _monic(monic)
+        {
+            pm.alloc(*this);
+        }
+        virtual ~Poly()
+        {
+            pm().free(*this);
+        }
+        Poly(const Poly& a) : _pm(a.pm()), _cache(nullptr)
+        {
+            pm().copy(a, *this);
+        }
+        Poly(Poly&& a) noexcept : _pm(a.pm()), _cache(nullptr)
+        {
+            pm().move(std::move(a), *this);
+        }
 
-        void init(bool force_fft);
-        virtual void do_fft() override { init(true); }
+        Poly& operator = (const Poly& a)
+        {
+            pm().copy(a, *this);
+            return *this;
+        }
+        Poly& operator = (Poly&& a) noexcept
+        {
+            pm().move(std::move(a), *this);
+            return *this;
+        }
+
+        Poly& operator <<= (int a)
+        {
+            pm().shiftleft(*this, a, *this);
+            return *this;
+        }
+        friend Poly operator << (Poly& a, int b)
+        {
+            Poly res(a.pm());
+            res.pm().shiftleft(a, b, res);
+            return res;
+        }
+        friend Poly operator << (Poly&& a, int b)
+        {
+            Poly res(std::move(a));
+            res <<= b;
+            return res;
+        }
+        Poly& operator >>= (int a)
+        {
+            pm().shiftright(*this, a, *this);
+            return *this;
+        }
+        friend Poly operator >> (Poly& a, int b)
+        {
+            Poly res(a.pm());
+            res.pm().shiftright(a, b, res);
+            return res;
+        }
+        friend Poly operator >> (Poly&& a, int b)
+        {
+            Poly res(std::move(a));
+            res >>= b;
+            return res;
+        }
+
+        GWNum eval(GWNum& x);
+        Poly reciprocal(int precision, int options);
+
+        PolyMult& pm() const { return _pm; }
+        bool monic() const { return _monic; }
+        bool preprocessed() const { return _cache != nullptr; }
+        int degree() const { return (int)size() - (_monic ? 0 : 1); }
+        size_t size() const { return _cache != nullptr ? _cache_size : _poly.size(); }
+        gwnum* data() { return _cache != nullptr ? _cache : _poly.data(); }
+        bool empty() const { return _cache == nullptr && _poly.empty(); }
+        const GWNumWrapper at(size_t pos) const { return GWNumWrapper(pm().gw(), _poly[pos]); }
+        void push_back(GWNum&& a) { pm().insert(std::move(a), *this, size()); }
+        GWNum pop_back() { return pm().remove(*this, size() - 1); }
 
     private:
-        Poly& _poly;
-        int _offset;
-        int _count;
-        bool _transpose;
-    };
-
-    class PolyMul
-    {
-    public:
-        PolyMul(GWArithmetic& gw) : _gw(gw), _tmp(gw) { }
-        virtual ~PolyMul() { }
-
-        virtual Poly mul(Poly& a, Poly& b);
-        virtual Poly mul_half(Poly& a, Poly& b, int half);
-        virtual void mul(Poly& a, Poly& b, Poly& res);
-        virtual void mul_half(Poly& a, Poly& b, Poly& res, int half);
-
-        void mul(const Poly& a, const Poly& b, PolyCoeff* res, int offset, int count);
-
-        Poly reciprocal(Poly& a, int size);
-
-        GWArithmetic& gw() { return _gw; }
-
-    protected:
-        GWArithmetic& _gw;
-        GWNum _tmp;
-    };
-
-    class PolyMulKaratsuba : public PolyMul
-    {
-    public:
-        PolyMulKaratsuba(GWArithmetic& gw) : PolyMul(gw), _tmp_fft(gw) { }
-
-        using PolyMul::mul;
-        using PolyMul::mul_half;
-        virtual void mul(Poly& a, Poly& b, Poly& res) override;
-        virtual void mul_half(Poly& a, Poly& b, Poly& res, int half) override;
-
-        void karatsuba(const Poly& a, const Poly& b, PolyCoeff* res, size_t size, int level = 0);
-        void karatsuba_half(const Poly& a, const Poly& b, PolyCoeff* res, size_t size, int half, int level = 0);
-        void karatsuba_halfother(const Poly& a, const Poly& b, PolyCoeff* res, size_t size, int half, int level = 0);
-
-    private:
-        void poly_sum(Poly& a, Poly& b, Poly& res);
-        void poly_add(const PolyCoeff& a, PolyCoeff& res);
-        void poly_sub(const PolyCoeff& a, PolyCoeff& res);
-        Poly& get_tmp_poly(int level, int id, int size);
-
-    private:
-        GWNum _tmp_fft;
-        std::vector<std::vector<std::unique_ptr<Poly>>> _tmp_polys;
-    };
-
-    class PolyMulFFT : public PolyMul
-    {
-    protected:
-        PolyMulFFT(GWArithmetic& gw) : PolyMul(gw), _gwstate(), _gwpoly(_gwstate) { }
-
-    public:
-        PolyMulFFT(GWArithmetic& gw, int size);
-        ~PolyMulFFT();
-
-        using PolyMul::mul;
-        using PolyMul::mul_half;
-        virtual void mul(Poly& a, Poly& b, Poly& res) override;
-        virtual void mul_half(Poly& a, Poly& b, Poly& res, int half) override;
-
-        int size() { return _size; }
-        gwhandle* gwdata() { return _gwstate.gwdata(); }
-        GWArithmetic& gwpoly() { return _gwpoly; }
-
-    protected:
-        void poly_fft(Poly& a);
-        void reduce_coeff(uint32_t* data, int count, PolyCoeff& res);
-
-    protected:
-        int _size;
-        int _coeff_size;
-        GWState _gwstate;
-        GWArithmetic _gwpoly;
-        Giant _tmp_g;
-    };
-
-    class PolyMulOptimal : public PolyMul
-    {
-    public:
-        PolyMulOptimal(GWArithmetic& gw) : PolyMul(gw) { }
-
-        using PolyMul::mul;
-        using PolyMul::mul_half;
-        virtual void mul(Poly& a, Poly& b, Poly& res) override;
-        virtual void mul_half(Poly& a, Poly& b, Poly& res, int half) override;
-
-        PolyMul& get_optimal(const Poly& a, const Poly& b, int half);
-
-    private:
-        std::unique_ptr<PolyMul> _mul;
-        std::unique_ptr<PolyMulKaratsuba> _karatsuba;
-        std::vector<std::unique_ptr<PolyMulFFT>> _ffts;
-    };
-
-    class PolyMulPrime : public PolyMulFFT
-    {
-    public:
-        PolyMulPrime(GWArithmetic& gw, int k, int b, int n, int c, int size);
-
-        //virtual Poly mul(Poly&a, Poly&b) override;
-        //virtual Poly mul_half(Poly&a, Poly&b, int half) override;
-
-        void transform(const Poly& a, Poly& res);
-        void inv_transform(Poly& a, Poly& res);
-
-        int size() const { return _size; }
-
-    private:
-        void transform(Poly& a, int offset, int count, int depth);
-        void inv_transform(Poly& a, int offset, int count, int depth);
-
-    private:
-        std::vector<GWNum> _roots;
-        std::vector<GWNum> _inv_roots;
+        PolyMult& _pm;
+        std::vector<gwnum> _poly;
+        gwnum* _cache;
+        int _cache_size;
+        bool _monic;
     };
 }

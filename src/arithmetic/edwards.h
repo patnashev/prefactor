@@ -45,9 +45,9 @@ namespace arithmetic
         void d_ratio(EdPoint& a, GWNum& ed_d_a, GWNum& ed_d_b);
 
         GWArithmetic& gw() { return *_gw; }
-        void set_gw(GWArithmetic& gw) { _gw = &gw; }
+        virtual void set_gw(GWArithmetic& gw) { _gw = &gw; }
 
-    private:
+    protected:
         GWArithmetic* _gw;
         std::unique_ptr<GWNum> _tmp;
     };
@@ -130,4 +130,17 @@ namespace arithmetic
         std::unique_ptr<GWNum> T;
     };
 
+    class NestedEdwardsArithmetic : public EdwardsArithmetic
+    {
+    public:
+        NestedEdwardsArithmetic() { }
+        virtual ~NestedEdwardsArithmetic() { }
+
+        virtual void dbl(EdPoint& a, EdPoint& res, int options) override;
+
+        virtual void set_gw(GWArithmetic& gw) override;
+
+    private:
+        std::vector<int> _offsets;
+    };
 }

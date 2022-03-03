@@ -2,7 +2,9 @@
 #include <vector>
 #include <stdlib.h>
 #include "gwnum.h"
+#include "polymult.h"
 #include "arithmetic.h"
+#include "exception.h"
 
 namespace arithmetic
 {
@@ -16,8 +18,10 @@ namespace arithmetic
             gwset_will_error_check(gwdata());
         if (large_pages)
             gwset_use_large_pages(gwdata());
+        if (force_general_mod)
+            gwdata()->force_general_mod = 1;
         if (gwsetup(gwdata(), k, b, n, c))
-            throw std::exception();
+            throw ArithmeticException();
         bit_length = (int)gwdata()->bit_length;
         giants._capacity = (bit_length >> 5) + 10;
         if (N != nullptr)
@@ -27,6 +31,10 @@ namespace arithmetic
         if (gwdata()->GENERAL_MOD)
             bit_length = N->bitlen();
         fingerprint = *N%3417905339UL;
+        if (!known_factors.empty() && known_factors > 1 && *N%known_factors != 0)
+            throw ArithmeticException();
+        if (!known_factors.empty() && known_factors > 1)
+            *N /= known_factors;
         char buf[200];
         gwfft_description(gwdata(), buf);
         fft_description = buf;
@@ -43,8 +51,10 @@ namespace arithmetic
             gwset_will_error_check(gwdata());
         if (large_pages)
             gwset_use_large_pages(gwdata());
+        if (force_general_mod)
+            gwdata()->force_general_mod = 1;
         if (gwsetup_general_mod(gwdata(), g.data(), g.size()))
-            throw std::exception();
+            throw ArithmeticException();
         bit_length = g.bitlen();
         giants._capacity = (bit_length >> 5) + 10;
         if (N != nullptr)
@@ -52,6 +62,10 @@ namespace arithmetic
         N = new Giant(giants);
         *N = g;
         fingerprint = *N%3417905339UL;
+        if (!known_factors.empty() && known_factors > 1 && *N%known_factors != 0)
+            throw ArithmeticException();
+        if (!known_factors.empty() && known_factors > 1)
+            *N /= known_factors;
         char buf[200];
         gwfft_description(gwdata(), buf);
         fft_description = buf;
@@ -69,7 +83,7 @@ namespace arithmetic
         if (large_pages)
             gwset_use_large_pages(gwdata());
         if (gwsetup_without_mod(gwdata(), bitlen))
-            throw std::exception();
+            throw ArithmeticException();
         bit_length = (int)gwdata()->bit_length;;
         giants._capacity = (bit_length >> 5) + 10;
         if (N != nullptr)
@@ -90,6 +104,13 @@ namespace arithmetic
         fft_length = 0;
         gwdone(&handle);
         gwinit(&handle);
+    }
+
+    int GWState::max_polymult_output()
+    {
+        int max_output;
+        for (max_output = 2; max_output < (1 << 30) && gw_passes_safety_margin(gwdata(), polymult_safety_margin(max_output, max_output)); max_output <<= 1);
+        return max_output;
     }
 
     GWArithmetic::GWArithmetic(GWState& state) : _state(state)
@@ -120,7 +141,7 @@ namespace arithmetic
     void GWArithmetic::copy(const GWNum& a, GWNum& res)
     {
         if (*res == nullptr)
-            alloc(res);
+            res.arithmetic().alloc(res);
         gwcopy(gwdata(), *a, *res);
     }
 
@@ -775,4 +796,132 @@ namespace arithmetic
         }
         _op++;
     }
+}
+
+int gwconvert(
+    gwhandle *gwdata_s,	/* Handle initialized by gwsetup */
+    gwhandle *gwdata_d,	/* Handle initialized by gwsetup */
+    gwnum	s,
+    gwnum	d)
+{
+    int	err_code;
+    unsigned long limit;
+
+    ASSERTG(gwdata_s->k == gwdata_d->k && gwdata_s->b == gwdata_d->b && gwdata_s->c == gwdata_d->c);
+
+    /* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
+
+    if (FFT_state(s) != NOT_FFTed) gwunfft(gwdata_s, s, s);
+    if (FFT_state(d) != NOT_FFTed) gwunfft(gwdata_d, d, d);
+
+    /* If this is a general-purpose mod, then only convert the needed words */
+    /* which will be less than half the FFT length.  If this is a zero padded */
+    /* FFT, then only convert a little more than half of the FFT data words. */
+    /* For a DWT, convert all the FFT data. */
+
+    if (gwdata_s->GENERAL_MOD) limit = gwdata_s->GW_GEN_MOD_MAX + 3;
+    else if (gwdata_s->ZERO_PADDED_FFT) limit = gwdata_s->FFTLEN / 2 + 4;
+    else limit = gwdata_s->FFTLEN;
+
+    /* GENERAL_MOD has some strange cases we must handle.  In particular the */
+    /* last fft word translated can be 2^bits and the next word could be -1, */
+    /* this must be translated into zero, zero. */
+
+    if (gwdata_s->GENERAL_MOD) {
+        long	val, prev_val;
+        while (limit < gwdata_s->FFTLEN) {
+            err_code = get_fft_value(gwdata_s, s, limit, &val);
+            if (err_code) return (err_code);
+            if (val == -1 || val == 0) break;
+            limit++;
+            ASSERTG(limit <= gwdata_s->FFTLEN / 2 + 2);
+            if (limit > gwdata_s->FFTLEN / 2 + 2) return (GWERROR_INTERNAL + 9);
+        }
+        while (limit > 1) {		/* Find top word */
+            err_code = get_fft_value(gwdata_s, s, limit-1, &prev_val);
+            if (err_code) return (err_code);
+            if (val != prev_val || val < -1 || val > 0) break;
+            limit--;
+        }
+        limit++;
+    }
+
+    /* If base is 2 we can simply copy the bits out of each FFT word */
+
+    if (gwdata_s->b == 2) {
+        long val;
+        int64_t value;
+        unsigned long i_s;
+        unsigned long i_d, limit_d;
+        int	bits_in_value, bits, bits1, bits2;
+        long mask1, mask2, mask1i, mask2i;
+
+        // Figure out how many FFT words we will need to set
+        limit_d = gwdata_d->FFTLEN;
+        if (gwdata_d->ZERO_PADDED_FFT && limit_d > gwdata_d->FFTLEN / 2 + 4) limit_d = gwdata_d->FFTLEN / 2 + 4;
+
+        bits1 = gwdata_d->NUM_B_PER_SMALL_WORD;
+        bits2 = bits1 + 1;
+        mask1 = (1L << bits1) - 1;
+        mask2 = (1L << bits2) - 1;
+        mask1i = ~mask1;
+        mask2i = ~mask2;
+
+        /* Collect bits until we have all of them */
+
+        value = 0;
+        bits_in_value = 0;
+        i_d = 0;
+
+        for (i_s = 0; i_s < limit; i_s++) {
+            err_code = get_fft_value(gwdata_s, s, i_s, &val);
+            if (err_code) return (err_code);
+            bits = gwdata_s->NUM_B_PER_SMALL_WORD;
+            if (is_big_word(gwdata_s, i_s)) bits++;
+            value += (int64_t)val << bits_in_value;
+            bits_in_value += bits;
+
+            for (; i_d < limit_d; i_d++) {
+                if (i_d == limit_d - 1) {
+                    if (i_s < limit - 1) break;
+                    val = (long)value;
+                }
+                else {
+                    int	big_word;
+                    big_word = is_big_word(gwdata_d, i_d);
+                    bits = big_word ? bits2 : bits1;
+                    if (i_s < limit - 1 && bits > bits_in_value) break;
+                    if (value >= 0)
+                        val = (long)value & (big_word ? mask2 : mask1);
+                    else {
+                        val = (long)value | (big_word ? mask2i : mask1i);
+                        value -= val;
+                    }
+                }
+                set_fft_value(gwdata_d, d, i_d, val);
+                value >>= bits;
+                bits_in_value -= bits;
+            }
+        }
+
+        /* Clear the upper words */
+
+        for (; i_d < gwdata_d->FFTLEN; i_d++) {
+            set_fft_value(gwdata_d, d, i_d, 0);
+        }
+    }
+
+    /* Otherwise (base is not 2) we must do a radix conversion */
+
+    else {
+        //err_code = nonbase2_gwtogiant(gwdata, gg, v);
+        //if (err_code) return (err_code);
+        return -1;
+    }
+
+    /* Return success */
+
+    gwdata_s->read_count += 1;
+    gwdata_d->write_count += 1;
+    return (0);
 }

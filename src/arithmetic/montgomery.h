@@ -45,7 +45,7 @@ namespace arithmetic
     public:
         EdY(MontgomeryArithmetic& arithmetic) : DifferentialGroupElement<MontgomeryArithmetic, EdY>(arithmetic)
         {
-            arithmetic.init(*this);
+            //arithmetic.init(*this);
         }
         EdY(MontgomeryArithmetic& arithmetic, const EdPoint& a) : DifferentialGroupElement<MontgomeryArithmetic, EdY>(arithmetic)
         {

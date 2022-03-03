@@ -71,6 +71,11 @@ void NetFile::on_uploaded()
     _uploading = false;
 }
 
+File* NetFile::add_child(const std::string& name)
+{
+    return new NetFile(_net_ctx, _filename + "." + name, _fingerprint);
+}
+
 Writer* NetFile::get_writer()
 {
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
@@ -316,6 +321,7 @@ int net_main(int argc, char *argv[])
     int log_level = Logging::LEVEL_INFO;
     int net_log_level = Logging::LEVEL_WARNING;
     uint64_t maxMem = 2048*1048576ULL;
+    int polyThreads = 1;
 
     for (i = 1; i < argc; i++)
         if (argv[i][0] == '-' && argv[i][1])
@@ -361,7 +367,20 @@ int net_main(int argc, char *argv[])
                 continue;
             }
 
-            if (strcmp(argv[i], "-v") == 0)
+            if (strcmp(argv[i], "-poly") == 0)
+            {
+                if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
+                {
+                    i += 2;
+                    polyThreads = atoi(argv[i]);
+                }
+                if (i < argc - 1 && argv[i + 1][0] == 't')
+                {
+                    i++;
+                    polyThreads = atoi(argv[i] + 1);
+                }
+            }
+            else if (strcmp(argv[i], "-v") == 0)
             {
                 printf("Net-Prefactor version " NET_PREFACTOR_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
                 return 0;
@@ -441,19 +460,15 @@ int net_main(int argc, char *argv[])
             std::this_thread::sleep_for(std::chrono::minutes(1));
             continue;
         }
+        if (!net.task()->factors.empty())
+            gwstate.known_factors = net.task()->factors;
+        if (net.task()->options.find("FFT_Increment") != net.task()->options.end())
+            gwstate.next_fft_count = std::stoi(net.task()->options["FFT_Increment"]);
         input.setup(gwstate);
         logging.info("Using %s.\n", gwstate.fft_description.data());
         net.task()->fft_desc = gwstate.fft_description;
         net.task()->fft_len = gwstate.fft_length;
         int maxSize = (int)(maxMem/(gwnum_size(gwstate.gwdata())));
-        if (!net.task()->factors.empty())
-        {
-            Giant factors;
-            factors = net.task()->factors;
-            if (*gwstate.N%factors != 0)
-                logging.error("Factors do not divide the number.\n");
-            *gwstate.N /= factors;
-        }
 
         logging.set_prefix(net.task_id() + ", ");
         logging.progress() = Progress();
@@ -510,6 +525,22 @@ int net_main(int argc, char *argv[])
                     }
                 }
 
+                if (net.task()->options.find("range") != net.task()->options.end())
+                {
+                    std::string range = net.task()->options["range"];
+                    int range_offset = std::stoi(range);
+                    int range_count = 1;
+                    if (range.find(",") != std::string::npos)
+                        range_count = std::stoi(range.substr(range.find(",") + 1));
+                    factoring.split(range_offset, range_count, factoring);
+                    Factoring factoring_range(input, gwstate, logging);
+                    factoring.copy(factoring_range);
+                    dhash = factoring_range.verify(false);
+                    std::unique_ptr<Writer> writer(file_dhash.get_writer());
+                    writer->write((char*)dhash.data(), (int)dhash.length());
+                    file_dhash.commit_writer(*writer);
+                }
+
                 if (net.task()->b1 > factoring.B1())
                 {
                     uint64_t B1max = net.task()->b1;
@@ -531,7 +562,7 @@ int net_main(int argc, char *argv[])
                 {
                     logging.progress().add_stage((int)factoring.points().size());
                     factoring.read_state(file_checkpoint, net.task()->b2);
-                    factoring.stage2(net.task()->b2, maxMem, poly, file_checkpoint);
+                    factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, file_checkpoint);
                     logging.progress().next_stage();
                 }
 
@@ -544,7 +575,7 @@ int net_main(int argc, char *argv[])
                 if (net.task()->type == "P-1")
                 {
                     std::unique_ptr<PM1Params> params_pm1;
-                    params_pm1.reset(new PM1Params(net.task()->b1, net.task()->b2, maxSize, poly));
+                    params_pm1.reset(new PM1Params(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads));
                     logging.progress().add_stage(params_pm1->stage1_cost());
                     logging.progress().add_stage(params_pm1->stage2_cost());
 
@@ -564,7 +595,11 @@ int net_main(int argc, char *argv[])
                     logging.progress().next_stage();
                     if (interstate != nullptr)
                     {
-                        PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, params_pm1->Poly);
+                        PP1Stage2 stage2(params_pm1->B1, params_pm1->B2);
+                        if (params_pm1->Poly == 0)
+                            stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging, primes);
+                        else
+                            stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->LN, params_pm1->Poly, params_pm1->PolyThreads);
                         stage2.init(&input, &gwstate, &file_checkpoint_m2, &logging, interstate->V(), true);
                         stage2.run();
                     }
@@ -575,7 +610,7 @@ int net_main(int argc, char *argv[])
                     if (net.task()->seed.empty())
                         net.task()->seed = "2/7";
                     std::unique_ptr<PP1Params> params_pp1;
-                    params_pp1.reset(new PP1Params(net.task()->b1, net.task()->b2, maxSize, poly));
+                    params_pp1.reset(new PP1Params(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads));
                     logging.progress().add_stage(params_pp1->stage1_cost());
                     logging.progress().add_stage(params_pp1->stage2_cost());
 
@@ -594,7 +629,11 @@ int net_main(int argc, char *argv[])
                     logging.progress().next_stage();
                     if (interstate != nullptr)
                     {
-                        PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, params_pp1->Poly);
+                        PP1Stage2 stage2(params_pp1->B1, params_pp1->B2);
+                        if (params_pp1->Poly == 0)
+                            stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging, primes);
+                        else
+                            stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->LN, params_pp1->Poly, params_pp1->PolyThreads);
                         stage2.init(&input, &gwstate, &file_checkpoint_p2, &logging, interstate->V(), false);
                         stage2.run();
                     }
@@ -643,7 +682,7 @@ int net_main(int argc, char *argv[])
                     }
 
                     std::unique_ptr<EdECMParams> params_edecm;
-                    params_edecm.reset(new EdECMParams(net.task()->b1, net.task()->b2, maxSize, poly));
+                    params_edecm.reset(new EdECMParams(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads));
                     logging.progress().add_stage(params_edecm->stage1_cost());
                     logging.progress().add_stage(params_edecm->stage2_cost());
 
@@ -662,7 +701,11 @@ int net_main(int argc, char *argv[])
                     logging.progress().next_stage();
                     if (interstate != nullptr)
                     {
-                        EdECMStage2 stage2(logging, primes, params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->Poly);
+                        EdECMStage2 stage2(params_edecm->B1, params_edecm->B2);
+                        if (params_edecm->Poly == 0)
+                            stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging, primes);
+                        else
+                            stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->Poly, params_edecm->PolyThreads);
                         stage2.init(&input, &gwstate, &file_checkpoint_ed2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                         stage2.run();
                     }

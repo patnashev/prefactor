@@ -65,6 +65,7 @@ class NetFile : public File
 public:
     NetFile(NetContext& net_ctx, const std::string& filename, uint32_t fingerprint) : File(filename, fingerprint), _net_ctx(net_ctx) { }
 
+    File* add_child(const std::string& name) override;
     Writer* get_writer() override;
     Reader* get_reader() override;
     void commit_writer(Writer& writer) override;

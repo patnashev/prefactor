@@ -126,6 +126,7 @@ namespace arithmetic
         const uint32_t* data() const { return _giant->n; }
         int size() const { return abs(_giant->sign); }
         int capacity() const { return _capacity; }
+        bool empty() const { return _giant == nullptr; }
 
         Giant& operator = (uint32_t a)
         {

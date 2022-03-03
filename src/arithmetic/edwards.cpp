@@ -1,5 +1,7 @@
 
 #include <stdlib.h>
+#include <immintrin.h>
+#include "cpuid.h"
 #include "gwnum.h"
 #include "edwards.h"
 #include "exception.h"
@@ -588,33 +590,136 @@ namespace arithmetic
 
     void EdPoint::deserialize(const Giant& X, const Giant& Y, const Giant& Z, const Giant& T)
     {
-        if (X != 0)
+        if (!X.empty() && X != 0)
         {
             this->X.reset(new GWNum(arithmetic().gw()));
             *this->X = X;
         }
         else
             this->X.reset();
-        if (Y != 0)
+        if (!Y.empty() && Y != 0)
         {
             this->Y.reset(new GWNum(arithmetic().gw()));
             *this->Y = Y;
         }
         else
             this->Y.reset();
-        if (Z != 1)
+        if (!Z.empty() && Z != 1)
         {
             this->Z.reset(new GWNum(arithmetic().gw()));
             *this->Z = Z;
         }
         else
             this->Z.reset();
-        if (T != 0)
+        if (!T.empty() && T != 0)
         {
             this->T.reset(new GWNum(arithmetic().gw()));
             *this->T = T;
         }
         else
             this->T.reset();
+    }
+
+    extern "C" unsigned long cache_line_offset(
+        gwhandle *gwdata,	/* Handle initialized by gwsetup */
+        unsigned long i);
+
+    void NestedEdwardsArithmetic::set_gw(GWArithmetic& gw)
+    {
+        _gw = &gw;
+        _offsets.clear();
+
+        gwhandle* gwdata = gw.gwdata();
+        if (gwdata->EXTRA_BITS < gwdata->fft_max_bits_per_word || !gwdata->ALL_COMPLEX_FFT || gwdata->k != 1.0)
+            return;
+        for (int i = 0; ; i++)
+        {
+            int index = i;
+
+            // If we've read all the gwnum data, return FALSE
+            if (index * 8 >= (int)gwdata->FFTLEN) break;
+
+            {				// Process complex values where imaginary part is in the high half of the cache line
+        //BUG - handle various FFT paddings - addr_offset may not be right as the asm code is allowed to store data in the gaps.
+        // It might be easier/faster to just FFT the gap data.
+        // Or create new gwnum cache_line_offset that returns cache lines in order skipping the gaps
+                _offsets.push_back(cache_line_offset(gwdata, index));
+            }
+        }
+    }
+
+    void NestedEdwardsArithmetic::dbl(EdPoint& a, EdPoint& res, int options)
+    {
+        if (_offsets.empty() || !(options & ED_PROJECTIVE) || !a.Z)
+        {
+            EdwardsArithmetic::dbl(a, res, options);
+            return;
+        }
+
+        gw().fft(*a.X, *a.X);
+        gw().fft(*a.Y, *a.Y);
+        gw().fft(*a.Z, *a.Z);
+        if (!res.X)
+            res.X.reset(new GWNum(gw()));
+        if (!res.Y)
+            res.Y.reset(new GWNum(gw()));
+        if (!res.Z)
+            res.Z.reset(new GWNum(gw()));
+        for (int i = 0; i < _offsets.size(); i++)
+        {
+            int real_offset = _offsets[i];
+            int imag_offset = _offsets[i] + 32;
+            __m256d real_x = *(__m256d*)(((char*)**a.X) + real_offset);
+            __m256d imag_x = *(__m256d*)(((char*)**a.X) + imag_offset);
+            __m256d real_y = *(__m256d*)(((char*)**a.Y) + real_offset);
+            __m256d imag_y = *(__m256d*)(((char*)**a.Y) + imag_offset);
+            __m256d real_z = *(__m256d*)(((char*)**a.Z) + real_offset);
+            __m256d imag_z = *(__m256d*)(((char*)**a.Z) + imag_offset);
+            __m256d real_tmp, imag_tmp;
+            // 2*X1*Y1
+            __m256d real_t = _mm256_sub_pd(_mm256_mul_pd(real_x, real_y), _mm256_mul_pd(imag_x, imag_y));
+            __m256d imag_t = _mm256_add_pd(_mm256_mul_pd(real_x, imag_y), _mm256_mul_pd(imag_x, real_y));
+            real_t = _mm256_add_pd(real_t, real_t);
+            imag_t = _mm256_add_pd(imag_t, imag_t);
+            // X1^2
+            real_tmp = _mm256_sub_pd(_mm256_mul_pd(real_x, real_x), _mm256_mul_pd(imag_x, imag_x));
+            imag_x = _mm256_mul_pd(real_x, imag_x);
+            imag_x = _mm256_add_pd(imag_x, imag_x);
+            // Y1^2
+            real_x = _mm256_sub_pd(_mm256_mul_pd(real_y, real_y), _mm256_mul_pd(imag_y, imag_y));
+            imag_tmp = _mm256_mul_pd(real_y, imag_y);
+            imag_tmp = _mm256_add_pd(imag_tmp, imag_tmp);
+            // Y1^2 +/- X1^2
+            real_y = _mm256_add_pd(real_x, real_tmp);
+            real_x = _mm256_sub_pd(real_x, real_tmp);
+            imag_y = _mm256_add_pd(imag_tmp, imag_x);
+            imag_x = _mm256_sub_pd(imag_tmp, imag_x);
+            // 2*Z1^2
+            real_tmp = _mm256_sub_pd(_mm256_mul_pd(real_z, real_z), _mm256_mul_pd(imag_z, imag_z));
+            imag_z = _mm256_mul_pd(real_z, imag_z);
+            imag_z = _mm256_add_pd(imag_z, imag_z);
+            imag_z = _mm256_add_pd(imag_z, imag_z);
+            real_z = _mm256_add_pd(real_tmp, real_tmp);
+            // 2*Z1^2 - (Y1^2 + X1^2)
+            real_z = _mm256_sub_pd(real_z, real_y);
+            imag_z = _mm256_sub_pd(imag_z, imag_y);
+
+            // 2*X1*Y1 * (2*Z1^2 - Y1^2 - X1^2)
+            *(__m256d*)(((char*)**res.X) + real_offset) = _mm256_sub_pd(_mm256_mul_pd(real_t, real_z), _mm256_mul_pd(imag_t, imag_z));
+            *(__m256d*)(((char*)**res.X) + imag_offset) = _mm256_add_pd(_mm256_mul_pd(real_t, imag_z), _mm256_mul_pd(imag_t, real_z));
+            // (Y1^2 - X1^2) * (Y1^2 + X1^2)
+            *(__m256d*)(((char*)**res.Y) + real_offset) = _mm256_sub_pd(_mm256_mul_pd(real_x, real_y), _mm256_mul_pd(imag_x, imag_y));
+            *(__m256d*)(((char*)**res.Y) + imag_offset) = _mm256_add_pd(_mm256_mul_pd(real_x, imag_y), _mm256_mul_pd(imag_x, real_y));
+            // (Y1^2 + X1^2) * (2*Z1^2 - Y1^2 - X1^2)
+            *(__m256d*)(((char*)**res.Z) + real_offset) = _mm256_sub_pd(_mm256_mul_pd(real_y, real_z), _mm256_mul_pd(imag_y, imag_z));
+            *(__m256d*)(((char*)**res.Z) + imag_offset) = _mm256_add_pd(_mm256_mul_pd(real_y, imag_z), _mm256_mul_pd(imag_y, real_z));
+        }
+        FFT_state(**res.X) = FULLY_FFTed;
+        FFT_state(**res.Y) = FULLY_FFTed;
+        FFT_state(**res.Z) = FULLY_FFTed;
+        gwunfft2(gw().gwdata(), **res.X, **res.X, options);
+        gwunfft2(gw().gwdata(), **res.Y, **res.Y, options);
+        gwunfft2(gw().gwdata(), **res.Z, **res.Z, options);
+        gw().gwdata()->fft_count += 8;
     }
 }

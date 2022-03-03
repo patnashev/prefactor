@@ -524,68 +524,119 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
     return precomp_size;
 }
 
+void Stage2::poly_init()
+{
+    int i;
+
+    _poly_mult.reserve(poly_power() + 1);
+    _poly_mult.emplace_back(gw());
+    for (i = 1; i <= poly_power(); i++)
+    {
+        if (2*(1 << i) > _poly_mult[i - 1].max_output())
+        {
+            _poly_gwstate.emplace_back();
+            if (_poly_gwstate.size() == 1)
+                _poly_gwstate.back().copy(gw().state());
+            else
+                _poly_gwstate.back().copy(_poly_gwstate[_poly_gwstate.size() - 2]);
+            _poly_gwstate.back().next_fft_count++;
+            _input->setup(_poly_gwstate.back());
+            _poly_gw.emplace_back(_poly_gwstate.back());
+            _poly_mult.emplace_back(_poly_gw.back());
+        }
+        else
+            _poly_mult.emplace_back(_poly_mult[i - 1].gw());
+        //if (i > 5)
+        //polymult_set_num_threads(_poly_mult[i].pmdata(), 2);
+    }
+}
+
 // http://cr.yp.to/arith/scaledmod-20040820.pdf
-void Stage2::poly_setup(std::vector<GWNum*>& roots, int LN)
+void Stage2::poly_setup(std::vector<GWNum*>& roots)
 {
     int i, j;
+    double timer = getHighResTimer();
 
-    if (!_poly_mul)
-        _poly_mul.reset(new PolyMulOptimal(gw()));
-
-    int transforms = -(int)gw().gwdata()->fft_count;
+    poly_init();
+    if (!_poly_mod)
+    {
+        _poly_mod_container.resize(poly_power() + 1);
+        _poly_mod = _poly_mod_container.data();
+    }
 
     GWASSERT((int)roots.size() <= (1 << poly_power()));
-    if (_poly_mod.size() < poly_power() + 1)
-        _poly_mod.resize(poly_power() + 1);
     for (i = 0; i < (1 << poly_power()); i++)
     {
-        while (_poly_mod[0].size() <= i)
-            _poly_mod[0].emplace_back(gw(), 2);
-        _poly_mod[0][i].set_zero();
+        _poly_mod[0].emplace_back(_poly_mult[0], 0, true);
         if (i < roots.size())
+            _poly_mult[0].init(std::move(*roots[i]), true, _poly_mod[0][i]);
+    }
+    for (j = 1; j <= poly_power(); j++)
+        if (&_poly_mult[j].gw() != &_poly_mult[j - 1].gw())
         {
-            _poly_mod[0][i][1].set_small(1);
-            _poly_mod[0][i][0].set(roots[i]);
+            Poly tmp(_poly_mult[j - 1], 0, true);
+            for (i = 0; i < (1 << (poly_power() - j)); i++)
+            {
+                _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], tmp, 1 << j, 0);
+                _poly_mod[j].emplace_back(_poly_mult[j], 0, true);
+                _poly_mult[j - 1].convert(tmp, _poly_mod[j][i]);
+            }
         }
         else
         {
-            _poly_mod[0][i][1].set_zero();
-            _poly_mod[0][i][0].set_small(1);
+            for (i = 0; i < (1 << (poly_power() - j)); i++)
+            {
+                _poly_mod[j].emplace_back(_poly_mult[j], 0, true);
+                _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i], 1 << j, POLYMULT_STARTNEXTFFT);
+            }
         }
-    }
-    for (j = 1; j <= poly_power(); j++)
-        for (i = 0; i < (1 << (poly_power() - j)); i++)
-        {
-            while (_poly_mod[j].size() <= i)
-                _poly_mod[j].emplace_back(gw(), (1 << j) + 1);
-            _poly_mul->mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i]);
-        }
-    Poly polyR = _poly_mul->reciprocal(_poly_mod[poly_power()][0], LN < roots.size() ? (1 << poly_power()) : (1 << (poly_power() + 0)));
+    for (i = 0; i < roots.size(); i++)
+        gwfft(gw().gwdata(), *_poly_mod[0][i].data(), *_poly_mod[0][i].data());
+#ifdef _DEBUG
+/*    std::vector<GWNum> polyTest;
+    for (i = 0; i < (1 << poly_power()) && _poly_mod[0][i].degree() > 0; i++)
+    {
+        polyTest.emplace_back(gw());
+        GWNum a(gw());
+        a = 0;
+        gw().sub(a, *roots[i], a, GWADD_GUARANTEED_OK);
+        polyTest.back() = _poly_mod[poly_power()][0].eval(a);
+        GWASSERT(polyTest.back() == 0);
+    }*/
+#endif
+    Poly polyR = _poly_mod[poly_power()][0].reciprocal(_LN, POLYMULT_STARTNEXTFFT);
     int degree = (1 << (poly_power() + 1)) - _poly_mod[poly_power()][0].degree();
-    //if (polyR.degree() < degree)
-    //    polyR.insert(polyR.begin(), degree - polyR.degree(), PolyCoeff());
-    while (polyR.degree() < degree)
-        polyR.emplace(polyR.begin());
-    if (polyR.degree() > degree)
-        polyR.erase(polyR.begin(), polyR.end() - degree - 1);
+    if (polyR.degree() < degree)
+        polyR <<= degree - polyR.degree();
+#ifdef _DEBUG
+/*    Poly polyT(_poly_mult[0], 1 << poly_power(), false);
+    _poly_mult[0].mul_half(polyR, _poly_mod[poly_power()][0], polyT, 0);
+    for (i = 0; i < _LN; i++)
+        GWASSERT(polyT.at((1 << poly_power()) - i - 1) == 0);*/
+#endif
+    _poly_mult[poly_power()].preprocess(polyR, 1 << (poly_power() + 1));
     _poly_mod[poly_power()][0] = std::move(polyR);
 
     commit_setup();
-    transforms += (int)gw().gwdata()->fft_count;
-    _transforms -= transforms;
-    _logging->info("polynomial mode, D=%d (%d transforms).\n", _D, transforms);
+    timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
+    _logging->info("polynomial mode, D=%d, setup time: %.3f s.\n", _D, timer);
 }
 
 void Stage2::poly_release()
 {
-    _poly_mod.clear();
+    _poly_mod = nullptr;
+    _poly_mod_container.clear();
     _poly_prod.clear();
-    _poly_mul.reset();
+    _poly_mult.clear();
+    _poly_gw.clear();
+    _poly_gwstate.clear();
 }
 
 void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
 {
     int i, j;
+    for (i = 0; i < _poly_mult.size(); i++)
+        _poly_mult[i].gw().gwdata()->gwnum_max_free_count = 2*(1 << poly_power());
 
     GWASSERT((int)roots.size() <= (1 << poly_power()));
     if (_poly_prod.size() < poly_power() + 1)
@@ -593,61 +644,198 @@ void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
     for (i = 0; i < (1 << poly_power()); i++)
     {
         while (_poly_prod[0].size() <= i)
-            _poly_prod[0].emplace_back(gw(), 2);
+            _poly_prod[0].emplace_back(_poly_mult[0], 0, true);
         if (i < roots.size())
+#ifdef _DEBUG
+            _poly_mult[0].init(*roots[i], true, _poly_prod[0][i]);
+#else
+            _poly_mult[0].init(std::move(*roots[i]), true, _poly_prod[0][i]);
+#endif
+        else
+            _poly_mult[0].init(true, _poly_prod[0][i]);
+    }
+    for (j = 1; j <= poly_power(); j++)
+        if (&_poly_mult[j].gw() != &_poly_mult[j - 1].gw())
         {
-            _poly_prod[0][i][1].set_small(1);
-            _poly_prod[0][i][0].set(roots[i]);
+            Poly tmp(_poly_mult[j - 1], 0, true);
+            for (i = 0; i < (1 << (poly_power() - j)); i++)
+            {
+                _poly_mult[j - 1].mul(std::move(_poly_prod[j - 1][2*i]), std::move(_poly_prod[j - 1][2*i + 1]), tmp, 0);
+                while (_poly_prod[j].size() <= i)
+                    _poly_prod[j].emplace_back(_poly_mult[j], 0, true);
+                _poly_mult[j - 1].convert(tmp, _poly_prod[j][i]);
+            }
         }
         else
         {
-            _poly_prod[0][i][1].set_zero();
-            _poly_prod[0][i][0].set_small(1);
+            for (i = 0; i < (1 << (poly_power() - j)); i++)
+            {
+                while (_poly_prod[j].size() <= i)
+                    _poly_prod[j].emplace_back(_poly_mult[j], 0, true);
+                _poly_mult[j - 1].mul(std::move(_poly_prod[j - 1][2*i]), std::move(_poly_prod[j - 1][2*i + 1]), _poly_prod[j][i], POLYMULT_STARTNEXTFFT);
+            }
         }
-    }
-    for (j = 1; j <= poly_power(); j++)
-        for (i = 0; i < (1 << (poly_power() - j)); i++)
-        {
-            while (_poly_prod[j].size() <= i)
-                _poly_prod[j].emplace_back(gw(), (1 << j) + 1);
-            _poly_mul->mul(_poly_prod[j - 1][2*i], _poly_prod[j - 1][2*i + 1], _poly_prod[j][i]);
-        }
+#ifdef _DEBUG
+/*    for (i = 0; i < roots.size(); i++)
+    {
+        GWNum a(gw());
+        a = 0;
+        gw().sub(a, *roots[i], a, GWADD_GUARANTEED_OK);
+        GWNum b(_poly_mult[pm].gw());
+        b = a;
+        GWASSERT(_poly_prod[poly_power()][0].eval(b) == 0);
+    }*/
+#endif
 
-    PolyMul* poly_mul = &_poly_mul->get_optimal(_poly_prod[poly_power()][0], _poly_mod[poly_power()][0], 1 << poly_power());
-    if (dynamic_cast<PolyMulFFT*>(poly_mul) != nullptr)
-        _poly_mod[poly_power()][0].set_preserve_fft(true);
-    Poly po1 = poly_mul->mul_half(_poly_prod[poly_power()][0], _poly_mod[poly_power()][0], 1 << poly_power());
-    _poly_prod[poly_power()][0] = std::move(po1);
+    _poly_mult[poly_power()].mul_half_preprocessed(std::move(_poly_prod[poly_power()][0]), _poly_mod[poly_power()][0], _poly_prod[poly_power()][0], 1 << poly_power(), &_poly_mod[poly_power()][0].pm().gw() == &_poly_mod[poly_power() - 1][0].pm().gw() ? POLYMULT_STARTNEXTFFT : 0);
 
     for (j = poly_power() - 1; j >= 0; j--)
-        for (i = 0; i < (1 << (poly_power() - j)); i++)
+    {
+        PolyMult* prev = &_poly_mult[j + 1];
+        PolyMult* cur = &_poly_mult[j];
+        PolyMult* next = j > 0 ? &_poly_mult[j - 1] : cur;
+        bool convert = &prev->gw() != &cur->gw();
+        int options = !convert ? POLYMULT_STARTNEXTFFT : 0;
+
+        for (i = 0; i < (1 << (poly_power() - j)); i += 2)
         {
-            poly_mul = &_poly_mul->get_optimal(_poly_prod[j + 1][i/2], _poly_mod[j][i^1], 1 << j);
-            if (dynamic_cast<PolyMulFFT*>(poly_mul) != nullptr)
-                _poly_mod[j][i^1].set_preserve_fft(true);
-            poly_mul->mul_half(_poly_prod[j + 1][i/2], _poly_mod[j][i^1], _poly_prod[j][i], 1 << j);
+            if (_poly_mod[j][i + 1].degree() == 0 && _poly_mod[j][i].degree() == 0)
+            {
+                prev->free(_poly_prod[j + 1][i/2]);
+                continue;
+            }
+            if (convert)
+            {
+                Poly tmp(*cur, 0, false);
+                prev->convert(_poly_prod[j + 1][i/2], tmp);
+                prev->free(_poly_prod[j + 1][i/2]);
+
+                /*cur->alloc(_poly_prod[j][i], 1 << j);
+                cur->mul_half(tmp, _poly_mod[j][i + 1], _poly_prod[j][i], options);
+                cur->alloc(_poly_prod[j][i + 1], 1 << j);
+                cur->mul_half(tmp, _poly_mod[j][i], _poly_prod[j][i + 1], options);*/
+                if (_poly_mod[j][i + 1].degree() == 0)
+                    cur->mul_half_preprocessed(std::move(tmp), _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, options);
+                else
+                    cur->mul_half_preprocessed(std::move(tmp), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
+            }
+            else
+            {
+                /*cur->alloc(_poly_prod[j][i], 1 << j);
+                cur->mul_half(_poly_prod[j + 1][i/2], _poly_mod[j][i + 1], _poly_prod[j][i], options);
+                cur->alloc(_poly_prod[j][i + 1], 1 << j);
+                cur->mul_half(_poly_prod[j + 1][i/2], _poly_mod[j][i], _poly_prod[j][i + 1], options);
+                prev->free(_poly_prod[j + 1][i/2]);*/
+                if (_poly_mod[j][i + 1].degree() == 0)
+                    cur->mul_half_preprocessed(std::move(_poly_prod[j + 1][i/2]), _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, options);
+                else
+                    cur->mul_half_preprocessed(std::move(_poly_prod[j + 1][i/2]), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
+            }
         }
+    }
 
 #ifdef _DEBUG
-    std::vector<GWNum> polyTest;
-    for (i = 0; i < (1 << poly_power()) && !_poly_mod[0][i][1].is_zero(); i++)
+    GWNum polyTest(gw());
+    for (i = 0; i < (1 << poly_power()) && _poly_mod[0][i].degree() > 0; i++)
     {
-        polyTest.emplace_back(gw());
-        polyTest.back() = 1;
+        polyTest = 1;
+        GWNumWrapper a = _poly_mod[0][i].at(0);
         for (int j = 0; j < roots.size(); j++)
-            polyTest.back() *= *roots[j] - _poly_mod[0][i][0].value();
-        GWASSERT(polyTest.back() == _poly_prod[0][i][0].value());
+            polyTest *= *roots[j] - a;
+        GWASSERT(polyTest == _poly_prod[0][i].at(0));
     }
 #endif
 
     for (i = (1 << poly_power()) - 1; i >= 0; i--)
-        if (!_poly_mod[0][i][1].is_zero())
-            gw().mul(_poly_prod[0][i][0].value(), G, G, GWMUL_STARTNEXTFFT_IF(i > 0));
+        if (_poly_mod[0][i].degree() > 0)
+        {
+            GWNumWrapper a = _poly_prod[0][i].at(0);
+            gw().mul(a, G, G, GWMUL_STARTNEXTFFT_IF(i > 0));
+        }
+#if !_DEBUG
+    for (i = 0; i < roots.size(); i++)
+        if (_poly_prod[0][i].size() > 0)
+            *roots[i] = std::move(_poly_prod[0][i].pop_back());
+        else
+            roots[i]->arithmetic().alloc(*roots[i]);
+#endif
+/*
+    for (i = 0; i < roots.size(); i++)
+        if (_poly_prod[poly_power()][0].size() > 0)
+            *roots[i] = std::move(_poly_prod[poly_power()][0].pop_back());
+        else
+            roots[i]->arithmetic().alloc(*roots[i]);*/
 }
 
+void poly_thread(void* data)
+{
+    Stage2* stage2 = (Stage2*)data;
+    try
+    {
+        stage2->run();
+    }
+    catch (const std::exception&)
+    {
+    }
+    gwmutex_lock(&stage2->_poly_thread_main->_poly_mutex);
+    int num_active = --stage2->_poly_thread_main->_poly_threads_active;
+    gwmutex_unlock(&stage2->_poly_thread_main->_poly_mutex);
+    if (num_active == 0)
+        gwevent_signal(&stage2->_poly_thread_main->_poly_done);
+}
+
+void Stage2::poly_threads_init()
+{
+    gwmutex_init(&_poly_mutex);
+    gwevent_init(&_poly_done);
+    _poly_G.reset(new GWNum(gw()));
+    *_poly_G = 1;
+    _poly_threads_active = _poly_thread_helpers.size();
+    for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
+        gwthread_create_waitable(&it->id, &poly_thread, (void *)it->stage2.get());
+}
+
+void Stage2::poly_helper_done(arithmetic::GWNum& G)
+{
+    gwmutex_lock(&_poly_thread_main->_poly_mutex);
+    gw().mul(G, *_poly_thread_main->_poly_G, *_poly_thread_main->_poly_G, GWMUL_STARTNEXTFFT);
+    gwmutex_unlock(&_poly_thread_main->_poly_mutex);
+}
+
+void Stage2::poly_threads_wait(arithmetic::GWNum& G)
+{
+    gwevent_wait(&_poly_done, 0);
+    gw().mul(*_poly_G, G, G, 0);
+    _poly_G.reset();
+    gwmutex_destroy(&_poly_mutex);
+    gwevent_destroy(&_poly_done);
+}
 
 void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* state, Logging* logging)
 {
+    while (is_poly() && gwstate->max_polymult_output() < 2*(1 << poly_power()))
+    {
+        gwstate->done();
+        gwstate->next_fft_count++;
+        input->setup(*gwstate);
+        logging->warning("Switching to %s\n", gwstate->fft_description.data());
+    }
+    if (is_poly_threaded())
+    {
+        int Ds_per_thread = (_pairing.last_D - _pairing.first_D + _poly_threads)/_poly_threads;
+        int Ds_per_thread_last = _pairing.last_D - _pairing.first_D + 1 - Ds_per_thread*(_poly_threads - 1);
+        _pairing.last_D = _pairing.first_D + Ds_per_thread - 1;
+        for (int i = 0; i < _poly_thread_helpers.size(); i++)
+        {
+            _poly_thread_helpers[i].stage2->_pairing.first_D = _pairing.first_D + Ds_per_thread*(i + 1);
+            _poly_thread_helpers[i].stage2->_pairing.last_D = _poly_thread_helpers[i].stage2->_pairing.first_D + (i < _poly_threads - 2 ? Ds_per_thread : Ds_per_thread_last) - 1;
+            _poly_thread_helpers[i].gwstate.reset(new GWState());
+            _poly_thread_helpers[i].gwstate->copy(*gwstate);
+            input->setup(*_poly_thread_helpers[i].gwstate);
+            _poly_thread_helpers[i].file.reset(file->add_child(std::to_string(i + 2)));
+        }
+    }
+
     Task::init(gwstate, file, state, logging, _pairing.last_D - _pairing.first_D + 1);
     _error_check = gwnear_fft_limit(gwstate->gwdata(), 1) == TRUE;
     _input = input;
@@ -690,19 +878,36 @@ void Stage2::done(const arithmetic::Giant& factor)
         //_logging->info("No factors found.\n");
     }
     _logging->set_prefix("");
+
+    if (is_poly_threaded())
+    {
+        for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
+            it->file->clear();
+        _poly_thread_helpers.clear();
+    }
 }
 
 void PP1Stage2::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, Giant& P, bool minus1)
 {
     Stage2::init(input, gwstate, file, read_state<State>(file), logging);
     _state_update_period = MULS_PER_STATE_UPDATE/10;
-    _logging->set_prefix(input->display_text() + (minus1 ? ", P-1 stage 2, " : ", P+1 stage 2, "));
-    _logging->info("B2 = %" PRId64, _B2);
-    if (state() != nullptr)
-        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
-    _logging->info(".\n");
+    if (!is_poly_helper())
+    {
+        _logging->set_prefix(input->display_text() + (minus1 ? ", P-1 stage 2, " : ", P+1 stage 2, "));
+        _logging->info("B2 = %" PRId64, _B2);
+        if (is_poly())
+            _logging->info(", suggested B2 = %" PRId64 "", (_pairing.first_D + (iterations() + _LN - 1 - (iterations() + _LN - 1)%_LN)*_poly_threads - 1)*_D + _D/2 - 1);
+        if (state() != nullptr)
+            _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+        _logging->info(".\n");
+        if (_poly_threads > 1)
+            _logging->info("%d threads.\n", _poly_threads);
+    }
     lucas.reset(new LucasVArithmetic());
     _P = P;
+
+    for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
+        static_cast<PP1Stage2*>(it->stage2.get())->init(input, it->gwstate.get(), it->file.get(), logging, P, minus1);
 }
 
 void PP1Stage2::setup()
@@ -722,7 +927,13 @@ void PP1Stage2::setup()
     if (!_Wa && _A > 1)
         _Wa.reset(new LucasV(*lucas));
 
-    if (_precomp.empty())
+    if (is_poly_helper())
+    {
+        //*_W = *static_cast<PP1Stage2*>(_poly_thread_main)->_W;
+        _Vn->V() = _P;
+        lucas->mul(*_Vn, _D, *_W, *_Vn1);
+    }
+    else if (_precomp.empty())
     {
         int transforms = -(int)gw().gwdata()->fft_count;
         _Vn->V() = _P;
@@ -765,10 +976,26 @@ void PP1Stage2::setup()
             lucas->mul(*_W, v, *_Vn, *_Vn1);
     }
     commit_setup();
+
+    if (is_poly_helper())
+    {
+        poly_init();
+        _poly_mod = static_cast<PP1Stage2*>(_poly_thread_main)->_poly_mod;
+    }
+    else if (is_poly())
+    {
+        std::vector<GWNum*> poly_r;
+        for (auto it = _precomp.begin(); it != _precomp.end(); it++)
+            if (*it)
+                poly_r.push_back(&(*it)->V());
+        poly_setup(poly_r);
+    }
 }
 
 void PP1Stage2::release()
 {
+    if (is_poly())
+        poly_release();
     _precomp.clear();
     _Vn.reset();
     _Vn1.reset();
@@ -782,6 +1009,9 @@ void PP1Stage2::execute()
 {
     int v;
     Giant tmp;
+
+    if (is_poly_threaded())
+        poly_threads_init();
 
     lucas->set_gw(gw());
     GWNum G(gw());
@@ -800,51 +1030,105 @@ void PP1Stage2::execute()
             it++;
         }
     }
+    v = state()->iteration() + _pairing.first_D;
 
-    while (it != _pairing.distances.end())
+    if (!is_poly())
     {
-        for (; *it != 0; it++)
-            gw().submul(_Vn->V(), _precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D)));
-        it++;
-        if (v > 0)
-            lucas->add(*_W, *_Vn1, *_Vn, *_Vn);
-        else
-            lucas->dbl(*_Vn1, *_Vn);
-        swap(*_Vn, *_Vn1);
-        if (_A > 1)
+        while (it != _pairing.distances.end())
         {
             for (; *it != 0; it++)
-                gw().submul(_Va->V(), _precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D)));
+                gw().submul(_Vn->V(), _precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D)));
             it++;
-            lucas->add(*_W, *_Va1, *_Va, *_Va);
-            swap(*_Va, *_Va1);
+            if (v > 0)
+                lucas->add(*_W, *_Vn1, *_Vn, *_Vn);
+            else
+                lucas->dbl(*_Vn1, *_Vn);
+            swap(*_Vn, *_Vn1);
+            if (_A > 1)
+            {
+                for (; *it != 0; it++)
+                    gw().submul(_Va->V(), _precomp[*it/2]->V(), G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D)));
+                it++;
+                lucas->add(*_W, *_Va1, *_Va, *_Va);
+                swap(*_Va, *_Va1);
+            }
+            v++;
+            commit_execute<State>(v - _pairing.first_D, G);
         }
-        v++;
-        commit_execute<State>(v - _pairing.first_D, G);
+    }
+    else
+    {
+        int i;
+        std::vector<std::unique_ptr<LucasV>> bases;
+        for (i = 0; i < _LN; i++)
+            bases.emplace_back(new LucasV(*lucas));
+
+        while (v <= _pairing.last_D)
+        {
+            for (i = 0; i < _LN && v <= _pairing.last_D; i++, v++)
+            {
+                if (v + 2 <= _pairing.last_D)
+                {
+                    if (v > 0)
+                        lucas->add(*_W, *_Vn1, *_Vn, *bases[i]);
+                    else
+                        lucas->dbl(*_Vn1, *bases[i]);
+                }
+                swap(*_Vn, *_Vn1);
+                swap(*_Vn1, *bases[i]);
+            }
+            bases.resize(i);
+            std::vector<GWNum*> poly_b;
+            for (auto itb = bases.begin(); itb != bases.end(); itb++)
+                poly_b.push_back(&(*itb)->V());
+            poly_execute(poly_b, G);
+            commit_execute<State>(v - _pairing.first_D, G);
+        }
     }
 
-    tmp = G;
-    tmp = gcd(std::move(tmp), gw().N());
+    if (is_poly_helper())
+        poly_helper_done(G);
+    else
+    {
+        if (is_poly_threaded())
+            poly_threads_wait(G);
 
-    done(tmp);
+        tmp = G;
+        tmp = gcd(std::move(tmp), gw().N());
+
+        done(tmp);
+    }
 }
 
 void EdECMStage2::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
     Stage2::init(input, gwstate, file, read_state<State>(file), logging);
-    _state_update_period = MULS_PER_STATE_UPDATE*10/_D;
+    if (is_poly())
+        _state_update_period = _LN;
+    else
+        _state_update_period = MULS_PER_STATE_UPDATE*10/_D;
     if (_LN > 0 && _state_update_period%_LN != 0)
         _state_update_period += _LN - _state_update_period%_LN;
-    _logging->set_prefix(input->display_text() + ", EdECM stage 2, ");
-    _logging->info("B2 = %" PRId64, _B2);
-    if (state() != nullptr)
-        _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
-    _logging->info(".\n");
+    if (!is_poly_helper())
+    {
+        _logging->set_prefix(input->display_text() + ", EdECM stage 2, ");
+        _logging->info("B2 = %" PRId64, _B2);
+        if (is_poly())
+            _logging->info(", suggested B2 = %" PRId64 "", (_pairing.first_D + (iterations() + _LN - 1 - (iterations() + _LN - 1)%_LN)*_poly_threads - 1)*_D + _D/2 - 1);
+        if (state() != nullptr)
+            _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+        _logging->info(".\n");
+        if (_poly_threads > 1)
+            _logging->info("%d threads.\n", _poly_threads);
+    }
     _X = X;
     _Y = Y;
     _Z = Z;
     _T = T;
     _EdD = EdD;
+
+    for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
+        static_cast<EdECMStage2*>(it->stage2.get())->init(input, it->gwstate.get(), it->file.get(), logging, X, Y, Z, T, EdD);
 }
 
 void EdECMStage2::setup()
@@ -873,7 +1157,11 @@ void EdECMStage2::setup()
     tmp = _D;
     ed.mul(EdP, tmp, EdW);
 
-    if (_precomp.empty())
+    if (is_poly_helper())
+    {
+        *_W = EdW;
+    }
+    else if (_precomp.empty())
     {
         int transforms = -(int)gw().gwdata()->fft_count;
         *_Pn = EdP;
@@ -926,13 +1214,18 @@ void EdECMStage2::setup()
     }
     commit_setup();
 
-    if (is_poly())
+    if (is_poly_helper())
+    {
+        poly_init();
+        _poly_mod = static_cast<EdECMStage2*>(_poly_thread_main)->_poly_mod;
+    }
+    else if (is_poly())
     {
         std::vector<GWNum*> poly_r;
         for (auto it = _precomp.begin(); it != _precomp.end(); it++)
             if (*it)
                 poly_r.push_back((*it)->Y.get());
-        poly_setup(poly_r, _LN);
+        poly_setup(poly_r);
     }
 }
 
@@ -954,6 +1247,9 @@ void EdECMStage2::execute()
         return;
     int i;
     Giant tmp;
+
+    if (is_poly_threaded())
+        poly_threads_init();
 
     montgomery->set_gw(gw());
     std::vector<std::unique_ptr<EdY>> norm_bases;
@@ -1038,13 +1334,27 @@ void EdECMStage2::execute()
             GWASSERT(state()->iteration() != v - _pairing.first_D - ((int)norm_bases.size() - cur_base) || ((int)norm_bases.size() == cur_base)); // deterministic restart
         }
 
-        tmp = G;
-        tmp = gcd(std::move(tmp), gw().N());
+        if (is_poly_helper())
+            poly_helper_done(G);
+        else
+        {
+            if (is_poly_threaded())
+                poly_threads_wait(G);
+
+            tmp = G;
+            tmp = gcd(std::move(tmp), gw().N());
+
+            done(tmp);
+        }
     }
     catch (const NoInverseException& e)
     {
-        tmp = e.divisor;
+        if (is_poly_helper())
+        {
+            G = e.divisor;
+            poly_helper_done(G);
+        }
+        else
+            done(e.divisor);
     }
-
-    done(tmp);
 }

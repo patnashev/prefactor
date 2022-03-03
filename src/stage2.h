@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include "arithmetic.h"
 #include "group.h"
 #include "lucas.h"
@@ -47,21 +48,44 @@ public:
         arithmetic::Giant _G;
     };
 
-public:
-    Stage2(Logging& logging, PrimeList& primes, uint64_t B1, uint64_t B2, int D, int A, int L, int poly_power) : Task(true), _primes(primes), _B1(B1), _B2(B2), _D(D), _A(A), _L(L), _poly_power(poly_power)
+    struct Stage2Thread
     {
-        if (poly_power == 0)
-            _pairing = get_pairing(logging, primes, (int)B1, (int)B2, D, A, L, true);
-        else
-        {
-            _pairing.first_D = (int)(B1/D + 1);
-            _pairing.last_D = (int)((B2 + D - 1)/D);
-        }
+        gwthread id;
+        std::unique_ptr<Stage2> stage2;
+        std::unique_ptr<arithmetic::GWState> gwstate;
+        std::unique_ptr<File> file;
+    };
+
+protected:
+    Stage2(uint64_t B1, uint64_t B2) : Task(true), _B1(B1), _B2(B2) { }
+
+    void stage2_pairing(int D, int A, int L, Logging& logging, PrimeList& primes)
+    {
+        _D = D;
+        _A = A;
+        _L = L;
+        _pairing = get_pairing(logging, primes, (int)_B1, (int)_B2, D, A, L, true);
     }
 
+    template<class T>
+    void stage2_poly(int D, int L, int LN, int poly_power, int poly_threads)
+    {
+        _D = D;
+        _A = 1;
+        _L = L;
+        _LN = LN;
+        _poly_power = poly_power;
+        _pairing.first_D = (int)((_B1 + D/2)/D);
+        _pairing.last_D = (int)((_B2 + D/2)/D);
+        _poly_threads = poly_threads;
+        _poly_thread_helpers.resize(poly_threads - 1);
+        for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
+            it->stage2.reset(new T(static_cast<T*>(this)));
+    }
+
+public:
     static Pairing get_pairing(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances);
 
-    PrimeList& primes() { return _primes; }
     bool success() { return _success; }
     State* state() { return static_cast<State*>(Task::state()); }
 
@@ -73,13 +97,17 @@ protected:
     void done(const arithmetic::Giant& factor);
 
     bool is_poly() { return _poly_power > 0; }
+    bool is_poly_threaded() { return _poly_threads > 1; }
+    bool is_poly_helper() { return _poly_thread_main != nullptr; }
     int poly_power() { return _poly_power; }
-    void poly_setup(std::vector<arithmetic::GWNum*>& roots, int LN);
+    void poly_init();
+    void poly_setup(std::vector<arithmetic::GWNum*>& roots);
     void poly_release();
     void poly_execute(std::vector<arithmetic::GWNum*>& roots, arithmetic::GWNum& G);
-
-private:
-    PrimeList& _primes;
+    void poly_threads_init();
+    void poly_helper_done(arithmetic::GWNum& G);
+    void poly_threads_wait(arithmetic::GWNum& G);
+    friend void poly_thread(void* data);
 
 protected:
     uint64_t _B1;
@@ -87,6 +115,7 @@ protected:
     int _D;
     int _A;
     int _L;
+    int _LN;
     Pairing _pairing;
 
     InputNum* _input = nullptr;
@@ -94,16 +123,42 @@ protected:
     int _transforms = 0;
     bool _success = false;
 
-    int _poly_power;
-    std::unique_ptr<arithmetic::PolyMulOptimal> _poly_mul;
-    std::vector<std::vector<arithmetic::Poly>> _poly_mod;
+    int _poly_power = 0;
+    std::deque<arithmetic::GWState> _poly_gwstate;
+    std::deque<arithmetic::GWArithmetic> _poly_gw;
+    std::vector<arithmetic::PolyMult> _poly_mult;
+    std::vector<arithmetic::Poly>* _poly_mod = nullptr;
+    std::vector<std::vector<arithmetic::Poly>> _poly_mod_container;
     std::vector<std::vector<arithmetic::Poly>> _poly_prod;
+
+    int _poly_threads = 1;
+    Stage2* _poly_thread_main = nullptr;
+    std::vector<Stage2Thread> _poly_thread_helpers;
+    gwmutex _poly_mutex;
+    gwevent _poly_done;
+    int _poly_threads_active;
+    std::unique_ptr<arithmetic::GWNum> _poly_G;
 };
 
 class PP1Stage2 : public Stage2
 {
 public:
-    PP1Stage2(Logging& logging, PrimeList& primes, uint64_t B1, uint64_t B2, int D, int A, int L, int poly_power) : Stage2(logging, primes, B1, B2, D, A, L, poly_power) { }
+    PP1Stage2(uint64_t B1, uint64_t B2) : Stage2(B1, B2) { }
+    PP1Stage2(PP1Stage2* main) : Stage2(main->_B1, main->_B2)
+    {
+        _poly_thread_main = main;
+        stage2_poly(main->_D, main->_L, main->_LN, main->_poly_power, 1);
+    }
+
+    void stage2_pairing(int D, int A, int L, Logging& logging, PrimeList& primes)
+    {
+        Stage2::stage2_pairing(D, A, L, logging, primes);
+    }
+
+    void stage2_poly(int D, int L, int LN, int poly_power, int poly_threads)
+    {
+        Stage2::stage2_poly<PP1Stage2>(D, L, LN, poly_power, poly_threads);
+    }
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& P, bool minus1);
 
@@ -128,7 +183,23 @@ private:
 class EdECMStage2 : public Stage2
 {
 public:
-    EdECMStage2(Logging& logging, PrimeList& primes, uint64_t B1, uint64_t B2, int D, int L, int LN, int poly_power) : Stage2(logging, primes, B1, B2, D, 1, L, poly_power), _LN(LN) { }
+    EdECMStage2(uint64_t B1, uint64_t B2) : Stage2(B1, B2) { }
+    EdECMStage2(EdECMStage2* main) : Stage2(main->_B1, main->_B2)
+    {
+        _poly_thread_main = main;
+        stage2_poly(main->_D, main->_L, main->_LN, main->_poly_power, 1);
+    }
+
+    void stage2_pairing(int D, int L, int LN, Logging& logging, PrimeList& primes)
+    {
+        Stage2::stage2_pairing(D, 1, L, logging, primes);
+        _LN = LN;
+    }
+
+    void stage2_poly(int D, int L, int LN, int poly_power, int poly_threads)
+    {
+        Stage2::stage2_poly<EdECMStage2>(D, L, LN, poly_power, poly_threads);
+    }
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
 
@@ -138,7 +209,6 @@ protected:
     void release() override;
 
 private:
-    int _LN;
     arithmetic::Giant _X;
     arithmetic::Giant _Y;
     arithmetic::Giant _Z;

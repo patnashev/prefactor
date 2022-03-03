@@ -54,6 +54,7 @@ int main(int argc, char *argv[])
     int plus1 = 0;
     int edecm = 0;
     bool poly = false;
+    int polyThreads = 1;
     double sievingDepth = 0;
     uint64_t maxMem = 2048*1048576ULL;
     std::unique_ptr<PM1Params> params_pm1;
@@ -97,6 +98,18 @@ int main(int argc, char *argv[])
                     return 1;
                 }
                 continue;
+
+            case 'f':
+                if (argv[i][2] && isdigit(argv[i][2]))
+                    gwstate.known_factors = argv[i] + 2;
+                else if (!argv[i][2] && i < argc - 1)
+                {
+                    i++;
+                    gwstate.known_factors = argv[i];
+                }
+                else
+                    break;
+                continue;
             }
 
             if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
@@ -134,6 +147,18 @@ int main(int argc, char *argv[])
                 i++;
                 maxMem = InputNum::parse_numeral(argv[i]);
             }
+            else if (strncmp(argv[i], "-fft", 4) == 0 && ((!argv[i][4] && i < argc - 1) || argv[i][4] == '+'))
+            {
+                if (argv[i][4] == '+')
+                    gwstate.next_fft_count = atoi(argv[i] + 5);
+                else if (argv[i + 1][0] == '+')
+                {
+                    i++;
+                    gwstate.next_fft_count = atoi(argv[i] + 1);
+                }
+            }
+            else if (strcmp(argv[i], "-generic") == 0)
+                gwstate.force_general_mod = true;
             else if (i < argc - 1 && strcmp(argv[i], "-P") == 0)
             {
                 i++;
@@ -177,7 +202,19 @@ int main(int argc, char *argv[])
             else if (strcmp(argv[i], "-ecm") == 0 || strcmp(argv[i], "-eecm") == 0 || strcmp(argv[i], "-edecm") == 0)
                 edecm = 1;
             else if (strcmp(argv[i], "-poly") == 0)
+            {
                 poly = true;
+                if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
+                {
+                    i += 2;
+                    polyThreads = atoi(argv[i]);
+                }
+                if (i < argc - 1 && argv[i + 1][0] == 't')
+                {
+                    i++;
+                    polyThreads = atoi(argv[i] + 1);
+                }
+            }
 #ifdef FACTORING
             else if (strcmp(argv[i], "-factoring") == 0)
                 return factoring_main(argc, argv);
@@ -190,6 +227,18 @@ int main(int argc, char *argv[])
             {
                 i++;
                 toFile = argv[i];
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
+            {
+                i++;
+                if (strcmp(argv[i], "debug") == 0)
+                    log_level = Logging::LEVEL_DEBUG;
+                if (strcmp(argv[i], "info") == 0)
+                    log_level = Logging::LEVEL_INFO;
+                if (strcmp(argv[i], "warning") == 0)
+                    log_level = Logging::LEVEL_WARNING;
+                if (strcmp(argv[i], "error") == 0)
+                    log_level = Logging::LEVEL_ERROR;
             }
             else if (strcmp(argv[i], "-v") == 0)
             {
@@ -212,7 +261,7 @@ int main(int argc, char *argv[])
     if (input.empty())
     {
         printf("Usage: prefactor {-B1 10000 -B2 100000 | -S sievingDepth [-B1 10000] [-B2 100000]} [-minus1] [-plus1] [-edecm] options {\"K*B^N+C\" | file}\n");
-        printf("Options: [-M maxMemory] [-t Threads] [-P 2/7] [-curve {curve2x8 | curve12 | random | seed 123 | xy 17/19 17/33}] [-poly]\n");
+        printf("Options: [-M maxMemory] [-t Threads] [-P 2/7] [-curve {curve2x8 | curve12 | random | seed 123 | xy 17/19 17/33}] [-poly [tThreads]] [-fft+1]\n");
         return 0;
     }
     if (!toFile.empty())
@@ -298,11 +347,11 @@ int main(int argc, char *argv[])
         if (B2 < B1)
             B2 = B1;
         if (minus1)
-            params_pm1.reset(new PM1Params(B1, B2, maxSize, poly));
+            params_pm1.reset(new PM1Params(B1, B2, maxSize, poly, polyThreads));
         if (plus1)
-            params_pp1.reset(new PP1Params(B1, B2, maxSize, poly));
+            params_pp1.reset(new PP1Params(B1, B2, maxSize, poly, polyThreads));
         if (edecm)
-            params_edecm.reset(new EdECMParams(B1, B2, maxSize, poly));
+            params_edecm.reset(new EdECMParams(B1, B2, maxSize, poly, polyThreads));
     }
 
     B2 = 0;
@@ -387,7 +436,11 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(logging, primes, params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, params_pm1->Poly);
+                PP1Stage2 stage2(params_pm1->B1, params_pm1->B2);
+                if (params_pm1->Poly == 0)
+                    stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging, primes);
+                else
+                    stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->LN, params_pm1->Poly, params_pm1->PolyThreads);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                 stage2.run();
                 success = stage2.success();
@@ -421,7 +474,11 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(logging, primes, params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, params_pp1->Poly);
+                PP1Stage2 stage2(params_pp1->B1, params_pp1->B2);
+                if (params_pp1->Poly == 0)
+                    stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging, primes);
+                else
+                    stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->LN, params_pp1->Poly, params_pp1->PolyThreads);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                 stage2.run();
                 success = stage2.success();
@@ -508,7 +565,11 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                EdECMStage2 stage2(logging, primes, params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->Poly);
+                EdECMStage2 stage2(params_edecm->B1, params_edecm->B2);
+                if (params_edecm->Poly == 0)
+                    stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging, primes);
+                else
+                    stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->Poly, params_edecm->PolyThreads);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                 stage2.run();
                 success = stage2.success();

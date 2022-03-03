@@ -133,6 +133,11 @@ bool Reader::read(arithmetic::Giant& value)
     return true;
 }
 
+File* File::add_child(const std::string& name)
+{
+    return new File(_filename + "." + name, _fingerprint);
+}
+
 Writer* File::get_writer()
 {
     Writer* writer = new Writer(std::move(_buffer));

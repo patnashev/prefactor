@@ -45,6 +45,11 @@ namespace arithmetic
 
     void GiantsArithmetic::copy(const Giant& a, Giant& res)
     {
+        if (a.empty())
+        {
+            free(res);
+            return;
+        }
         if (a._giant->sign == 0)
         {
             init(0, res);

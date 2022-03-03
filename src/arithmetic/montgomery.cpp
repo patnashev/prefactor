@@ -53,7 +53,8 @@ namespace arithmetic
 
     void MontgomeryArithmetic::init(EdY& a)
     {
-        a.Y.reset();
+        a.Y.reset(new GWNum(gw()));
+        *a.Y = 1;
         a.Z.reset();
         a.ZpY.reset();
         a.ZmY.reset();
@@ -68,6 +69,8 @@ namespace arithmetic
             res.Z.reset(new GWNum(gw()));
             *res.Z = *a.Z;
         }
+        else
+            res.Z.reset();
     }
 
     int MontgomeryArithmetic::cmp(const EdY& a, const EdY& b)
