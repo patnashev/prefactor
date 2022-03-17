@@ -130,9 +130,9 @@ namespace arithmetic
         gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && ((a.Z && b.Z) || safe1)));
         if (&a_minus_b == &res)
             swap(*res.ZpY, *tmp);
-        if (gwnum_is_partially_ffted(gw().gwdata(), **res.ZpY))
+        if (safe11)
             gw().fft(*res.ZpY, *res.ZpY);
-        if (gwnum_is_partially_ffted(gw().gwdata(), **res.ZmY))
+        if (safe11 && ((a.Z && b.Z) || safe1))
             gw().fft(*res.ZmY, *res.ZmY);
         gw().copy(*res.ZpY, *res.Z);
         gw().copy(*res.ZmY, *res.Y);

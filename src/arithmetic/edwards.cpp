@@ -620,6 +620,7 @@ namespace arithmetic
             this->T.reset();
     }
 
+#ifdef NESTED_EDWARDS
     extern "C" unsigned long cache_line_offset(
         gwhandle *gwdata,	/* Handle initialized by gwsetup */
         unsigned long i);
@@ -722,4 +723,5 @@ namespace arithmetic
         gwunfft2(gw().gwdata(), **res.Z, **res.Z, options);
         gw().gwdata()->fft_count += 8;
     }
+#endif
 }

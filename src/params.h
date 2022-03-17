@@ -29,8 +29,8 @@ public:
     int D;
     int A;
     int L;
-    int LN;
-    int Poly;
+    int PolyDegree;
+    int PolyPower;
     int PolyThreads;
     double pairing;
 };
@@ -66,4 +66,5 @@ public:
 
 public:
     int W;
+    int LN;
 };

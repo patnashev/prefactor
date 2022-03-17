@@ -130,6 +130,7 @@ namespace arithmetic
         std::unique_ptr<GWNum> T;
     };
 
+#ifdef NESTED_EDWARDS
     class NestedEdwardsArithmetic : public EdwardsArithmetic
     {
     public:
@@ -143,4 +144,5 @@ namespace arithmetic
     private:
         std::vector<int> _offsets;
     };
+#endif
 }

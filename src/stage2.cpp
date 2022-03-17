@@ -604,7 +604,7 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
         GWASSERT(polyTest.back() == 0);
     }*/
 #endif
-    Poly polyR = _poly_mod[poly_power()][0].reciprocal(_LN, POLYMULT_STARTNEXTFFT);
+    Poly polyR = _poly_mod[poly_power()][0].reciprocal(poly_degree(), POLYMULT_STARTNEXTFFT);
     int degree = (1 << (poly_power() + 1)) - _poly_mod[poly_power()][0].degree();
     if (polyR.degree() < degree)
         polyR <<= degree - polyR.degree();
@@ -619,7 +619,7 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
 
     commit_setup();
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    _logging->info("polynomial mode, D=%d, setup time: %.3f s.\n", _D, timer);
+    _logging->info("polynomial mode, D=%d, degree %d, setup time: %.3f s.\n", _D, poly_degree(), timer);
 }
 
 void Stage2::poly_release()
@@ -632,7 +632,7 @@ void Stage2::poly_release()
     _poly_gwstate.clear();
 }
 
-void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
+void Stage2::poly_execute(std::vector<GWNum>& roots, GWNum& G)
 {
     int i, j;
     for (i = 0; i < _poly_mult.size(); i++)
@@ -647,9 +647,9 @@ void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
             _poly_prod[0].emplace_back(_poly_mult[0], 0, true);
         if (i < roots.size())
 #ifdef _DEBUG
-            _poly_mult[0].init(*roots[i], true, _poly_prod[0][i]);
+            _poly_mult[0].init(roots[i], true, _poly_prod[0][i]);
 #else
-            _poly_mult[0].init(std::move(*roots[i]), true, _poly_prod[0][i]);
+            _poly_mult[0].init(std::move(roots[i]), true, _poly_prod[0][i]);
 #endif
         else
             _poly_mult[0].init(true, _poly_prod[0][i]);
@@ -741,7 +741,7 @@ void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
         polyTest = 1;
         GWNumWrapper a = _poly_mod[0][i].at(0);
         for (int j = 0; j < roots.size(); j++)
-            polyTest *= *roots[j] - a;
+            polyTest *= roots[j] - a;
         GWASSERT(polyTest == _poly_prod[0][i].at(0));
     }
 #endif
@@ -755,9 +755,9 @@ void Stage2::poly_execute(std::vector<GWNum*>& roots, GWNum& G)
 #if !_DEBUG
     for (i = 0; i < roots.size(); i++)
         if (_poly_prod[0][i].size() > 0)
-            *roots[i] = std::move(_poly_prod[0][i].pop_back());
+            roots[i] = std::move(_poly_prod[0][i].pop_back());
         else
-            roots[i]->arithmetic().alloc(*roots[i]);
+            roots[i].arithmetic().alloc(roots[i]);
 #endif
 /*
     for (i = 0; i < roots.size(); i++)
@@ -896,7 +896,7 @@ void PP1Stage2::init(InputNum* input, GWState* gwstate, File* file, Logging* log
         _logging->set_prefix(input->display_text() + (minus1 ? ", P-1 stage 2, " : ", P+1 stage 2, "));
         _logging->info("B2 = %" PRId64, _B2);
         if (is_poly())
-            _logging->info(", suggested B2 = %" PRId64 "", (_pairing.first_D + (iterations() + _LN - 1 - (iterations() + _LN - 1)%_LN)*_poly_threads - 1)*_D + _D/2 - 1);
+            _logging->info(", suggested B2 = %" PRId64 "", (_pairing.first_D + (iterations() + poly_degree() - 1 - (iterations() + poly_degree() - 1)%poly_degree())*_poly_threads - 1)*_D + _D/2 - 1);
         if (state() != nullptr)
             _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
         _logging->info(".\n");
@@ -977,12 +977,12 @@ void PP1Stage2::setup()
     }
     commit_setup();
 
-    if (is_poly_helper())
+    if (is_poly_helper() && _poly_mod == nullptr)
     {
         poly_init();
         _poly_mod = static_cast<PP1Stage2*>(_poly_thread_main)->_poly_mod;
     }
-    else if (is_poly())
+    else if (is_poly() && _poly_mod == nullptr)
     {
         std::vector<GWNum*> poly_r;
         for (auto it = _precomp.begin(); it != _precomp.end(); it++)
@@ -1059,29 +1059,29 @@ void PP1Stage2::execute()
     else
     {
         int i;
-        std::vector<std::unique_ptr<LucasV>> bases;
-        for (i = 0; i < _LN; i++)
-            bases.emplace_back(new LucasV(*lucas));
+        std::vector<GWNum> bases;
+        bases.reserve(poly_degree());
+        for (i = 0; i < poly_degree(); i++)
+            bases.emplace_back(gw());
+        LucasV Vtmp(*lucas);
 
         while (v <= _pairing.last_D)
         {
-            for (i = 0; i < _LN && v <= _pairing.last_D; i++, v++)
+            for (i = 0; i < poly_degree() && v <= _pairing.last_D; i++, v++)
             {
                 if (v + 2 <= _pairing.last_D)
                 {
                     if (v > 0)
-                        lucas->add(*_W, *_Vn1, *_Vn, *bases[i]);
+                        lucas->add(*_W, *_Vn1, *_Vn, Vtmp);
                     else
-                        lucas->dbl(*_Vn1, *bases[i]);
+                        lucas->dbl(*_Vn1, Vtmp);
                 }
                 swap(*_Vn, *_Vn1);
-                swap(*_Vn1, *bases[i]);
+                swap(*_Vn1, Vtmp);
+                swap(Vtmp.V(), bases[i]);
             }
-            bases.resize(i);
-            std::vector<GWNum*> poly_b;
-            for (auto itb = bases.begin(); itb != bases.end(); itb++)
-                poly_b.push_back(&(*itb)->V());
-            poly_execute(poly_b, G);
+            bases.erase(bases.begin() + i, bases.end());
+            poly_execute(bases, G);
             commit_execute<State>(v - _pairing.first_D, G);
         }
     }
@@ -1104,17 +1104,19 @@ void EdECMStage2::init(InputNum* input, GWState* gwstate, File* file, Logging* l
 {
     Stage2::init(input, gwstate, file, read_state<State>(file), logging);
     if (is_poly())
-        _state_update_period = _LN;
+        _state_update_period = poly_degree();
     else
+    {
         _state_update_period = MULS_PER_STATE_UPDATE*10/_D;
-    if (_LN > 0 && _state_update_period%_LN != 0)
-        _state_update_period += _LN - _state_update_period%_LN;
+        if (_LN > 0 && _state_update_period%_LN != 0)
+            _state_update_period += _LN - _state_update_period%_LN;
+    }
     if (!is_poly_helper())
     {
         _logging->set_prefix(input->display_text() + ", EdECM stage 2, ");
         _logging->info("B2 = %" PRId64, _B2);
         if (is_poly())
-            _logging->info(", suggested B2 = %" PRId64 "", (_pairing.first_D + (iterations() + _LN - 1 - (iterations() + _LN - 1)%_LN)*_poly_threads - 1)*_D + _D/2 - 1);
+            _logging->info(", suggested B2 = %" PRId64 "", (_pairing.first_D + (iterations() + poly_degree() - 1 - (iterations() + poly_degree() - 1)%poly_degree())*_poly_threads - 1)*_D + _D/2 - 1);
         if (state() != nullptr)
             _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
         _logging->info(".\n");
@@ -1214,12 +1216,12 @@ void EdECMStage2::setup()
     }
     commit_setup();
 
-    if (is_poly_helper())
+    if (is_poly_helper() && _poly_mod == nullptr)
     {
         poly_init();
         _poly_mod = static_cast<EdECMStage2*>(_poly_thread_main)->_poly_mod;
     }
-    else if (is_poly())
+    else if (is_poly() && _poly_mod == nullptr)
     {
         std::vector<GWNum*> poly_r;
         for (auto it = _precomp.begin(); it != _precomp.end(); it++)
@@ -1248,14 +1250,18 @@ void EdECMStage2::execute()
     int i;
     Giant tmp;
 
+    montgomery->set_gw(gw());
+
     if (is_poly_threaded())
         poly_threads_init();
 
-    montgomery->set_gw(gw());
+    std::vector<GWNum> poly_bases;
+    poly_bases.reserve(poly_degree());
+    int cur_degree = 0;
+
     std::vector<std::unique_ptr<EdY>> norm_bases;
-    for (i = 0; i < _LN; i++)
-        norm_bases.emplace_back(new EdY(*montgomery));
-    int cur_base = _LN;
+    norm_bases.reserve(_LN);
+    int cur_base = 0;
 
     GWNum G(gw());
     G = state()->G();
@@ -1280,8 +1286,10 @@ void EdECMStage2::execute()
             {
                 if (cur_base == (int)norm_bases.size())
                 {
-                    for (i = 0; i < _LN && v <= _pairing.last_D; i++, v++)
+                    for (i = 0; i < _LN && (poly_degree() == 0 || cur_degree + i < poly_degree()) && v <= _pairing.last_D; i++, v++)
                     {
+                        while (i >= norm_bases.size())
+                            norm_bases.emplace_back(new EdY(*montgomery));
                         if (v + 2 <= _pairing.last_D)
                         {
                             if (v > 0)
@@ -1291,19 +1299,11 @@ void EdECMStage2::execute()
                         }
                         swap(*_Pn, *_Pn1);
                         swap(*_Pn1, *norm_bases[i]);
+                        norm_bases[i]->ZmY.reset();
                     }
                     norm_bases.resize(i);
                     montgomery->normalize(norm_bases.begin(), norm_bases.end());
-                    if (is_poly())
-                    {
-                        std::vector<GWNum*> poly_b;
-                        for (auto itb = norm_bases.begin(); itb != norm_bases.end(); itb++)
-                            poly_b.push_back((*itb)->Y.get());
-                        poly_execute(poly_b, G);
-                        cur_base = i - 1;
-                    }
-                    else
-                        cur_base = 0;
+                    cur_base = 0;
                 }
                 iD = norm_bases[cur_base].get();
             }
@@ -1319,6 +1319,20 @@ void EdECMStage2::execute()
                         gw().submul(*iD->Y, *_precomp[*it/2]->Y, G, G, GWMUL_STARTNEXTFFT_IF(!is_last(v - _pairing.first_D - ((int)norm_bases.size() - cur_base))));
                 it++;
             }
+            if (is_poly())
+            {
+                while (cur_degree >= poly_bases.size())
+                    poly_bases.emplace_back(gw());
+                if (iD->Z)
+                {
+                    poly_bases[cur_degree] = *iD->Z;
+                    poly_bases[cur_degree].inv();
+                    gw().mul(*iD->Y, poly_bases[cur_degree], poly_bases[cur_degree], GWMUL_STARTNEXTFFT);
+                }
+                else
+                    swap(poly_bases[cur_degree], *iD->Y);
+                cur_degree++;
+            }
             if (_LN > 0)
                 cur_base++;
             else
@@ -1329,6 +1343,12 @@ void EdECMStage2::execute()
                     montgomery->dbl(*_Pn1, *_Pn);
                 swap(*_Pn, *_Pn1);
                 v++;
+            }
+            if (is_poly() && (cur_degree == poly_degree() || (v > _pairing.last_D && cur_base == (int)norm_bases.size())))
+            {
+                poly_bases.erase(poly_bases.begin() + cur_degree, poly_bases.end());
+                poly_execute(poly_bases, G);
+                cur_degree = 0;
             }
             commit_execute<State>(v - _pairing.first_D - ((int)norm_bases.size() - cur_base), G);
             GWASSERT(state()->iteration() != v - _pairing.first_D - ((int)norm_bases.size() - cur_base) || ((int)norm_bases.size() == cur_base)); // deterministic restart

@@ -100,7 +100,6 @@ namespace arithmetic
         std::unique_ptr<GWNum> Y;
         std::unique_ptr<GWNum> Z;
 
-    private:
         std::unique_ptr<GWNum> ZpY;
         std::unique_ptr<GWNum> ZmY;
     };

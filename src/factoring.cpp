@@ -491,7 +491,7 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
 
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
     EdECMParams params_edecm(_B1, B2, maxSize, poly, threads);
-    if (params_edecm.Poly > 0 && _gwstate.max_polymult_output() < 2*(1 << params_edecm.Poly))
+    if (params_edecm.PolyPower > 0 && _gwstate.max_polymult_output() < 2*(1 << params_edecm.PolyPower))
     {
         _logging.error("FFT size too small for polynomial stage 2. Set -fft+1.\n");
         return;
@@ -500,15 +500,15 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
     logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
 
     EdECMStage2 stage2(params_edecm.B1, params_edecm.B2);
-    if (params_edecm.Poly == 0)
+    if (params_edecm.PolyPower == 0)
     {
         PrimeList primes((int)B2 + 100);
         stage2.stage2_pairing(params_edecm.D, params_edecm.L, params_edecm.LN, logging, primes);
     }
     else
-        stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.Poly, params_edecm.PolyThreads);
+        stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.PolyDegree, params_edecm.PolyPower, params_edecm.PolyThreads);
 
-    _logging.info("stage 2, B2 = %" PRId64 ", D = %d, LN = %d.\n", B2, params_edecm.D, params_edecm.LN);
+    _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, params_edecm.PolyDegree);
     std::string prefix = _logging.prefix();
 
     if (_state.size() == 0)
@@ -781,6 +781,12 @@ int factoring_main(int argc, char *argv[])
                     gwstate.known_factors = "1107895052308076834874643709953";
                 if (fermat_n == 19)
                     gwstate.known_factors = "1714509847183606156843894401498451927424901089206317613057";
+                if (fermat_n == 21)
+                    gwstate.known_factors = "4485296422913";
+                if (fermat_n == 22)
+                    gwstate.known_factors = "64658705994591851009055774868504577";
+                if (fermat_n == 23)
+                    gwstate.known_factors = "167772161";
             }
             else if (!input.empty())
                 filename = argv[i];

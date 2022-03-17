@@ -596,10 +596,10 @@ int net_main(int argc, char *argv[])
                     if (interstate != nullptr)
                     {
                         PP1Stage2 stage2(params_pm1->B1, params_pm1->B2);
-                        if (params_pm1->Poly == 0)
+                        if (params_pm1->PolyPower == 0)
                             stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging, primes);
                         else
-                            stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->LN, params_pm1->Poly, params_pm1->PolyThreads);
+                            stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->PolyDegree, params_pm1->PolyPower, params_pm1->PolyThreads);
                         stage2.init(&input, &gwstate, &file_checkpoint_m2, &logging, interstate->V(), true);
                         stage2.run();
                     }
@@ -630,10 +630,10 @@ int net_main(int argc, char *argv[])
                     if (interstate != nullptr)
                     {
                         PP1Stage2 stage2(params_pp1->B1, params_pp1->B2);
-                        if (params_pp1->Poly == 0)
+                        if (params_pp1->PolyPower == 0)
                             stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging, primes);
                         else
-                            stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->LN, params_pp1->Poly, params_pp1->PolyThreads);
+                            stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->PolyDegree, params_pp1->PolyPower, params_pp1->PolyThreads);
                         stage2.init(&input, &gwstate, &file_checkpoint_p2, &logging, interstate->V(), false);
                         stage2.run();
                     }
@@ -702,10 +702,10 @@ int net_main(int argc, char *argv[])
                     if (interstate != nullptr)
                     {
                         EdECMStage2 stage2(params_edecm->B1, params_edecm->B2);
-                        if (params_edecm->Poly == 0)
+                        if (params_edecm->PolyPower == 0)
                             stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging, primes);
                         else
-                            stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->Poly, params_edecm->PolyThreads);
+                            stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->PolyDegree, params_edecm->PolyPower, params_edecm->PolyThreads);
                         stage2.init(&input, &gwstate, &file_checkpoint_ed2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                         stage2.run();
                     }
