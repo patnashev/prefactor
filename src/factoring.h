@@ -15,6 +15,17 @@ int factoring_main(int argc, char *argv[]);
 class Factoring
 {
 public:
+    class Curve
+    {
+    public:
+        arithmetic::Giant X;
+        arithmetic::Giant Y;
+        arithmetic::Giant Z;
+        arithmetic::Giant T;
+        arithmetic::Giant D;
+    };
+
+public:
     Factoring(InputNum& input, arithmetic::GWState& gwstate, Logging& logging) : _input(input), _gwstate(gwstate), _logging(logging), _gw(gwstate), _ed(_gw)
     {
     }
@@ -32,12 +43,14 @@ public:
     void stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& file_state, File& file_result);
     void stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, File& file_state);
 
-    std::vector<std::unique_ptr<arithmetic::EdPoint>>& points() { return _points; }
+    std::vector<Curve>& points() { return _points; }
     uint64_t B1() { return _B1; }
 
 private:
-    void write_file(File& file, char type, uint64_t B1, std::vector<std::unique_ptr<arithmetic::EdPoint>>& points);
-    bool read_file(File& file, char type, int& seed, uint64_t& B1, std::vector<std::unique_ptr<arithmetic::EdPoint>>& points);
+    void write_file(File& file, char type, uint64_t B1, std::vector<Curve>& points);
+    bool read_file(File& file, char type, int& seed, uint64_t& B1, std::vector<Curve>& points);
+    void compute_d(bool stateless);
+    void normalize(std::vector<Curve>& points);
 
 private:
     InputNum& _input;
@@ -46,8 +59,9 @@ private:
     arithmetic::GWArithmetic _gw;
     arithmetic::EdwardsArithmetic _ed;
 
+    char _file_version = 0;
     int _seed;
     uint64_t _B1;
-    std::vector<std::unique_ptr<arithmetic::EdPoint>> _points;
-    std::vector<std::unique_ptr<arithmetic::EdPoint>> _state;
+    std::vector<Curve> _points;
+    std::vector<Curve> _state;
 };

@@ -110,6 +110,8 @@ void PrimeIterator::sieve_range(uint64_t start, uint64_t end, std::vector<uint64
     int i, j;
     if (!(start & 1))
         start++;
+    if (!(end & 1))
+        end++;
     if (_cur == 0)
         (*this)++;
     list.clear();

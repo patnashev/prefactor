@@ -81,4 +81,5 @@ protected:
     std::string _filename;
     uint32_t _fingerprint;
     std::vector<char> _buffer;
+    std::vector<std::unique_ptr<File>> _children;
 };

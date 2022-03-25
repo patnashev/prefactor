@@ -11,6 +11,7 @@
 #include "task.h"
 #include "primelist.h"
 #include "params.h"
+#include "stage1.h"
 #include "stage2.h"
 
 using namespace arithmetic;
@@ -25,28 +26,26 @@ void write_dhash(const std::string& filename, const std::string& dhash)
     }
 }
 
-void Factoring::write_file(File& file, char type, uint64_t B1, std::vector<std::unique_ptr<EdPoint>>& points)
+void Factoring::write_file(File& file, char type, uint64_t B1, std::vector<Curve>& points)
 {
     std::unique_ptr<Writer> writer(file.get_writer());
     writer->write(File::MAGIC_NUM);
-    writer->write(FACTORING_APPID + (0 << 8) + (type << 16) + (0 << 24));
+    writer->write(FACTORING_APPID + (0 << 8) + (type << 16) + (_file_version << 24));
     writer->write(_gwstate.fingerprint);
     writer->write(_seed);
     writer->write((int)points.size());
     writer->write(B1);
-    Giant X, Y, Z, T;
     for (auto it = points.begin(); it != points.end(); it++)
     {
-        (*it)->serialize(X, Y, Z, T);
-        writer->write(X);
-        writer->write(Y);
-        writer->write(Z);
-        writer->write(T);
+        writer->write(it->X);
+        writer->write(it->Y);
+        writer->write(it->Z);
+        writer->write(it->T);
     }
     file.commit_writer(*writer);
 }
 
-bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::vector<std::unique_ptr<EdPoint>>& points)
+bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::vector<Curve>& points)
 {
     file.appid = FACTORING_APPID;
     std::unique_ptr<Reader> reader(file.get_reader());
@@ -56,11 +55,13 @@ bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::v
         reader.reset(file.get_reader());
         if (!reader)
             return false;
+        _file_version = 0;
     }
     else
     {
         if (!reader || reader->type() != type)
             return false;
+        _file_version = reader->version();
         uint32_t fingerprint;
         if (!reader->read(fingerprint) || fingerprint != _gwstate.fingerprint)
             return false;
@@ -75,11 +76,8 @@ bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::v
     points.resize(count);
     for (int i = 0; i < count; i++)
     {
-        points[i].reset(new EdPoint(_ed));
-        Giant X, Y, Z, T;
-        if (!reader->read(X) || !reader->read(Y) || !reader->read(Z) || !reader->read(T))
+        if (!reader->read(points[i].X) || !reader->read(points[i].Y) || !reader->read(points[i].Z) || !reader->read(points[i].T))
             return false;
-        points[i]->deserialize(X, Y, Z, T);
     }
     return true;
 }
@@ -93,7 +91,7 @@ bool Factoring::read_points(File& file)
 {
     int seed;
     uint64_t B1;
-    std::vector<std::unique_ptr<EdPoint>> points;
+    std::vector<Curve> points;
     if (!read_file(file, 0, seed, B1, points))
         return false;
     _seed = seed;
@@ -107,7 +105,8 @@ bool Factoring::read_state(File& file, uint64_t B1)
 {
     int seed;
     uint64_t b1;
-    std::vector<std::unique_ptr<EdPoint>> points;
+    std::vector<Curve> points;
+    points.reserve(_points.size());
     if (!read_file(file, 1, seed, b1, points))
         return false;
     if (_seed != seed)
@@ -125,6 +124,7 @@ std::string Factoring::generate(int seed, int count)
     _B1 = 1;
     _points.clear();
     _state.clear();
+    _points.reserve(count);
 
     GWArithmetic& gw = _gw.carefully();
     Writer hasher;
@@ -151,6 +151,8 @@ std::string Factoring::generate(int seed, int count)
         }
     }
 
+    Giant gx, gy, gx8, gisdx8, gd;
+    Giant n1, nx8, nisdx8;
     for (i = 0; i < count; i++)
     {
         // Asserting T^2 = S^3 - 8S - 32
@@ -177,13 +179,14 @@ std::string Factoring::generate(int seed, int count)
         GWNum x = x8*(4*beta - 3)/(6*beta - 5);
         GWNum y = x8*(t*(t + 50) - 104 - square(s)*(2*s - 27))/((t - 2 + 3*s)*(t + 16 + s));
 
-        Giant gx = (gw.popg() = x)%gw.N();
-        Giant gy = (gw.popg() = y)%gw.N();
-        Giant gx8 = (gw.popg() = x8)%gw.N();
-        Giant gisdx8 = (gw.popg() = isdx8)%gw.N();
-        Giant n1 = gw.N() - 1;
-        Giant nx8 = gw.N() - gx8;
-        Giant nisdx8 = gw.N() - gisdx8;
+        (gx = x) %= gw.N();
+        (gy = y) %= gw.N();
+        (gx8 = x8) %= gw.N();
+        (gisdx8 = isdx8) %= gw.N();
+        (gd = square(sqrt_d)) %= gw.N();
+        (n1 = gw.N()) -= 1;
+        (nx8 = gw.N()) -= gx8;
+        (nisdx8 = gw.N()) -= gisdx8;
 
         // Checking torsion points
         ArithmeticException e("Torsion point.");
@@ -215,12 +218,14 @@ std::string Factoring::generate(int seed, int count)
         // Asserting X^2 + Y^2 = 1 + d * X^2 * Y^2
         GWASSERT((gw.popg() = square(x) + square(y))%gw.N() == (gw.popg() = 1 + square(sqrt_d)*square(x)*square(y))%gw.N());
 
-        Giant gd = (gw.popg() = square(sqrt_d))%gw.N();
         hasher.write((char*)gd.data(), gd.size()*4);
 
-        _points.emplace_back(new EdPoint(_ed));
-        _points.back()->X.reset(new GWNum(std::move(x)));
-        _points.back()->Y.reset(new GWNum(std::move(y)));
+        _points.emplace_back();
+        _points.back().X = gx;
+        _points.back().Y = gy;
+        _points.back().Z = 1;
+        _points.back().T = 0;
+        _points.back().D = gd;
 
         if (i + seed == 1)
         {
@@ -244,17 +249,52 @@ std::string Factoring::generate(int seed, int count)
     return hasher.hash_str();
 }
 
+void Factoring::compute_d(bool stateless)
+{
+    int i;
+    std::vector<std::unique_ptr<arithmetic::EdPoint>> ed_points(_points.size());
+    for (i = stateless ? (int)_state.size() : 0; i < _points.size(); i++)
+        if (_points[i].D.empty())
+        {
+            ed_points[i].reset(new EdPoint(_ed));
+            ed_points[i]->deserialize(_points[i].X, _points[i].Y, _points[i].Z, _points[i].T);
+            _ed.d_ratio(*ed_points[i], *ed_points[i]->X, *ed_points[i]->Y);
+            ed_points[i]->Z.reset(ed_points[i]->Y.release());
+        }
+    _ed.normalize(ed_points.begin(), ed_points.end(), _ed.ED_PROJECTIVE);
+    for (i = 0; i < _points.size(); i++)
+        if (ed_points[i])
+            (_points[i].D = *ed_points[i]->X) %= _gw.N();
+}
+
+void Factoring::normalize(std::vector<Curve>& points)
+{
+    int i;
+    std::vector<std::unique_ptr<arithmetic::EdPoint>> ed_points(points.size());
+    for (i = 0; i < points.size(); i++)
+    {
+        ed_points[i].reset(new EdPoint(_ed));
+        ed_points[i]->deserialize(points[i].X, points[i].Y, points[i].Z, points[i].T);
+    }
+    _ed.normalize(ed_points.begin(), ed_points.end(), _ed.ED_PROJECTIVE);
+    for (i = 0; i < points.size(); i++)
+        ed_points[i]->serialize(points[i].X, points[i].Y, points[i].Z, points[i].T);
+}
+
 std::string Factoring::verify(bool verify_curve)
 {
     int i;
+    std::vector<std::unique_ptr<arithmetic::EdPoint>> ed_points(_points.size());
     for (i = 0; i < _points.size(); i++)
     {
-        _ed.d_ratio(*_points[i], *_points[i]->X, *_points[i]->Y);
-        _points[i]->Z.reset(_points[i]->Y.release());
+        ed_points[i].reset(new EdPoint(_ed));
+        ed_points[i]->deserialize(_points[i].X, _points[i].Y, _points[i].Z, _points[i].T);
+        _ed.d_ratio(*ed_points[i], *ed_points[i]->X, *ed_points[i]->Y);
+        ed_points[i]->Z.reset(ed_points[i]->Y.release());
     }
     try
     {
-        _ed.normalize(_points.begin(), _points.end(), _ed.ED_PROJECTIVE);
+        _ed.normalize(ed_points.begin(), ed_points.end(), _ed.ED_PROJECTIVE);
     }
     catch (const NoInverseException& e)
     {
@@ -265,21 +305,22 @@ std::string Factoring::verify(bool verify_curve)
         {
             try
             {
-                _points[i]->normalize();
+                ed_points[i]->normalize();
             }
             catch (const NoInverseException&)
             {
                 _logging.warning("curve #%d found the factor.\n", _seed + i);
-                _ed.gen_curve(_seed + i, _points[i]->X.get());
-                _points[i]->Z.reset();
+                _ed.gen_curve(_seed + i, ed_points[i]->X.get());
+                ed_points[i]->Z.reset();
             }
         }
     }
 
+    Giant gd;
     Writer hasher;
     for (i = 0; i < _points.size(); i++)
     {
-        Giant gd = (_gw.popg() = *_points[i]->X)%_gw.N();
+        (gd = *ed_points[i]->X) %= _gw.N();
         hasher.write((char*)gd.data(), gd.size()*4);
     }
 
@@ -311,8 +352,8 @@ void Factoring::modulus(int curve, File& file_result)
     }
     for (; i < j; i++)
     {
-        *_points[i]->X = (_gw.popg() = *_points[i]->X)%_gw.N();
-        *_points[i]->Y = (_gw.popg() = *_points[i]->Y)%_gw.N();
+        _points[i].X %= _gw.N();
+        _points[i].Y %= _gw.N();
     }
     write_file(file_result, 0, _B1, _points);
 }
@@ -336,9 +377,9 @@ bool Factoring::split(int offset, int count, Factoring& result)
     result._state.clear();
     if (&result != this)
     {
-        result._points.clear();
+        result._points.resize(count);
         for (int i = 0; i < count; i++)
-            result._points.emplace_back(new EdPoint(*_points[offset + i]));
+            result._points[i] = _points[offset + i];
     }
     else
     {
@@ -362,8 +403,9 @@ bool Factoring::merge(Factoring& other)
     }
     _logging.info("merging %d curve%s starting with #%d.\n", other._points.size(), other._points.size() > 1 ? "s" : "", other._seed);
 
+    _points.reserve(_points.size() + other._points.size());
     for (auto it = other._points.begin(); it != other._points.end(); it++)
-        _points.emplace_back(it->release());
+        _points.push_back(std::move(*it));
     return true;
 }
 
@@ -375,102 +417,51 @@ void Factoring::copy(Factoring& result)
     result._seed = _seed;
     result._B1 = _B1;
     result._state.clear();
-    result._points.clear();
+    result._points.resize(_points.size());
     for (size_t i = 0; i < _points.size(); i++)
-        result._points.emplace_back(new EdPoint(*_points[i]));
-}
-
-Giant get_exp(std::vector<uint64_t>& primes, uint64_t B1)
-{
-    uint64_t j, k;
-
-    auto it = primes.begin();
-
-    uint64_t sqrtB1 = (uint64_t)(sqrt(B1) + 0.5);
-    Giant tmp(GiantsArithmetic::default_arithmetic(), (int)primes.size()*2 + 10);
-    Giant tmp2(GiantsArithmetic::default_arithmetic(), 8192 < tmp.capacity() ? 8192 : tmp.capacity());
-    tmp2 = 1;
-    Giant g64;
-    g64 = 1;
-    g64 <<= 32;
-    while (it != primes.end())
-    {
-        // Building exponent with prime powers <= B1
-        j = *it;
-        if (*it <= sqrtB1)
-        {
-            k = B1/(*it);
-            while (j <= k)
-                j *= *it;
-        }
-        g64 = 1;
-        if (j >= (1ULL << 32))
-            g64 <<= 32;
-        *(uint64_t*)g64.data() = j;
-        tmp2 *= g64;
-        it++;
-        if (it == primes.end() || tmp2.size() > 8190)
-        {
-            if (tmp == 0)
-                tmp = tmp2;
-            else
-                tmp *= tmp2;
-            tmp2 = 1;
-        }
-    }
-
-    return tmp;
+        result._points[i] = _points[i];
 }
 
 void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& file_state, File& file_result)
 {
-    int i, j;
+    int i;
 
-    if (_B1 == 1)
-    {
-        _ed.set_gw(_gw.carefully());
-        for (i = 0; i < _points.size(); i++)
-            for (j = (int)ceil(log2(B1max)); j > 0; j--)
-                _ed.dbl(*_points[i], *_points[i], _ed.ED_PROJECTIVE);
-        _ed.normalize(_points.begin(), _points.end(), _ed.ED_PROJECTIVE);
-        _B1 = 2;
-        _ed.set_gw(_gw);
-        if (_B1 == B1next)
-        {
-            write_file(file_result, 0, B1next, _points);
-            return;
-        }
-    }
-
-    PrimeList primes(65536);
-    std::vector<uint64_t> plist;
-    primes.begin().sieve_range(_B1 + 1, B1next + 1, plist);
-    Giant tmp = get_exp(plist, B1max);
-    plist.clear();
-
-    int W;
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
-    int len = tmp.bitlen();
-    for (W = 2; W < 16 && 3 + 3*(1 << (W - 1)) <= maxSize && (15 << (W - 2)) + len*(7 + 7/(W + 1.0)) > (15 << (W - 1)) + len*(7 + 7/(W + 2.0)); W++);
-    std::vector<int16_t> naf_w;
-    get_NAF_W(W, tmp, naf_w);
+    EdECMStage1 stage1(_B1, B1next, B1max, maxSize);
+    stage1.set_no_check_success();
+    _logging.info("%d bits, W = %d\n", stage1.exp_len(), stage1.W());
 
-    _logging.info("%d bits, W = %d\n", len, W);
-    _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
+    SubLogging logging(_logging, _logging.level() + 1);
+    logging.progress().add_stage(stage1.exp_len());
+    _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*stage1.exp_len()/1000);
+    std::string prefix = _logging.prefix();
 
-    time_t last_write = time(NULL);
+    compute_d(true);
+    _state.reserve(_points.size());
+    time_t last_write = time(NULL) - 270;
     while (_state.size() < _points.size())
     {
         i = (int)_state.size();
-        _state.emplace_back(new EdPoint(_ed));
+        _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
+        File* file_stage1 = file_state.add_child(std::to_string(B1next) + "." + std::to_string(stage1.W()) + "." + std::to_string(i));
         //double timer = getHighResTimer();
-        _ed.mul(*_points[i], W, naf_w, *_state[i]);
+        stage1.init(&_input, &_gwstate, file_stage1, &logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
+        if (stage1.state() != nullptr)
+            last_write = 0;
+        stage1.run();
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
+        file_stage1->clear();
+        _state.emplace_back();
+        _state[i].X = std::move(stage1.state()->X());
+        _state[i].Y = std::move(stage1.state()->Y());
+        _state[i].Z = std::move(stage1.state()->Z());
+        _state[i].T = std::move(stage1.state()->T());
+        _logging.set_prefix(prefix);
 
         if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
         {
-            _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*len/1000);
+            _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*stage1.exp_len()/1000);
             _logging.report_progress();
             write_file(file_state, 1, B1next, _state);
             last_write = time(NULL);
@@ -479,7 +470,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
             throw TaskAbortException();
     }
 
-    _ed.normalize(_state.begin(), _state.end(), _ed.ED_PROJECTIVE);
+    normalize(_state);
     write_file(file_result, 0, B1next, _state);
     _B1 = B1next;
     _points = std::move(_state);
@@ -489,6 +480,13 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
 {
     int i;
 
+    i = 0;
+    file_state.appid = FACTORING_APPID;
+    std::unique_ptr<Reader> reader(file_state.get_reader());
+    if (reader && reader->type() == 2)
+        reader->read(i);
+    reader.reset();
+
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
     EdECMParams params_edecm(_B1, B2, maxSize, poly, threads);
     if (params_edecm.PolyPower > 0 && _gwstate.max_polymult_output() < 2*(1 << params_edecm.PolyPower))
@@ -496,61 +494,42 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
         _logging.error("FFT size too small for polynomial stage 2. Set -fft+1.\n");
         return;
     }
-    SubLogging logging(_logging, _logging.level() + 1);
-    logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
-
     EdECMStage2 stage2(params_edecm.B1, params_edecm.B2);
     if (params_edecm.PolyPower == 0)
-    {
-        PrimeList primes((int)B2 + 100);
-        stage2.stage2_pairing(params_edecm.D, params_edecm.L, params_edecm.LN, logging, primes);
-    }
+        stage2.stage2_pairing(params_edecm.D, params_edecm.L, params_edecm.LN, _logging);
     else
         stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.PolyDegree, params_edecm.PolyPower, params_edecm.PolyThreads);
-
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, params_edecm.PolyDegree);
+
+    SubLogging logging(_logging, _logging.level() + 1);
+    logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
+    _logging.progress().update(i/(double)_points.size(), i);
     std::string prefix = _logging.prefix();
 
-    if (_state.size() == 0)
-    {
-        for (i = 0; i < _points.size(); i++)
-        {
-            _state.emplace_back(new EdPoint(_ed));
-            _state.back()->X.reset(new GWNum(_gw));
-            _state.back()->Z.reset(new GWNum(_gw));
-            _ed.d_ratio(*_points[i], *_state.back()->X, *_state.back()->Z);
-        }
-        _ed.normalize(_state.begin(), _state.end(), _ed.ED_PROJECTIVE);
-    }
-
-    _logging.progress().update(_state.size()/(double)_points.size(), (int)(_points.size() - _state.size()));
-
-    Giant X, Y, Z, T, EdD;
+    compute_d(true);
     time_t last_write = time(NULL) - 270;
-    while (_state.size() > 0)
+    while (i < _points.size())
     {
-        i = (int)_state.size() - 1;
-        if (!_ed.on_curve(*_points[i], *_state[i]->X))
-            throw ArithmeticException();
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
-        //_ed.dbl(*_points[i], *_points[i]);
-        _points[i]->serialize(X, Y, Z, T);
-        EdD = *_state[i]->X;
         //double timer = getHighResTimer();
-        stage2.init(&_input, &_gwstate, nullptr, &logging, X, Y, Z, T, EdD);
+        stage2.init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
         stage2.run();
         //if (stage2.success())
         //    _logging.warning("curve #%d found the factor.\n", _seed + i);
-        _state.pop_back();
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
         _logging.set_prefix(prefix);
 
-        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() > 0)
+        i++;
+        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && i < _points.size())
         {
-            _logging.progress().update((_points.size() - _state.size())/(double)_points.size(), (int)(_points.size() - _state.size()));
+            _logging.progress().update(i/(double)_points.size(), i);
             _logging.report_progress();
-            write_file(file_state, 1, B2, _state);
+            std::unique_ptr<Writer> writer(file_state.get_writer());
+            writer->write(File::MAGIC_NUM);
+            writer->write(FACTORING_APPID + (0 << 8) + (2 << 16) + (0 << 24));
+            writer->write(i);
+            file_state.commit_writer(*writer);
             last_write = time(NULL);
         }
         if (Task::abort_flag())
@@ -819,27 +798,34 @@ int factoring_main(int argc, char *argv[])
         File file_state(filename_state, gwstate.fingerprint);
         file_state.hash = false;
 
-        if (generate)
+        if (!factoring.read_points(file_points))
         {
-            if (seed <= 0)
+            if (generate)
             {
-                logging.error("invalid curve #.\n");
+                if (seed <= 0)
+                {
+                    logging.error("invalid curve #.\n");
+                    return 1;
+                }
+                if (count <= 0)
+                {
+                    logging.error("invalid # of curves.\n");
+                    return 1;
+                }
+                std::string dhash = factoring.generate(seed, count);
+                factoring.write_points(file_points);
+                write_dhash(filename + ".dhash", dhash);
+                logging.info("generated %d curve%s starting with #%d.\n", count, count > 1 ? "s" : "", seed);
+                logging.info("dhash: %s\n", dhash.data());
+            }
+            else
+            {
+                logging.error("file is missing or corrupted.\n");
                 return 1;
             }
-            if (count <= 0)
-            {
-                logging.error("invalid # of curves.\n");
-                return 1;
-            }
-            std::string dhash = factoring.generate(seed, count);
-            factoring.write_points(file_points);
-            write_dhash(filename + ".dhash", dhash);
         }
-        else if (!factoring.read_points(file_points))
-        {
-            logging.error("file is missing or corrupted.\n");
-            return 1;
-        }
+        else if (generate)
+            logging.warning("file exists, -generate ignored.\n");
 
         if (range)
             factoring.split(rangeOffset, rangeCount, factoring);
@@ -867,7 +853,6 @@ int factoring_main(int argc, char *argv[])
         if (B2 > factoring.B1())
         {
             logging.progress().add_stage((int)factoring.points().size());
-            factoring.read_state(file_state, B2);
             factoring.stage2(B2, maxMem, poly, polyThreads, file_state);
             remove(filename_state.data());
             logging.progress().next_stage();

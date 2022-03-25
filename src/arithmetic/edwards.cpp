@@ -457,10 +457,11 @@ namespace arithmetic
         GWNum x = x8*(4*beta - 3)/(6*beta - 5);
         GWNum y = x8*(t*(t + 50) - 104 - square(s)*(2*s - 27))/((t - 2 + 3*s)*(t + 16 + s));
 
-        Giant gx = (gw.popg() = x)%gw.N();
-        Giant gy = (gw.popg() = y)%gw.N();
-        Giant gx8 = (gw.popg() = x8)%gw.N();
-        Giant gisdx8 = (gw.popg() = isdx8)%gw.N();
+        Giant gx, gy, gx8, gisdx8;
+        (gx = x) %= gw.N();
+        (gy = y) %= gw.N();
+        (gx8 = x8) %= gw.N();
+        (gisdx8 = isdx8) %= gw.N();
         Giant n1 = gw.N() - 1;
         Giant nx8 = gw.N() - gx8;
         Giant nisdx8 = gw.N() - gisdx8;

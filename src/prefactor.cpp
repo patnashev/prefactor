@@ -354,21 +354,6 @@ int main(int argc, char *argv[])
             params_edecm.reset(new EdECMParams(B1, B2, maxSize, poly, polyThreads));
     }
 
-    B2 = 0;
-    if (params_pm1 && B2 < params_pm1->B1)
-        B2 = params_pm1->B1;
-    if (params_pm1 && params_pm1->PolyPower == 0 && B2 < params_pm1->B2)
-        B2 = params_pm1->B2;
-    if (params_pp1 && B2 < params_pp1->B1)
-        B2 = params_pp1->B1;
-    if (params_pp1 && params_pp1->PolyPower == 0 && B2 < params_pp1->B2)
-        B2 = params_pp1->B2;
-    if (params_edecm && B2 < params_edecm->B1)
-        B2 = params_edecm->B1;
-    if (params_edecm && params_edecm->PolyPower == 0 && B2 < params_edecm->B2)
-        B2 = params_edecm->B2;
-    PrimeList primes((int)B2 + 100);
-
     int size = 0;
     if (params_pm1)
     {
@@ -422,7 +407,7 @@ int main(int argc, char *argv[])
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
-                PM1Stage1 stage1(primes, (int)params_pm1->B1);
+                PM1Stage1 stage1((int)params_pm1->B1);
                 stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
                 success = stage1.success();
@@ -438,7 +423,7 @@ int main(int argc, char *argv[])
             {
                 PP1Stage2 stage2(params_pm1->B1, params_pm1->B2);
                 if (params_pm1->PolyPower == 0)
-                    stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging, primes);
+                    stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging);
                 else
                     stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->PolyDegree, params_pm1->PolyPower, params_pm1->PolyThreads);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
@@ -461,7 +446,7 @@ int main(int argc, char *argv[])
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
-                PP1Stage1 stage1(primes, (int)params_pp1->B1, sP);
+                PP1Stage1 stage1((int)params_pp1->B1, sP);
                 stage1.init(&input, &gwstate, &file1, &logging);
                 stage1.run();
                 success = stage1.success();
@@ -476,7 +461,7 @@ int main(int argc, char *argv[])
             {
                 PP1Stage2 stage2(params_pp1->B1, params_pp1->B2);
                 if (params_pp1->PolyPower == 0)
-                    stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging, primes);
+                    stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging);
                 else
                     stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->PolyDegree, params_pp1->PolyPower, params_pp1->PolyThreads);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
@@ -552,8 +537,8 @@ int main(int argc, char *argv[])
             EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
             if (interstate == nullptr)
             {
-                EdECMStage1 stage1(primes, (int)params_edecm->B1, params_edecm->W);
-                stage1.init(&input, &gwstate, &file1, &logging, X, Y, Z, T, EdD);
+                EdECMStage1 stage1((int)params_edecm->B1, params_edecm->W);
+                stage1.init(&input, &gwstate, &file1, &logging, &X, &Y, &Z, &T, &EdD);
                 stage1.run();
                 success = stage1.success();
                 if (!success && params_edecm->B2 > params_edecm->B1)
@@ -567,7 +552,7 @@ int main(int argc, char *argv[])
             {
                 EdECMStage2 stage2(params_edecm->B1, params_edecm->B2);
                 if (params_edecm->PolyPower == 0)
-                    stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging, primes);
+                    stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging);
                 else
                     stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->PolyDegree, params_edecm->PolyPower, params_edecm->PolyThreads);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);

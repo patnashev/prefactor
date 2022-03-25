@@ -53,17 +53,18 @@ public:
         gwthread id;
         std::unique_ptr<Stage2> stage2;
         std::unique_ptr<arithmetic::GWState> gwstate;
-        std::unique_ptr<File> file;
+        File* file;
     };
 
 protected:
     Stage2(uint64_t B1, uint64_t B2) : Task(true), _B1(B1), _B2(B2) { }
 
-    void stage2_pairing(int D, int A, int L, Logging& logging, PrimeList& primes)
+    void stage2_pairing(int D, int A, int L, Logging& logging)
     {
         _D = D;
         _A = A;
         _L = L;
+        PrimeList primes((int)_B2 + 100);
         _pairing = get_pairing(logging, primes, (int)_B1, (int)_B2, D, A, L, true);
     }
 
@@ -151,9 +152,9 @@ public:
         stage2_poly(main->_D, main->_L, main->_poly_degree, main->_poly_power, 1);
     }
 
-    void stage2_pairing(int D, int A, int L, Logging& logging, PrimeList& primes)
+    void stage2_pairing(int D, int A, int L, Logging& logging)
     {
-        Stage2::stage2_pairing(D, A, L, logging, primes);
+        Stage2::stage2_pairing(D, A, L, logging);
     }
 
     void stage2_poly(int D, int L, int poly_degree, int poly_power, int poly_threads)
@@ -191,10 +192,10 @@ public:
         stage2_poly(main->_D, main->_L, main->_LN, main->_poly_degree, main->_poly_power, 1);
     }
 
-    void stage2_pairing(int D, int L, int LN, Logging& logging, PrimeList& primes)
+    void stage2_pairing(int D, int L, int LN, Logging& logging)
     {
         _LN = LN;
-        Stage2::stage2_pairing(D, 1, L, logging, primes);
+        Stage2::stage2_pairing(D, 1, L, logging);
     }
 
     void stage2_poly(int D, int L, int LN, int poly_degree, int poly_power, int poly_threads)

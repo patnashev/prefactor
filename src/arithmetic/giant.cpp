@@ -165,7 +165,16 @@ namespace arithmetic
         if (res._giant != a._giant)
             copy(a, res);
         if (a._giant != b._giant)
-            mulg(b._giant, res._giant);
+        {
+            if ((abs(res._giant->sign) > 10000 && abs(res._giant->sign) > 4*abs(b._giant->sign)) || (abs(b._giant->sign) > 10000 && abs(b._giant->sign) > 4*abs(res._giant->sign)))
+            {
+                setmulmode(FFT_MUL);
+                mulg(b._giant, res._giant);
+                setmulmode(AUTO_MUL);
+            }
+            else
+                mulg(b._giant, res._giant);
+        }
         else
             squareg(res._giant);
     }

@@ -58,8 +58,8 @@ State* read_state(File* file)
 class Task
 {
 public:
-    const int MULS_PER_STATE_UPDATE = 10000;
-    const int DISK_WRITE_TIME = 1;
+    const int MULS_PER_STATE_UPDATE = 20000;
+    const int DISK_WRITE_TIME = 5;
 
 public:
     Task(bool error_check) : _error_check(error_check){ }

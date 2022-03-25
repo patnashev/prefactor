@@ -15,14 +15,16 @@ class Stage1 : public Task
 public:
 
 public:
-    Stage1(PrimeList& primes, int B1) : Task(true), _primes(primes), _B1(B1)
+    Stage1(uint64_t B1) : Task(true), _B1(B1)
     {
     }
 
-    arithmetic::Giant get_stage1_exp();
+    static arithmetic::Giant get_stage1_exp(int B1);
+    static arithmetic::Giant get_stage1_exp(uint64_t B1cur, uint64_t B1next, uint64_t B1max);
 
-    PrimeList& primes() { return _primes; }
+    void set_no_check_success() { _check_success = false; }
     bool success() { return _success; }
+    int exp_len() { return _exp_len; }
 
 protected:
     void setup() override { }
@@ -31,16 +33,16 @@ protected:
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations);
     void done(const arithmetic::Giant& factor);
 
-private:
-    PrimeList& _primes;
-
 protected:
-    int _B1;
+    uint64_t _B1;
+    int _squarings = 0;
+    int _exp_len = 0;
 
     InputNum* _input = nullptr;
     double _timer = 0;
     int _transforms = 0;
     bool _success = false;
+    bool _check_success = true;
 };
 
 class PM1Stage1 : public Stage1
@@ -60,7 +62,7 @@ public:
     };
 
 public:
-    PM1Stage1(PrimeList& primes, int B1);
+    PM1Stage1(int B1);
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging);
 
@@ -93,7 +95,7 @@ public:
     };
     
 public:
-    PP1Stage1(PrimeList& primes, int B1, std::string& sP);
+    PP1Stage1(int B1, std::string& sP);
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging);
 
@@ -101,6 +103,9 @@ public:
 
 protected:
     void execute() override;
+
+protected:
+    PrimeList _primes;
 
 private:
     std::string _sP;
@@ -132,11 +137,13 @@ public:
     };
 
 public:
-    EdECMStage1(PrimeList& primes, int B1, int W);
+    EdECMStage1(int B1, int W);
+    EdECMStage1(uint64_t B1cur, uint64_t B1next, uint64_t B1max, int max_size);
 
-    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
+    void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant* X, arithmetic::Giant* Y, arithmetic::Giant* Z, arithmetic::Giant* T, arithmetic::Giant* EdD);
 
     State* state() { return static_cast<State*>(Task::state()); }
+    int W() { return _W; }
 
 protected:
     void setup() override;
@@ -146,11 +153,11 @@ protected:
 private:
     int _W;
     std::vector<int16_t> _NAF_W;
-    arithmetic::Giant _X;
-    arithmetic::Giant _Y;
-    arithmetic::Giant _Z;
-    arithmetic::Giant _T;
-    arithmetic::Giant _EdD;
+    arithmetic::Giant* _X;
+    arithmetic::Giant* _Y;
+    arithmetic::Giant* _Z;
+    arithmetic::Giant* _T;
+    arithmetic::Giant* _EdD;
     std::unique_ptr<arithmetic::EdwardsArithmetic> ed;
     std::unique_ptr<arithmetic::GWNum> _ed_d;
     std::vector<std::unique_ptr<arithmetic::EdPoint>> _u;

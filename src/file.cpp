@@ -135,7 +135,8 @@ bool Reader::read(arithmetic::Giant& value)
 
 File* File::add_child(const std::string& name)
 {
-    return new File(_filename + "." + name, _fingerprint);
+    _children.emplace_back(new File(_filename + "." + name, _fingerprint));
+    return _children.back().get();
 }
 
 Writer* File::get_writer()

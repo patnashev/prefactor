@@ -832,7 +832,7 @@ void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
             _poly_thread_helpers[i].gwstate.reset(new GWState());
             _poly_thread_helpers[i].gwstate->copy(*gwstate);
             input->setup(*_poly_thread_helpers[i].gwstate);
-            _poly_thread_helpers[i].file.reset(file->add_child(std::to_string(i + 2)));
+            _poly_thread_helpers[i].file = file->add_child(std::to_string(i + 2));
         }
     }
 
@@ -907,7 +907,7 @@ void PP1Stage2::init(InputNum* input, GWState* gwstate, File* file, Logging* log
     _P = P;
 
     for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
-        static_cast<PP1Stage2*>(it->stage2.get())->init(input, it->gwstate.get(), it->file.get(), logging, P, minus1);
+        static_cast<PP1Stage2*>(it->stage2.get())->init(input, it->gwstate.get(), it->file, logging, P, minus1);
 }
 
 void PP1Stage2::setup()
@@ -1130,7 +1130,7 @@ void EdECMStage2::init(InputNum* input, GWState* gwstate, File* file, Logging* l
     _EdD = EdD;
 
     for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
-        static_cast<EdECMStage2*>(it->stage2.get())->init(input, it->gwstate.get(), it->file.get(), logging, X, Y, Z, T, EdD);
+        static_cast<EdECMStage2*>(it->stage2.get())->init(input, it->gwstate.get(), it->file, logging, X, Y, Z, T, EdD);
 }
 
 void EdECMStage2::setup()
