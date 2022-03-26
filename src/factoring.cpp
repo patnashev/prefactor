@@ -456,6 +456,8 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         File* file_stage1 = file_state.add_child(std::to_string(B1next) + "." + std::to_string(stage1.W()) + "." + std::to_string(i));
         //double timer = getHighResTimer();
         stage1.init(&_input, &_gwstate, file_stage1, logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
+        if (_points.size() == 1)
+            _logging.set_prefix(prefix);
         if (stage1.state() != nullptr)
             last_write = 0;
         stage1.run();
