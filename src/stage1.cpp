@@ -277,7 +277,7 @@ void EdECMStage1::init(InputNum* input, GWState* gwstate, File* file, Logging* l
     Stage1::init(input, gwstate, file, read_state<State>(file), logging, (int)_NAF_W.size() - 1);
     _state_update_period = MULS_PER_STATE_UPDATE/_W;
     _logging->set_prefix(input->display_text() + ", EdECM stage 1, ");
-    _logging->info("B1 = %" PRId64 ", W = %d", _B1, _W);
+    _logging->info("B1 = %" PRId64 ", %d bits, W = %d", _B1, _exp_len, _W);
     if (state() != nullptr)
         _logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
     _logging->info(".\n");

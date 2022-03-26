@@ -56,6 +56,11 @@ void NetLogging::report_factor(InputNum& input, const Giant& f)
 void NetLogging::report_progress()
 {
     Logging::report_progress();
+    update_progress();
+}
+
+void NetLogging::update_progress()
+{
     _net.task()->progress = progress().progress_total();
     _net.task()->time = progress().time_total();
     _net.task()->time_op = progress().time_op()*1000;
@@ -79,6 +84,7 @@ File* NetFile::add_child(const std::string& name)
 
 Writer* NetFile::get_writer()
 {
+    _net_ctx.logging().update_progress();
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
     _net_ctx.upload_cancel(this);
     if (_uploading)
@@ -548,10 +554,8 @@ int net_main(int argc, char *argv[])
                     if (net.task()->options.find("B1max") != net.task()->options.end())
                         B1max = InputNum::parse_numeral(net.task()->options["B1max"]);
 
-                    logging.progress().add_stage((int)factoring.points().size());
                     factoring.read_state(file_checkpoint, net.task()->b1);
                     factoring.stage1(net.task()->b1, B1max, maxMem, file_checkpoint, file_output);
-                    logging.progress().next_stage();
                 }
                 else
                 {

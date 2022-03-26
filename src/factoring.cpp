@@ -429,12 +429,21 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
     EdECMStage1 stage1(_B1, B1next, B1max, maxSize);
     stage1.set_no_check_success();
-    _logging.info("%d bits, W = %d\n", stage1.exp_len(), stage1.W());
 
-    SubLogging logging(_logging, _logging.level() + 1);
-    logging.progress().add_stage(stage1.exp_len());
-    _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*stage1.exp_len()/1000);
     std::string prefix = _logging.prefix();
+    Logging* logging = &_logging;
+    SubLogging sub_logging(_logging, _logging.level() + 1);
+    for (i = 0; i < _points.size(); i++)
+        _logging.progress().add_stage(stage1.exp_len());
+    for (i = 0; i < _state.size(); i++)
+        _logging.progress().next_stage();
+    if (_points.size() > 1)
+    {
+        _logging.info("%d bits, W = %d\n", stage1.exp_len(), stage1.W());
+        _logging.progress().update(0, 0);
+        sub_logging.progress().add_stage(stage1.exp_len());
+        logging = &sub_logging;
+    }
 
     compute_d(true);
     _state.reserve(_points.size());
@@ -442,33 +451,39 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     while (_state.size() < _points.size())
     {
         i = (int)_state.size();
-        _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
+        if (_points.size() > 1)
+            _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         File* file_stage1 = file_state.add_child(std::to_string(B1next) + "." + std::to_string(stage1.W()) + "." + std::to_string(i));
         //double timer = getHighResTimer();
-        stage1.init(&_input, &_gwstate, file_stage1, &logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
+        stage1.init(&_input, &_gwstate, file_stage1, logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
         if (stage1.state() != nullptr)
             last_write = 0;
         stage1.run();
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
         file_stage1->clear();
+        _logging.set_prefix(prefix);
+
         _state.emplace_back();
         _state[i].X = std::move(stage1.state()->X());
         _state[i].Y = std::move(stage1.state()->Y());
         _state[i].Z = std::move(stage1.state()->Z());
         _state[i].T = std::move(stage1.state()->T());
-        _logging.set_prefix(prefix);
 
+        if (_points.size() > 1)
+            _logging.progress().update(1, stage1.exp_len()/1000);
         if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
         {
-            _logging.progress().update(_state.size()/(double)_points.size(), (int)_state.size()*stage1.exp_len()/1000);
             _logging.report_progress();
             write_file(file_state, 1, B1next, _state);
             last_write = time(NULL);
         }
+        _logging.progress().next_stage();
         if (Task::abort_flag())
             throw TaskAbortException();
     }
+    if (_points.size() > 1)
+        _logging.report_progress();
 
     normalize(_state);
     write_file(file_result, 0, B1next, _state);
@@ -838,11 +853,9 @@ int factoring_main(int argc, char *argv[])
                 factoring.copy(factoring_range);
                 write_dhash(filename + ".dhash", factoring_range.verify(false));
             }
-            logging.progress().add_stage((int)factoring.points().size());
             factoring.read_state(file_state, B1next);
             factoring.stage1(B1next, B1max, maxMem, file_state, file_points);
             remove(filename_state.data());
-            logging.progress().next_stage();
         }
         else
         {

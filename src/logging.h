@@ -13,11 +13,12 @@ public:
     void next_stage() { _cur_stage++; update(0, 0); }
     void update(double progress, int op_count);
     void time_init(double elapsed);
+    void set_parent(Progress* parent) { _parent = parent; }
 
     double progress_stage() { return _cur_progress; }
-    double progress_total() { int cost = 0; for (int i = 0; i < _cur_stage; cost += _costs[i], i++); return (cost + _costs[_cur_stage]*_cur_progress)/_total_cost; }
+    double progress_total() { if (_cur_stage >= _costs.size()) return 1; int cost = 0; for (int i = 0; i < _cur_stage; cost += _costs[i], i++); return (cost + _costs[_cur_stage]*_cur_progress)/_total_cost; }
     int cost_total() { return _total_cost; }
-    double time_total() { return _time_total; }
+    double time_total() { return _time_total + _time_stage; }
     double time_op() { return _time_op; }
     int op_count() { return _op_count; }
     int num_stages() { return (int)_costs.size(); }
@@ -28,9 +29,11 @@ private:
     int _cur_stage = 0;
     double _cur_progress = 0;
     double _time_total = 0;
+    double _time_stage = 0;
     double _time_op = 0;
     double _timer = 0;
     int _op_count = 0;
+    Progress* _parent = nullptr;
 };
 
 class Logging
@@ -72,7 +75,7 @@ private:
 class SubLogging : public Logging
 {
 public:
-    SubLogging(Logging& parent, int level = LEVEL_WARNING) : Logging(level), _parent(parent) { }
+    SubLogging(Logging& parent, int level = LEVEL_WARNING) : Logging(level), _parent(parent) { progress().set_parent(&parent.progress()); }
 
     virtual void report(const std::string& message, int level) override { _parent.report(message, level); }
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override { _parent.report_factor(input, f); }

@@ -102,6 +102,7 @@ public:
     virtual void report(const std::string& message, int level) override;
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override;
     virtual void report_progress() override;
+    void update_progress();
 
 private:
     int _net_level;
@@ -131,7 +132,7 @@ public:
     std::string& task_id() { return _task->id; }
     std::chrono::seconds::rep uptime() { return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - _start_time).count(); }
 
-    Logging& logging() { return _logging; }
+    NetLogging& logging() { return _logging; }
     restc_cpp::RestClient* client() { return _client.get(); }
     std::unique_ptr<PFTask>& task() { return _task; }
 

@@ -172,6 +172,7 @@ void Task::on_state()
 {
     if (_file != nullptr && _state && (std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME || abort_flag()))
     {
+        _logging->progress().update(_state->iteration()/(double)iterations(), (int)_gwstate->handle.fft_count/2);
         _file->write(*_state);
         _last_write = std::chrono::system_clock::now();
     }
