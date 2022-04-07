@@ -580,6 +580,7 @@ int factoring_main(int argc, char *argv[])
     int split = 0;
     int splitOffset = 0;
     int splitCount = 0;
+    int splitCurve = 0;
     std::string splitName;
     int merge = 0;
     std::string mergeName;
@@ -721,10 +722,20 @@ int factoring_main(int argc, char *argv[])
             {
                 split = 1;
                 i++;
-                splitOffset = atoi(argv[i]);
-                i++;
-                splitCount = atoi(argv[i]);
-                i++;
+                if (strcmp(argv[i], "curve") == 0)
+                {
+                    i++;
+                    splitCurve = atoi(argv[i]);
+                    i++;
+                    splitCount = 1;
+                }
+                else
+                {
+                    splitOffset = atoi(argv[i]);
+                    i++;
+                    splitCount = atoi(argv[i]);
+                    i++;
+                }
                 splitName = argv[i];
             }
             else if (i < argc - 1 && strcmp(argv[i], "-merge") == 0)
@@ -797,7 +808,7 @@ int factoring_main(int argc, char *argv[])
         }
     if (input.empty() || filename.empty())
     {
-        printf("Usage: prefactor -factoring {\"NUMBER\" | FILE | fermat N} [-generate CURVE COUNT] [-B1 10000] [-mod [curve CURVE]] [-verify [curve]] [-split OFFSET COUNT FILE] [-merge FILE] [-f FACTOR] FILE\n");
+        printf("Usage: prefactor -factoring {\"NUMBER\" | FILE | fermat N} [-generate CURVE COUNT] [-B1 10000] [-mod [curve CURVE]] [-verify [curve]] [-split {OFFSET COUNT | curve CURVE} FILE] [-merge FILE] [-f FACTOR] FILE\n");
         return 0;
     }
 
@@ -880,6 +891,8 @@ int factoring_main(int argc, char *argv[])
 
         if (split)
         {
+            if (splitCurve)
+                splitOffset = splitCurve - factoring.seed();
             Factoring factoring_split(input, gwstate, logging);
             if (factoring.split(splitOffset, splitCount, factoring_split))
             {

@@ -45,6 +45,7 @@ public:
 
     std::vector<Curve>& points() { return _points; }
     uint64_t B1() { return _B1; }
+    int seed() { return _seed; }
 
 private:
     void write_file(File& file, char type, uint64_t B1, std::vector<Curve>& points);
