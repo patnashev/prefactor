@@ -247,13 +247,6 @@ void NetContext::upload(NetFile* file)
 
             try
             {
-                auto properties = _putter->GetConnectionProperties();
-                properties->afterWriteFn = [&]()
-                {
-                    std::lock_guard<std::mutex> lock(_upload_mutex);
-                    file->on_uploaded();
-                };
-
                 RequestBuilder(ctx)
                     .Put(put_url)
                     .Argument("md5", md5)
@@ -267,7 +260,8 @@ void NetContext::upload(NetFile* file)
                     .Body(std::unique_ptr<RequestBody>(new RequestBodyData(data, size)))
                     .Execute();
 
-                properties->afterWriteFn = nullptr;
+                std::lock_guard<std::mutex> lock(_upload_mutex);
+                file->on_uploaded();
                 file = nullptr;
             }
             catch (const HttpAuthenticationException&) {
