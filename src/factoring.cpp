@@ -447,7 +447,9 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
 
     compute_d(true);
     _state.reserve(_points.size());
-    time_t last_write = time(NULL) - 270;
+    time_t last_write = time(NULL);
+    if (Task::DISK_WRITE_TIME > 30)
+        last_write -= Task::DISK_WRITE_TIME - 30;
     while (_state.size() < _points.size())
     {
         i = (int)_state.size();
@@ -474,7 +476,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
 
         if (_points.size() > 1)
             _logging.progress().update(1, stage1.exp_len()/1000);
-        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && _state.size() < _points.size())
+        if ((time(NULL) - last_write > Task::DISK_WRITE_TIME || Task::abort_flag()) && _state.size() < _points.size())
         {
             _logging.report_progress();
             write_file(file_state, 1, B1next, _state);
@@ -524,7 +526,9 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
     std::string prefix = _logging.prefix();
 
     compute_d(true);
-    time_t last_write = time(NULL) - 270;
+    time_t last_write = time(NULL);
+    if (Task::DISK_WRITE_TIME > 30)
+        last_write -= Task::DISK_WRITE_TIME - 30;
     while (i < _points.size())
     {
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
@@ -538,7 +542,7 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
         _logging.set_prefix(prefix);
 
         i++;
-        if ((time(NULL) - last_write > 300 || Task::abort_flag()) && i < _points.size())
+        if ((time(NULL) - last_write > Task::DISK_WRITE_TIME || Task::abort_flag()) && i < _points.size())
         {
             _logging.progress().update(i/(double)_points.size(), i);
             _logging.report_progress();
@@ -682,6 +686,19 @@ int factoring_main(int argc, char *argv[])
                 {
                     i++;
                     polyThreads = atoi(argv[i] + 1);
+                }
+            }
+            else if (strcmp(argv[i], "-time") == 0)
+            {
+                if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
+                {
+                    i += 2;
+                    Task::DISK_WRITE_TIME = atoi(argv[i]);
+                }
+                if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
+                {
+                    i += 2;
+                    Task::PROGRESS_TIME = atoi(argv[i]);
                 }
             }
             else if (i < argc - 2 && strcmp(argv[i], "-generate") == 0)

@@ -323,6 +323,7 @@ int net_main(int argc, char *argv[])
     int net_log_level = Logging::LEVEL_WARNING;
     uint64_t maxMem = 2048*1048576ULL;
     int polyThreads = 1;
+    int disk_write_time = Task::DISK_WRITE_TIME;
 
     for (i = 1; i < argc; i++)
         if (argv[i][0] == '-' && argv[i][1])
@@ -379,6 +380,19 @@ int net_main(int argc, char *argv[])
                 {
                     i++;
                     polyThreads = atoi(argv[i] + 1);
+                }
+            }
+            else if (strcmp(argv[i], "-time") == 0)
+            {
+                if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
+                {
+                    i += 2;
+                    disk_write_time = atoi(argv[i]);
+                }
+                if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
+                {
+                    i += 2;
+                    Task::PROGRESS_TIME = atoi(argv[i]);
                 }
             }
             else if (strcmp(argv[i], "-v") == 0)
@@ -481,6 +495,10 @@ int net_main(int argc, char *argv[])
         bool poly = false;
         if (net.task()->options.find("poly") != net.task()->options.end())
             poly = net.task()->options["poly"] == "true";
+        if (net.task()->options.find("write_time") != net.task()->options.end())
+            Task::DISK_WRITE_TIME = std::stoi(net.task()->options["write_time"]);
+        else
+            Task::DISK_WRITE_TIME = disk_write_time;
 
         NetFile file_dhash(net, "dhash", 0);
         NetFile file_input(net, "input", gwstate.fingerprint);

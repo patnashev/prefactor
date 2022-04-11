@@ -215,6 +215,19 @@ int main(int argc, char *argv[])
                     polyThreads = atoi(argv[i] + 1);
                 }
             }
+            else if (strcmp(argv[i], "-time") == 0)
+            {
+                if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
+                {
+                    i += 2;
+                    Task::DISK_WRITE_TIME = atoi(argv[i]);
+                }
+                if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
+                {
+                    i += 2;
+                    Task::PROGRESS_TIME = atoi(argv[i]);
+                }
+            }
 #ifdef FACTORING
             else if (strcmp(argv[i], "-factoring") == 0)
                 return factoring_main(argc, argv);

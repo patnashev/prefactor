@@ -23,6 +23,9 @@ void TaskState::write(Writer& writer)
 }
 
 bool Task::_abort_flag = false;
+int Task::MULS_PER_STATE_UPDATE = 20000;
+int Task::DISK_WRITE_TIME = 300;
+int Task::PROGRESS_TIME = 10;
 
 void Task::init(arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations)
 {
@@ -170,7 +173,7 @@ void Task::check()
 
 void Task::on_state()
 {
-    if (_file != nullptr && _state && (std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME || abort_flag()))
+    if (_file != nullptr && _state && (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - _last_write).count() >= DISK_WRITE_TIME || abort_flag()))
     {
         _logging->progress().update(_state->iteration()/(double)iterations(), (int)_gwstate->handle.fft_count/2);
         _file->write(*_state);
@@ -178,7 +181,7 @@ void Task::on_state()
     }
     if (abort_flag())
         throw TaskAbortException();
-    if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - _last_progress).count() >= 10)
+    if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - _last_progress).count() >= PROGRESS_TIME)
     {
         _logging->progress().update(_state ? _state->iteration()/(double)iterations() : 0.0, (int)_gwstate->handle.fft_count/2);
         _logging->report_progress();
