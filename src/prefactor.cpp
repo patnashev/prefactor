@@ -417,10 +417,10 @@ int main(int argc, char *argv[])
     {
         if (params_pm1 && !success)
         {
-            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, params_pm1->unique_id());
-            File file1(std::to_string(gwstate.fingerprint) + ".m1", fingerprint);
-            File file12(std::to_string(gwstate.fingerprint) + ".m12", fingerprint);
-            File file2(std::to_string(gwstate.fingerprint) + ".m2", fingerprint);
+            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, std::to_string(params_pm1->B1));
+            File file1(std::to_string(fingerprint) + ".m1", fingerprint);
+            File file12(std::to_string(fingerprint) + ".m12", fingerprint);
+            File file2(std::to_string(fingerprint) + ".m2", File::unique_fingerprint(fingerprint, std::to_string(params_pm1->B2)));
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
@@ -457,10 +457,10 @@ int main(int argc, char *argv[])
             if (sP.empty())
                 //sP = "6/5";
                 sP = "2/7";
-            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, sP + "." + params_pp1->unique_id());
-            File file1(std::to_string(gwstate.fingerprint) + ".p1", fingerprint);
-            File file12(std::to_string(gwstate.fingerprint) + ".p12", fingerprint);
-            File file2(std::to_string(gwstate.fingerprint) + ".p2", fingerprint);
+            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, sP + "." + std::to_string(params_pp1->B1));
+            File file1(std::to_string(fingerprint) + ".p1", fingerprint);
+            File file12(std::to_string(fingerprint) + ".p12", fingerprint);
+            File file2(std::to_string(fingerprint) + ".p2", File::unique_fingerprint(fingerprint, std::to_string(params_pp1->B2)));
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
@@ -552,10 +552,10 @@ int main(int argc, char *argv[])
                 EdD = ed_d;
             };
 
-            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + params_edecm->unique_id());
-            File file1(std::to_string(gwstate.fingerprint) + ".ed1", fingerprint);
-            File file12(std::to_string(gwstate.fingerprint) + ".ed12", fingerprint);
-            File file2(std::to_string(gwstate.fingerprint) + ".ed2", fingerprint);
+            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + std::to_string(params_edecm->B1));
+            File file1(std::to_string(fingerprint) + ".ed1", fingerprint);
+            File file12(std::to_string(fingerprint) + ".ed12", fingerprint);
+            File file2(std::to_string(fingerprint) + ".ed2", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->B2)));
             EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
             if (interstate == nullptr)
             {
