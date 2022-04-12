@@ -133,10 +133,23 @@ bool Reader::read(arithmetic::Giant& value)
     return true;
 }
 
-File* File::add_child(const std::string& name)
+File* File::add_child(const std::string& name, uint32_t fingerprint)
 {
-    _children.emplace_back(new File(_filename + "." + name, _fingerprint));
+    _children.emplace_back(new File(_filename + "." + name, fingerprint));
+    _children.back()->hash = hash;
     return _children.back().get();
+}
+
+uint32_t File::unique_fingerprint(uint32_t fingerprint, const std::string& unique_id)
+{
+    unsigned char digest[16];
+    MD5_CTX context;
+    MD5Init(&context);
+    MD5Update(&context, (unsigned char *)&fingerprint, 4);
+    MD5Update(&context, (unsigned char *)unique_id.data(), (unsigned int)unique_id.size());
+    MD5Final(digest, &context);
+
+    return *(uint32_t*)digest;
 }
 
 Writer* File::get_writer()
@@ -146,11 +159,25 @@ Writer* File::get_writer()
     return writer;
 }
 
+Writer* File::get_writer(char type, char version)
+{
+    Writer* writer = new Writer(std::move(_buffer));
+    writer->buffer().clear();
+    writer->write(MAGIC_NUM);
+    writer->write(appid + (0 << 8) + (type << 16) + (version << 24));
+    if (_fingerprint != 0)
+        writer->write(_fingerprint);
+    return writer;
+}
+
 Reader* File::get_reader()
 {
     FILE* fd = fopen(_filename.data(), "rb");
     if (!fd)
+    {
+        _buffer.clear();
         return nullptr;
+    }
     fseek(fd, 0L, SEEK_END);
     int filelen = ftell(fd);
     _buffer.resize(filelen);
@@ -158,7 +185,10 @@ Reader* File::get_reader()
     filelen = (int)fread(_buffer.data(), 1, filelen, fd);
     fclose(fd);
     if (filelen != _buffer.size())
+    {
+        _buffer.clear();
         return nullptr;
+    }
 
     if (hash)
     {
@@ -175,7 +205,10 @@ Reader* File::get_reader()
             {
                 md5_raw_input(md5hash, (unsigned char *)_buffer.data(), (unsigned int)_buffer.size());
                 if (saved_hash != md5hash)
+                {
+                    _buffer.clear();
                     return nullptr;
+                }
             }
         }
     }
@@ -186,8 +219,12 @@ Reader* File::get_reader()
         return nullptr;
     if (_buffer[4] != appid)
         return nullptr;
+    if (_fingerprint != 0 && _buffer.size() < 12)
+        return nullptr;
+    if (_fingerprint != 0 && *(uint32_t*)(_buffer.data() + 8) != _fingerprint)
+        return nullptr;
 
-    return new Reader(_buffer[5], _buffer[6], _buffer[7], _buffer.data(), (int)_buffer.size(), 8);
+    return new Reader(_buffer[5], _buffer[6], _buffer[7], _buffer.data(), (int)_buffer.size(), _fingerprint != 0 ? 12 : 8);
 }
 
 bool writeThrough(char *filename, const void *buffer, size_t count)
@@ -248,18 +285,12 @@ bool File::read(TaskState& state)
         return false;
     if (reader->type() != state.type())
         return false;
-    uint32_t fingerprint;
-    if (!reader->read(fingerprint) || fingerprint != _fingerprint)
-        return false;
     return state.read(*reader);
 }
 
 void File::write(TaskState& state)
 {
-    std::unique_ptr<Writer> writer(get_writer());
-    writer->write(MAGIC_NUM);
-    writer->write(FILE_APPID + (0 << 8) + (state.type() << 16) + (state.version() << 24));
-    writer->write(_fingerprint);
+    std::unique_ptr<Writer> writer(get_writer(state.type(), state.version()));
     state.write(*writer);
     commit_writer(*writer);
 }

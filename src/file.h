@@ -66,15 +66,20 @@ public:
     File(const std::string& filename, uint32_t fingerprint) : _filename(filename), _fingerprint(fingerprint) { }
     virtual ~File() { }
 
-    virtual File* add_child(const std::string& name);
+    virtual File* add_child(const std::string& name, uint32_t fingerprint);
     virtual Writer* get_writer();
+    virtual Writer* get_writer(char type, char version);
     virtual Reader* get_reader();
     virtual void commit_writer(Writer& writer);
     virtual void clear();
+
     bool read(TaskState& state);
     void write(TaskState& state);
-    
+
+    static uint32_t unique_fingerprint(uint32_t fingerprint, const std::string& unique_id);
+
     std::string& filename() { return _filename; }
+    std::vector<char>& buffer() { return _buffer; }
     bool hash = true;
     int appid = FILE_APPID;
 

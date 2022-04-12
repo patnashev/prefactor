@@ -28,10 +28,8 @@ void write_dhash(const std::string& filename, const std::string& dhash)
 
 void Factoring::write_file(File& file, char type, uint64_t B1, std::vector<Curve>& points)
 {
-    std::unique_ptr<Writer> writer(file.get_writer());
-    writer->write(File::MAGIC_NUM);
-    writer->write(FACTORING_APPID + (0 << 8) + (type << 16) + (_file_version << 24));
-    writer->write(_gwstate.fingerprint);
+    file.appid = FACTORING_APPID;
+    std::unique_ptr<Writer> writer(file.get_writer(type, 0));
     writer->write(_seed);
     writer->write((int)points.size());
     writer->write(B1);
@@ -51,21 +49,16 @@ bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::v
     std::unique_ptr<Reader> reader(file.get_reader());
     if (!reader)
     {
-        file.appid = 2;
-        reader.reset(file.get_reader());
-        if (!reader)
+        if (file.buffer().size() < 8)
             return false;
-        _file_version = 0;
+        if (*(uint32_t*)file.buffer().data() != File::MAGIC_NUM)
+            return false;
+        if (file.buffer()[4] != 2 && file.buffer()[4] != 1)
+            return false;
+        reader.reset(new Reader(0, file.buffer()[5], file.buffer()[4] != 1 ? 0 : -1, file.buffer().data(), (int)file.buffer().size(), 8));
     }
-    else
-    {
-        if (!reader || reader->type() != type)
-            return false;
-        _file_version = reader->version();
-        uint32_t fingerprint;
-        if (!reader->read(fingerprint) || fingerprint != _gwstate.fingerprint)
-            return false;
-    }
+    if (reader->type() != type)
+        return false;
     if (!reader->read(seed))
         return false;
     int count;
@@ -76,8 +69,10 @@ bool Factoring::read_file(File& file, char type, int& seed, uint64_t& B1, std::v
     points.resize(count);
     for (int i = 0; i < count; i++)
     {
-        if (!reader->read(points[i].X) || !reader->read(points[i].Y) || !reader->read(points[i].Z) || !reader->read(points[i].T))
+        if (!reader->read(points[i].X) || !reader->read(points[i].Y) || !reader->read(points[i].Z) || (reader->version() != -1 && !reader->read(points[i].T)))
             return false;
+        if (reader->version() == -1 && points[i].Z == 0)
+            points[i].Z = 1;
     }
     return true;
 }
@@ -448,23 +443,31 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     compute_d(true);
     _state.reserve(_points.size());
     time_t last_write = time(NULL);
-    if (Task::DISK_WRITE_TIME > 30)
-        last_write -= Task::DISK_WRITE_TIME - 30;
+    int last_write_count = 0;
+    time_t last_progress = time(NULL);
+    if (Task::PROGRESS_TIME > 30)
+        last_progress -= Task::PROGRESS_TIME - 30;
     while (_state.size() < _points.size())
     {
         i = (int)_state.size();
         if (_points.size() > 1)
             _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
-        File* file_stage1 = file_state.add_child(std::to_string(B1next) + "." + std::to_string(stage1.W()) + "." + std::to_string(i));
-        //double timer = getHighResTimer();
+        File* file_stage1 = file_state.add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, std::to_string(_B1) + "." + std::to_string(B1next) + "." + std::to_string(B1max) + "." + std::to_string(stage1.W()) + "." + std::to_string(i)));
         stage1.init(&_input, &_gwstate, file_stage1, logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
         if (_points.size() == 1)
             _logging.set_prefix(prefix);
         if (stage1.state() != nullptr)
             last_write = 0;
-        stage1.run();
-        //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-        //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
+        try
+        {
+            stage1.run();
+        }
+        catch (const TaskAbortException&)
+        {
+            if (last_write_count < _state.size())
+                write_file(file_state, 1, B1next, _state);
+            throw;
+        }
         file_stage1->clear();
         _logging.set_prefix(prefix);
 
@@ -476,15 +479,19 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
 
         if (_points.size() > 1)
             _logging.progress().update(1, stage1.exp_len()/1000);
-        if ((time(NULL) - last_write > Task::DISK_WRITE_TIME || Task::abort_flag()) && _state.size() < _points.size())
+        if (time(NULL) - last_progress > Task::PROGRESS_TIME && _state.size() < _points.size())
         {
             _logging.report_progress();
-            write_file(file_state, 1, B1next, _state);
-            last_write = time(NULL);
+            last_progress = time(NULL);
         }
         _logging.progress().next_stage();
-        if (Task::abort_flag())
-            throw TaskAbortException();
+
+        if (time(NULL) - last_write > Task::DISK_WRITE_TIME && _state.size() < _points.size())
+        {
+            write_file(file_state, 1, B1next, _state);
+            last_write = time(NULL);
+            last_write_count = _state.size();
+        }
     }
     if (_points.size() > 1)
         _logging.report_progress();
@@ -527,8 +534,9 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
 
     compute_d(true);
     time_t last_write = time(NULL);
-    if (Task::DISK_WRITE_TIME > 30)
-        last_write -= Task::DISK_WRITE_TIME - 30;
+    time_t last_progress = time(NULL);
+    if (Task::PROGRESS_TIME > 30)
+        last_progress -= Task::PROGRESS_TIME - 30;
     while (i < _points.size())
     {
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
@@ -542,19 +550,20 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
         _logging.set_prefix(prefix);
 
         i++;
-        if ((time(NULL) - last_write > Task::DISK_WRITE_TIME || Task::abort_flag()) && i < _points.size())
+        if (time(NULL) - last_progress > Task::PROGRESS_TIME && i < _points.size())
         {
             _logging.progress().update(i/(double)_points.size(), i);
             _logging.report_progress();
-            std::unique_ptr<Writer> writer(file_state.get_writer());
-            writer->write(File::MAGIC_NUM);
-            writer->write(FACTORING_APPID + (0 << 8) + (2 << 16) + (0 << 24));
+            last_progress = time(NULL);
+        }
+
+        if (time(NULL) - last_write > Task::DISK_WRITE_TIME && i < _points.size())
+        {
+            std::unique_ptr<Writer> writer(file_state.get_writer(2, 0));
             writer->write(i);
             file_state.commit_writer(*writer);
             last_write = time(NULL);
         }
-        if (Task::abort_flag())
-            throw TaskAbortException();
     }
 }
 
@@ -690,16 +699,19 @@ int factoring_main(int argc, char *argv[])
             }
             else if (strcmp(argv[i], "-time") == 0)
             {
-                if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
-                {
-                    i += 2;
-                    Task::DISK_WRITE_TIME = atoi(argv[i]);
-                }
-                if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
-                {
-                    i += 2;
-                    Task::PROGRESS_TIME = atoi(argv[i]);
-                }
+                while (true)
+                    if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
+                    {
+                        i += 2;
+                        Task::DISK_WRITE_TIME = atoi(argv[i]);
+                    }
+                    else if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
+                    {
+                        i += 2;
+                        Task::PROGRESS_TIME = atoi(argv[i]);
+                    }
+                    else
+                        break;
             }
             else if (i < argc - 2 && strcmp(argv[i], "-generate") == 0)
             {
@@ -839,9 +851,6 @@ int factoring_main(int argc, char *argv[])
         logging.set_prefix(filename + ", ");
         File file_points(filename, gwstate.fingerprint);
         file_points.hash = false;
-        std::string filename_state = filename + ".tmp";
-        File file_state(filename_state, gwstate.fingerprint);
-        file_state.hash = false;
 
         if (!factoring.read_points(file_points))
         {
@@ -883,9 +892,13 @@ int factoring_main(int argc, char *argv[])
                 factoring.copy(factoring_range);
                 write_dhash(filename + ".dhash", factoring_range.verify(false));
             }
+
+            std::string filename_state = filename + ".tmp";
+            File file_state(filename_state, File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(B1max)));
+            file_state.hash = false;
             factoring.read_state(file_state, B1next);
             factoring.stage1(B1next, B1max, maxMem, file_state, file_points);
-            remove(filename_state.data());
+            file_state.clear();
         }
         else
         {
@@ -895,10 +908,13 @@ int factoring_main(int argc, char *argv[])
 
         if (B2 > factoring.B1())
         {
+            std::string filename_state = filename + ".tmp";
+            File file_state(filename_state, File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(B2)));
+            file_state.hash = false;
             logging.progress().add_stage((int)factoring.points().size());
             factoring.stage2(B2, maxMem, poly, polyThreads, file_state);
-            remove(filename_state.data());
             logging.progress().next_stage();
+            file_state.clear();
         }
 
         if (modulus)

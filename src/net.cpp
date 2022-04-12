@@ -76,13 +76,13 @@ void NetFile::on_uploaded()
     _uploading = false;
 }
 
-File* NetFile::add_child(const std::string& name)
+File* NetFile::add_child(const std::string& name, uint32_t fingerprint)
 {
-    _children.emplace_back(new NetFile(_net_ctx, _filename + "." + name, _fingerprint));
+    _children.emplace_back(new NetFile(_net_ctx, _filename + "." + name, fingerprint));
     return _children.back().get();
 }
 
-Writer* NetFile::get_writer()
+Writer* NetFile::get_writer(char type, char version)
 {
     _net_ctx.logging().update_progress();
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
@@ -92,7 +92,7 @@ Writer* NetFile::get_writer()
         _buffer.swap(_net_ctx.buffer());
         _uploading = false;
     }
-    return File::get_writer();
+    return File::get_writer(type, version);
 }
 
 Reader* NetFile::get_reader()
@@ -268,12 +268,14 @@ void NetContext::upload(NetFile* file)
                 std::clog << "Task timed out." << std::endl;
                 _task->aborted = true;
                 Task::abort();
+                file->on_uploaded();
                 file = nullptr;
             }
             catch (const HttpForbiddenException&) {
                 std::clog << "Task not found." << std::endl;
                 _task->aborted = true;
                 Task::abort();
+                file->on_uploaded();
                 file = nullptr;
             }
             catch (const std::exception& ex) {
@@ -384,16 +386,19 @@ int net_main(int argc, char *argv[])
             }
             else if (strcmp(argv[i], "-time") == 0)
             {
-                if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
-                {
-                    i += 2;
-                    disk_write_time = atoi(argv[i]);
-                }
-                if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
-                {
-                    i += 2;
-                    Task::PROGRESS_TIME = atoi(argv[i]);
-                }
+                while (true)
+                    if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
+                    {
+                        i += 2;
+                        disk_write_time = atoi(argv[i]);
+                    }
+                    else if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
+                    {
+                        i += 2;
+                        Task::PROGRESS_TIME = atoi(argv[i]);
+                    }
+                    else
+                        break;
             }
             else if (strcmp(argv[i], "-v") == 0)
             {

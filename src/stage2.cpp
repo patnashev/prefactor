@@ -832,7 +832,7 @@ void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
             _poly_thread_helpers[i].gwstate.reset(new GWState());
             _poly_thread_helpers[i].gwstate->copy(*gwstate);
             input->setup(*_poly_thread_helpers[i].gwstate);
-            _poly_thread_helpers[i].file = file->add_child(std::to_string(i + 2));
+            _poly_thread_helpers[i].file = file->add_child(std::to_string(i + 2), gwstate->fingerprint);
         }
     }
 

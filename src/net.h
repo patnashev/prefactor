@@ -65,8 +65,9 @@ class NetFile : public File
 public:
     NetFile(NetContext& net_ctx, const std::string& filename, uint32_t fingerprint) : File(filename, fingerprint), _net_ctx(net_ctx) { }
 
-    File* add_child(const std::string& name) override;
-    Writer* get_writer() override;
+    File* add_child(const std::string& name, uint32_t fingerprint) override;
+    using File::get_writer;
+    Writer* get_writer(char type, char version) override;
     Reader* get_reader() override;
     void commit_writer(Writer& writer) override;
     void clear() override;
@@ -75,7 +76,6 @@ public:
     virtual void on_uploaded();
 
     NetContext& net() { return _net_ctx; }
-    std::vector<char>& buffer() { return _buffer; }
     std::string& md5hash() { return _md5hash; }
 
 private:

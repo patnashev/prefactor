@@ -217,16 +217,19 @@ int main(int argc, char *argv[])
             }
             else if (strcmp(argv[i], "-time") == 0)
             {
-                if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
-                {
-                    i += 2;
-                    Task::DISK_WRITE_TIME = atoi(argv[i]);
-                }
-                if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
-                {
-                    i += 2;
-                    Task::PROGRESS_TIME = atoi(argv[i]);
-                }
+                while (true)
+                    if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
+                    {
+                        i += 2;
+                        Task::DISK_WRITE_TIME = atoi(argv[i]);
+                    }
+                    else if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
+                    {
+                        i += 2;
+                        Task::PROGRESS_TIME = atoi(argv[i]);
+                    }
+                    else
+                        break;
             }
 #ifdef FACTORING
             else if (strcmp(argv[i], "-factoring") == 0)

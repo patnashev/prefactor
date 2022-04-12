@@ -60,7 +60,6 @@ private:
     arithmetic::GWArithmetic _gw;
     arithmetic::EdwardsArithmetic _ed;
 
-    char _file_version = 0;
     int _seed;
     uint64_t _B1;
     std::vector<Curve> _points;

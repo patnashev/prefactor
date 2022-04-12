@@ -28,9 +28,7 @@ bool InputNum::read(File& file)
 
 void InputNum::write(File& file)
 {
-    std::unique_ptr<Writer> writer(file.get_writer());
-    writer->write(File::MAGIC_NUM);
-    writer->write(FILE_APPID + (0 << 8) + (0 << 16) + (0 << 24));
+    std::unique_ptr<Writer> writer(file.get_writer(0, 0));
     if (_n == 0)
         writer->write(_gb);
     else
