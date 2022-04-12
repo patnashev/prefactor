@@ -417,9 +417,10 @@ int main(int argc, char *argv[])
     {
         if (params_pm1 && !success)
         {
-            File file1(std::to_string(gwstate.fingerprint) + ".m1", gwstate.fingerprint);
-            File file12(std::to_string(gwstate.fingerprint) + ".m12", gwstate.fingerprint);
-            File file2(std::to_string(gwstate.fingerprint) + ".m2", gwstate.fingerprint);
+            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, params_pm1->unique_id());
+            File file1(std::to_string(gwstate.fingerprint) + ".m1", fingerprint);
+            File file12(std::to_string(gwstate.fingerprint) + ".m12", fingerprint);
+            File file2(std::to_string(gwstate.fingerprint) + ".m2", fingerprint);
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
@@ -456,9 +457,10 @@ int main(int argc, char *argv[])
             if (sP.empty())
                 //sP = "6/5";
                 sP = "2/7";
-            File file1(std::to_string(gwstate.fingerprint) + ".p1", gwstate.fingerprint);
-            File file12(std::to_string(gwstate.fingerprint) + ".p12", gwstate.fingerprint);
-            File file2(std::to_string(gwstate.fingerprint) + ".p2", gwstate.fingerprint);
+            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, sP + "." + params_pp1->unique_id());
+            File file1(std::to_string(gwstate.fingerprint) + ".p1", fingerprint);
+            File file12(std::to_string(gwstate.fingerprint) + ".p12", fingerprint);
+            File file2(std::to_string(gwstate.fingerprint) + ".p2", fingerprint);
             PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
             if (interstate == nullptr)
             {
@@ -491,6 +493,7 @@ int main(int argc, char *argv[])
         }
         if (params_edecm && !success)
         {
+            std::string jinvariant;
             Giant X, Y, Z, T, EdD;
             {
                 EdwardsArithmetic ed(gw.carefully());
@@ -524,12 +527,14 @@ int main(int argc, char *argv[])
 
                     Giant tmp;
                     tmp = ed.jinvariant(ed_d);
+                    jinvariant.resize(17, 0);
                     if (tmp.size() > 1)
-                        logging.info("Curve j-invariant RES64: %08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                        snprintf(jinvariant.data(), 17, "%08X%08X\n", tmp.data()[1], tmp.data()[0]);
                     else if (tmp.size() > 0)
-                        logging.info("Curve j-invariant RES64: %08X%08X\n", 0, tmp.data()[0]);
+                        snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, tmp.data()[0]);
                     else
-                        logging.info("Curve j-invariant RES64: %08X%08X\n", 0, 0);
+                        snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, 0);
+                    logging.info("Curve j-invariant RES64: %s\n", jinvariant.data());
                 }
                 catch (const NoInverseException& e)
                 {
@@ -547,9 +552,10 @@ int main(int argc, char *argv[])
                 EdD = ed_d;
             };
 
-            File file1(std::to_string(gwstate.fingerprint) + ".ed1", gwstate.fingerprint);
-            File file12(std::to_string(gwstate.fingerprint) + ".ed12", gwstate.fingerprint);
-            File file2(std::to_string(gwstate.fingerprint) + ".ed2", gwstate.fingerprint);
+            uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + params_edecm->unique_id());
+            File file1(std::to_string(gwstate.fingerprint) + ".ed1", fingerprint);
+            File file12(std::to_string(gwstate.fingerprint) + ".ed12", fingerprint);
+            File file2(std::to_string(gwstate.fingerprint) + ".ed2", fingerprint);
             EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
             if (interstate == nullptr)
             {

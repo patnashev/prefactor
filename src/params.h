@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 #include <cstdint>
 #include "prob.h"
@@ -22,6 +23,7 @@ public:
     virtual int stage1_size();
     virtual int stage2_cost();
     virtual int stage2_size();
+    virtual std::string unique_id();
 
 public:
     uint64_t B1;

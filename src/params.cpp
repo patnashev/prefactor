@@ -21,6 +21,11 @@ int Params::stage1_size()
     return 1;
 }
 
+std::string Params::unique_id()
+{
+    return std::to_string(B1) + "." + std::to_string(B2);
+}
+
 PM1Params::PM1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads) : Params(B1_, B2_)
 {
     if (poly || max_size > 2000)
@@ -77,7 +82,8 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     if (poly || max_size > 2000)
     {
         find_poly_stage2_optimal_params(max_size, threads);
-        LN = 16;
+        LN = 128;
+        LN = PolyDegree;
     }
     else
     {
@@ -107,7 +113,7 @@ void Params::find_poly_stage2_optimal_params(int max_size, int threads)
     PolyDegree = 127;
     PolyPower = 7;
     PolyThreads = threads;
-
+    //return;
     if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
     {
         D = 2310;
