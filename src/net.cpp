@@ -695,13 +695,11 @@ int net_main(int argc, char *argv[])
                         }
                         Giant tmp;
                         tmp = ed.jinvariant(ed_d);
-                        jinvariant.resize(17, 0);
+                        jinvariant.resize(16, '0');
                         if (tmp.size() > 1)
-                            snprintf(jinvariant.data(), 17, "%08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                            snprintf(jinvariant.data(), 17, "%08X%08X", tmp.data()[1], tmp.data()[0]);
                         else if (tmp.size() > 0)
-                            snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, tmp.data()[0]);
-                        else
-                            snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, 0);
+                            snprintf(jinvariant.data() + 8, 9, "%08X", tmp.data()[0]);
                         dhash = tmp.to_string();
                         P.serialize(X, Y, Z, T);
                         EdD = ed_d;
