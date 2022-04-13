@@ -529,11 +529,11 @@ int main(int argc, char *argv[])
                     tmp = ed.jinvariant(ed_d);
                     jinvariant.resize(17, 0);
                     if (tmp.size() > 1)
-                        snprintf(jinvariant.data(), 17, "%08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                        snprintf(jinvariant.data(), 17, "%08X%08X", tmp.data()[1], tmp.data()[0]);
                     else if (tmp.size() > 0)
-                        snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, tmp.data()[0]);
+                        snprintf(jinvariant.data(), 17, "%08X%08X", 0, tmp.data()[0]);
                     else
-                        snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, 0);
+                        snprintf(jinvariant.data(), 17, "%08X%08X", 0, 0);
                     logging.info("Curve j-invariant RES64: %s\n", jinvariant.data());
                 }
                 catch (const NoInverseException& e)
