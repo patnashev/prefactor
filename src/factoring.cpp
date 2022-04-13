@@ -442,6 +442,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
 
     compute_d(true);
     _state.reserve(_points.size());
+    std::string unique_id = std::to_string(_seed) + "." + std::to_string(_B1) + "." + std::to_string(B1next) + "." + std::to_string(B1max) + "." + std::to_string(stage1.W()) + ".";
     time_t last_write = time(NULL);
     int last_write_count = 0;
     time_t last_progress = time(NULL);
@@ -452,7 +453,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         i = (int)_state.size();
         if (_points.size() > 1)
             _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
-        File* file_stage1 = file_state.add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, std::to_string(_B1) + "." + std::to_string(B1next) + "." + std::to_string(B1max) + "." + std::to_string(stage1.W()) + "." + std::to_string(i)));
+        File* file_stage1 = file_state.add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, unique_id + std::to_string(i)));
         stage1.init(&_input, &_gwstate, file_stage1, logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
         if (_points.size() == 1)
             _logging.set_prefix(prefix);

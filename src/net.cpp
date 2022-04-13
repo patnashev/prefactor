@@ -1,4 +1,4 @@
-#define NET_PREFACTOR_VERSION "0.8.0"
+#define NET_PREFACTOR_VERSION "0.9.0"
 #define _SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING
 
 #include <stdio.h>
@@ -505,25 +505,14 @@ int net_main(int argc, char *argv[])
         else
             Task::DISK_WRITE_TIME = disk_write_time;
 
-        NetFile file_dhash(net, "dhash", 0);
-        NetFile file_input(net, "input", gwstate.fingerprint);
-        NetFile file_output(net, "output", gwstate.fingerprint);
-        NetFile file_checkpoint(net, "checkpoint", gwstate.fingerprint);
-        NetFile file_checkpoint_m1(net, "checkpoint.m1", gwstate.fingerprint);
-        NetFile file_checkpoint_m12(net, "checkpoint.m12", gwstate.fingerprint);
-        NetFile file_checkpoint_m2(net, "checkpoint.m2", gwstate.fingerprint);
-        NetFile file_checkpoint_p1(net, "checkpoint.p1", gwstate.fingerprint);
-        NetFile file_checkpoint_p12(net, "checkpoint.p12", gwstate.fingerprint);
-        NetFile file_checkpoint_p2(net, "checkpoint.p2", gwstate.fingerprint);
-        NetFile file_checkpoint_ed1(net, "checkpoint.ed1", gwstate.fingerprint);
-        NetFile file_checkpoint_ed12(net, "checkpoint.ed12", gwstate.fingerprint);
-        NetFile file_checkpoint_ed2(net, "checkpoint.ed2", gwstate.fingerprint);
-
+        std::list<NetFile> files;
         try
         {
             if (net.task()->type == "Fermat" || net.task()->type == "Factoring")
             {
                 Factoring factoring(input, gwstate, logging);
+                NetFile& file_input = files.emplace_back(net, "input", gwstate.fingerprint);
+                NetFile& file_output = files.emplace_back(net, "output", gwstate.fingerprint);
 
                 if (!factoring.read_points(file_input))
                 {
@@ -536,6 +525,8 @@ int net_main(int argc, char *argv[])
                             count = std::stoi(gen.substr(gen.find(",") + 1));
                         dhash = factoring.generate(seed, count);
                         factoring.write_points(file_input);
+
+                        NetFile& file_dhash = files.emplace_back(net, "dhash", 0);
                         std::unique_ptr<Writer> writer(file_dhash.get_writer());
                         writer->write((char*)dhash.data(), (int)dhash.length());
                         file_dhash.commit_writer(*writer);
@@ -560,6 +551,8 @@ int net_main(int argc, char *argv[])
                     Factoring factoring_range(input, gwstate, logging);
                     factoring.copy(factoring_range);
                     dhash = factoring_range.verify(false);
+
+                    NetFile& file_dhash = files.emplace_back(net, "dhash", 0);
                     std::unique_ptr<Writer> writer(file_dhash.get_writer());
                     writer->write((char*)dhash.data(), (int)dhash.length());
                     file_dhash.commit_writer(*writer);
@@ -571,6 +564,7 @@ int net_main(int argc, char *argv[])
                     if (net.task()->options.find("B1max") != net.task()->options.end())
                         B1max = InputNum::parse_numeral(net.task()->options["B1max"]);
 
+                    NetFile& file_checkpoint = files.emplace_back(net, "checkpoint", File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(B1max)));
                     factoring.read_state(file_checkpoint, net.task()->b1);
                     factoring.stage1(net.task()->b1, B1max, maxMem, file_checkpoint, file_output);
                 }
@@ -582,8 +576,9 @@ int net_main(int argc, char *argv[])
 
                 if (net.task()->b2 > factoring.B1())
                 {
-                    logging.progress().add_stage((int)factoring.points().size());
+                    NetFile& file_checkpoint = files.emplace_back(net, "checkpoint.s2", File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(net.task()->b2)));
                     factoring.read_state(file_checkpoint, net.task()->b2);
+                    logging.progress().add_stage((int)factoring.points().size());
                     factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, file_checkpoint);
                     logging.progress().next_stage();
                 }
@@ -601,17 +596,21 @@ int net_main(int argc, char *argv[])
                     logging.progress().add_stage(params_pm1->stage1_cost());
                     logging.progress().add_stage(params_pm1->stage2_cost());
 
-                    PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file_checkpoint_m12);
+                    uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, std::to_string(params_pm1->B1));
+                    NetFile& file1 = files.emplace_back(net, "checkpoint.m1", fingerprint);
+                    NetFile& file12 = files.emplace_back(net, "checkpoint.m12", fingerprint);
+                    NetFile& file2 = files.emplace_back(net, "checkpoint.m2", File::unique_fingerprint(fingerprint, std::to_string(params_pm1->B2)));
+                    PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
                     if (interstate == nullptr)
                     {
                         PM1Stage1 stage1((int)params_pm1->B1);
-                        stage1.init(&input, &gwstate, &file_checkpoint_m1, &logging);
+                        stage1.init(&input, &gwstate, &file1, &logging);
                         stage1.run();
                         if (!stage1.success() && params_pm1->B2 > params_pm1->B1)
                         {
                             interstate = new PP1Stage1::State();
                             interstate->V() = std::move(stage1.V());
-                            file_checkpoint_m12.write(*interstate);
+                            file12.write(*interstate);
                         }
                     }
                     logging.progress().next_stage();
@@ -622,7 +621,7 @@ int net_main(int argc, char *argv[])
                             stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging);
                         else
                             stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->PolyDegree, params_pm1->PolyPower, params_pm1->PolyThreads);
-                        stage2.init(&input, &gwstate, &file_checkpoint_m2, &logging, interstate->V(), true);
+                        stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                         stage2.run();
                     }
                     logging.progress().next_stage();
@@ -636,16 +635,20 @@ int net_main(int argc, char *argv[])
                     logging.progress().add_stage(params_pp1->stage1_cost());
                     logging.progress().add_stage(params_pp1->stage2_cost());
 
-                    PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file_checkpoint_p12);
+                    uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, net.task()->seed + "." + std::to_string(params_pp1->B1));
+                    NetFile& file1 = files.emplace_back(net, "checkpoint.p1", fingerprint);
+                    NetFile& file12 = files.emplace_back(net, "checkpoint.p12", fingerprint);
+                    NetFile& file2 = files.emplace_back(net, "checkpoint.p2", File::unique_fingerprint(fingerprint, std::to_string(params_pp1->B2)));
+                    PP1Stage1::State* interstate = read_state<PP1Stage1::State>(&file12);
                     if (interstate == nullptr)
                     {
                         PP1Stage1 stage1((int)params_pp1->B1, net.task()->seed);
-                        stage1.init(&input, &gwstate, &file_checkpoint_p1, &logging);
+                        stage1.init(&input, &gwstate, &file1, &logging);
                         stage1.run();
                         if (!stage1.success() && params_pp1->B2 > params_pp1->B1)
                         {
                             interstate = new PP1Stage1::State(std::move(*stage1.state()));
-                            file_checkpoint_p12.write(*interstate);
+                            file12.write(*interstate);
                         }
                     }
                     logging.progress().next_stage();
@@ -656,13 +659,14 @@ int net_main(int argc, char *argv[])
                             stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging);
                         else
                             stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->PolyDegree, params_pp1->PolyPower, params_pp1->PolyThreads);
-                        stage2.init(&input, &gwstate, &file_checkpoint_p2, &logging, interstate->V(), false);
+                        stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                         stage2.run();
                     }
                     logging.progress().next_stage();
                 }
                 if (net.task()->type == "EdECM")
                 {
+                    std::string jinvariant;
                     Giant X, Y, Z, T, EdD;
                     {
                         GWArithmetic gw(gwstate);
@@ -698,6 +702,13 @@ int net_main(int argc, char *argv[])
                         }
                         Giant tmp;
                         tmp = ed.jinvariant(ed_d);
+                        jinvariant.resize(17, 0);
+                        if (tmp.size() > 1)
+                            snprintf(jinvariant.data(), 17, "%08X%08X\n", tmp.data()[1], tmp.data()[0]);
+                        else if (tmp.size() > 0)
+                            snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, tmp.data()[0]);
+                        else
+                            snprintf(jinvariant.data(), 17, "%08X%08X\n", 0, 0);
                         dhash = tmp.to_string();
                         P.serialize(X, Y, Z, T);
                         EdD = ed_d;
@@ -708,16 +719,20 @@ int net_main(int argc, char *argv[])
                     logging.progress().add_stage(params_edecm->stage1_cost());
                     logging.progress().add_stage(params_edecm->stage2_cost());
 
-                    EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file_checkpoint_ed12);
+                    uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + std::to_string(params_edecm->B1));
+                    NetFile& file1 = files.emplace_back(net, "checkpoint.ed1", fingerprint);
+                    NetFile& file12 = files.emplace_back(net, "checkpoint.ed12", fingerprint);
+                    NetFile& file2 = files.emplace_back(net, "checkpoint.ed2", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->B2)));
+                    EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
                     if (interstate == nullptr)
                     {
                         EdECMStage1 stage1((int)params_edecm->B1, params_edecm->W);
-                        stage1.init(&input, &gwstate, &file_checkpoint_ed1, &logging, &X, &Y, &Z, &T, &EdD);
+                        stage1.init(&input, &gwstate, &file1, &logging, &X, &Y, &Z, &T, &EdD);
                         stage1.run();
                         if (!stage1.success() && params_edecm->B2 > params_edecm->B1)
                         {
                             interstate = new EdECMStage1::State(std::move(*stage1.state()));
-                            file_checkpoint_ed12.write(*interstate);
+                            file12.write(*interstate);
                         }
                     }
                     logging.progress().next_stage();
@@ -728,7 +743,7 @@ int net_main(int argc, char *argv[])
                             stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging);
                         else
                             stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->PolyDegree, params_edecm->PolyPower, params_edecm->PolyThreads);
-                        stage2.init(&input, &gwstate, &file_checkpoint_ed2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
+                        stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                         stage2.run();
                     }
                     logging.progress().next_stage();
