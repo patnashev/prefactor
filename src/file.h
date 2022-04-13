@@ -84,6 +84,9 @@ public:
     int appid = FILE_APPID;
 
 protected:
+    Reader* get_reader_from_buffer();
+
+protected:
     std::string _filename;
     uint32_t _fingerprint;
     std::vector<char> _buffer;

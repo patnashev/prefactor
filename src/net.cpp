@@ -159,14 +159,7 @@ Reader* NetFile::get_reader()
         _buffer.insert(_buffer.end(), str_data.begin(), str_data.end());
     }
 
-    if (_buffer.size() < 8)
-        return nullptr;
-    if (*(uint32_t*)_buffer.data() != MAGIC_NUM)
-        return nullptr;
-    if (_buffer[4] != appid)
-        return nullptr;
-
-    return new Reader(_buffer[5], _buffer[6], _buffer[7], _buffer.data(), (int)_buffer.size(), 8);
+    return get_reader_from_buffer();
 }
 
 void NetFile::commit_writer(Writer& writer)

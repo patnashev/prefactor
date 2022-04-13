@@ -213,6 +213,11 @@ Reader* File::get_reader()
         }
     }
 
+    return get_reader_from_buffer();
+}
+
+Reader* File::get_reader_from_buffer()
+{
     if (_buffer.size() < 8)
         return nullptr;
     if (*(uint32_t*)_buffer.data() != MAGIC_NUM)
