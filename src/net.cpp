@@ -202,8 +202,13 @@ void NetContext::upload_cancel(NetFile* file)
 
 void NetContext::upload_wait()
 {
-    if (_uploadF.valid())
-        _uploadF.get();
+    std::future<void> localF;
+    {
+        std::lock_guard<std::mutex> lock(_upload_mutex);
+        localF = std::move(_uploadF);
+    }
+    if (localF.valid())
+        localF.get();
 }
 
 void NetContext::upload(NetFile* file)
@@ -711,7 +716,7 @@ int net_main(int argc, char *argv[])
                     logging.progress().add_stage(params_edecm->stage2_cost());
 
                     uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + std::to_string(params_edecm->B1));
-                    NetFile& file1 = files.emplace_back(net, "checkpoint.ed1", fingerprint);
+                    NetFile& file1 = files.emplace_back(net, "checkpoint.ed1", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->W)));
                     NetFile& file12 = files.emplace_back(net, "checkpoint.ed12", fingerprint);
                     NetFile& file2 = files.emplace_back(net, "checkpoint.ed2", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->B2)));
                     EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);

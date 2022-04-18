@@ -551,7 +551,7 @@ int main(int argc, char *argv[])
             };
 
             uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + std::to_string(params_edecm->B1));
-            File file1(std::to_string(fingerprint) + ".ed1", fingerprint);
+            File file1(std::to_string(fingerprint) + ".ed1", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->W)));
             File file12(std::to_string(fingerprint) + ".ed12", fingerprint);
             File file2(std::to_string(fingerprint) + ".ed2", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->B2)));
             EdECMStage1::State* interstate = read_state<EdECMStage1::State>(&file12);
