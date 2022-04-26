@@ -63,11 +63,8 @@ Giant Stage1::get_stage1_exp(int B1)
 
 Giant Stage1::get_stage1_exp(uint64_t B1cur, uint64_t B1next, uint64_t B1max)
 {
-    uint64_t j, k;
-
-    PrimeList primes(65536);
     std::vector<uint64_t> plist;
-    primes.begin().sieve_range(B1cur + 1, B1next + 1, plist);
+    PrimeIterator::get().sieve_range(B1cur + 1, B1next + 1, plist);
     auto it = plist.begin();
 
     uint64_t sqrtB1 = (uint64_t)(sqrt(B1max) + 0.5);
@@ -80,10 +77,10 @@ Giant Stage1::get_stage1_exp(uint64_t B1cur, uint64_t B1next, uint64_t B1max)
     while (it != plist.end())
     {
         // Building exponent with prime powers <= B1
-        j = *it;
+        uint64_t j = *it;
         if (*it <= sqrtB1)
         {
-            k = B1max/(*it);
+            uint64_t k = B1max/(*it);
             while (j <= k)
                 j *= *it;
         }
@@ -198,8 +195,6 @@ void PP1Stage1::init(InputNum* input, GWState* gwstate, File* file, Logging* log
 
 void PP1Stage1::execute()
 {
-    int j, k;
-
     PrimeIterator it = _primes.begin();
 
     LucasVArithmetic lucas(gw().carefully());
@@ -207,7 +202,7 @@ void PP1Stage1::execute()
     if (state() == nullptr)
     {
         V.V() = _P;
-        for (j = 0; j < _squarings + _input->gfn(); j++)
+        for (int i = 0; i < _squarings + _input->gfn(); i++)
             lucas.dbl(V, V);
         it++;
         commit_execute<State>(1, V);
@@ -219,14 +214,14 @@ void PP1Stage1::execute()
     }
 
     lucas.set_gw(gw());
-    int sqrtB1 = (int)sqrt(_B1);
+    uint64_t sqrtB1 = (uint64_t)sqrt(_B1);
     while (*it <= _B1)
     {
-        j = *it;
         lucas.mul(V, *it, it.pos(), V);
         if (*it <= sqrtB1)
         {
-            k = _B1/(*it);
+            uint64_t j = *it;
+            uint64_t k = _B1/(*it);
             while (j <= k)
             {
                 lucas.mul(V, *it, it.pos(), V);
@@ -308,7 +303,7 @@ void EdECMStage1::setup()
         for (i = 0; i < (1 << (_W - 2)); i++)
             u.emplace_back(new EdPoint(*ed));
         u[0]->deserialize(*_X, *_Y, *_Z, *_T);
-        for (int i = 0; i < _squarings; i++)
+        for (i = 0; i < _squarings; i++)
             ed->dbl(*u[0], *u[0], (i < _squarings - 1 ? ed->ED_PROJECTIVE : 0) | GWMUL_STARTNEXTFFT);
 
         if (_W > 2)

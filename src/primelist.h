@@ -3,6 +3,8 @@
 #include <vector>
 #include <iterator>
 
+int phi(int N);
+
 class PrimeIterator;
 
 class PrimeList
@@ -19,8 +21,12 @@ public:
 
     PrimeIterator begin();
 
+    static PrimeList& primes_16bit() { if (!_list65536) _list65536.reset(new PrimeList(65536)); return *_list65536; }
+
 private:
     std::vector<int> primes;
+
+    static std::unique_ptr<PrimeList> _list65536;
 };
 
 class PrimeIterator : public std::iterator<std::input_iterator_tag, int, int, const int*, int>
@@ -33,6 +39,8 @@ public:
         _list = it._list; _cur = it._cur; _range = it._range; _range_pos = it._range_pos;
         return *this;
     }
+
+    static PrimeIterator get() { return PrimeIterator(PrimeList::primes_16bit()); }
 
     void sieve_range(uint64_t start, uint64_t end, std::vector<uint64_t>& list);
 

@@ -119,6 +119,7 @@ namespace arithmetic
         using FieldElement<GiantsArithmetic, Giant>::operator=;
 
         virtual std::string to_string() const override;
+        virtual std::string to_res64() const;
         virtual void to_GWNum(GWNum& a) const;
         virtual Giant& operator = (const GWNum& a);
 

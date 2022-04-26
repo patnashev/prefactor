@@ -11,7 +11,7 @@ using namespace arithmetic;
 extern const short precomputed_stage2_params[];
 extern const int precomputed_stage2_params_len;
 
-int Params::stage1_cost()
+double Params::stage1_cost()
 {
     return (int)(B1/0.69);
 }
@@ -68,7 +68,7 @@ PP1Params::PP1Params(int max_size, ProbSmooth& prob, double log_sieving_depth, d
     find_pp1_stage2_optimal_params(max_size);
 }
 
-int PP1Params::stage1_cost()
+double PP1Params::stage1_cost()
 {
     return (int)(B1/0.69*1.5);
 }
@@ -83,7 +83,7 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     {
         find_poly_stage2_optimal_params(max_size, threads);
         LN = 128;
-        LN = PolyDegree;
+        //LN = PolyDegree;
     }
     else
     {
@@ -95,7 +95,7 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     }
 }
 
-int EdECMParams::stage1_cost()
+double EdECMParams::stage1_cost()
 {
     return (15 << (W - 2)) + (int)(B1/0.69*(7 + 7/(W + 1.0)));
 }
@@ -219,8 +219,13 @@ void Params::find_pp1_stage2_optimal_params(int max_size)
     PolyPower = 0;
 }
 
-int Params::stage2_cost()
+double Params::stage2_cost()
 {
+    if (PolyPower > 0)
+    {
+        return PolyPower*PolyPower*(1 << PolyPower) + (B2 - B1)/D*6 + (B2 - B1)/D/PolyDegree*(PolyPower*PolyPower*(1 << PolyPower) + 3*PolyPower*(1 << PolyPower));
+    }
+
     int i, j;
     int stage2cost = 0;
 
@@ -229,8 +234,7 @@ int Params::stage2_cost()
 
     int first_D = (int)(B1/D);
     int last_D = (int)(B2/D);
-    PrimeList primes((int)(B2/B1) + 100);
-    for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
+    for (auto it = PrimeIterator::get(); *it*B1 < B2; it++)
         if (D/A%(*it) != 0)
         {
             first_D = (int)(B2/(*it)/D);
@@ -317,7 +321,7 @@ int Params::stage2_size()
 {
     if (PolyPower > 0)
     {
-        return 2*PolyPower*(1 << PolyPower) + PolyThreads*(1 << PolyPower);
+        return 2*PolyPower*(1 << PolyPower) + PolyThreads*2*(1 << PolyPower);
     }
 
     int i;
@@ -407,16 +411,18 @@ void Params::find_pp1_optimal_B2(int max_size, ProbSmooth& prob, double log_siev
     B2 = b2;
 }
 
-int EdECMParams::stage2_cost()
+double EdECMParams::stage2_cost()
 {
+    if (PolyPower > 0)
+        return Params::stage2_cost() + (B2 - B1)/D*4;
+
     int i, j;
     int stage2cost = 0;
     double num_primes = std::expint(log(B2)) - std::expint(log(B1));
 
     int first_D = (int)(B1/D);
     int last_D = (int)(B2/D);
-    PrimeList primes((int)(B2/B1) + 100);
-    for (PrimeIterator it = primes.begin(); *it*B1 < B2; it++)
+    for (auto it = PrimeIterator::get(); *it*B1 < B2; it++)
         if (D%(*it) != 0)
         {
             first_D = (int)(B2/(*it)/D);
@@ -464,7 +470,7 @@ int EdECMParams::stage2_cost()
 int EdECMParams::stage2_size()
 {
     if (PolyPower > 0)
-        return Params::stage2_size();
+        return Params::stage2_size() + PolyThreads*LN*3;
 
     int i, j;
     int size = 0;

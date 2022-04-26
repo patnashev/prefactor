@@ -343,6 +343,16 @@ namespace arithmetic
         return std::string(buffer.data());
     }
 
+    std::string Giant::to_res64() const
+    {
+        std::string res(16, '0');
+        if (size() > 1)
+            snprintf(res.data(), 17, "%08X%08X", data()[1], data()[0]);
+        else if (size() > 0)
+            snprintf(res.data() + 8, 9, "%08X", data()[0]);
+        return res;
+    }
+
     void Giant::to_GWNum(GWNum& a) const
     {
         if (_giant->sign >= 0)

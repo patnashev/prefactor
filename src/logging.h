@@ -9,7 +9,7 @@ class Progress
 public:
     Progress() { }
 
-    void add_stage(int cost) { _total_cost += cost; _costs.push_back(cost); }
+    void add_stage(double cost) { _total_cost += cost; _costs.push_back(cost); }
     void next_stage() { _cur_stage++; update(0, 0); }
     void update(double progress, int op_count);
     void time_init(double elapsed);

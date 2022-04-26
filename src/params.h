@@ -19,9 +19,9 @@ protected:
     void find_poly_stage2_optimal_params(int max_size, int threads);
 
 public:
-    virtual int stage1_cost();
+    virtual double stage1_cost();
     virtual int stage1_size();
-    virtual int stage2_cost();
+    virtual double stage2_cost();
     virtual int stage2_size();
     virtual std::string unique_id();
 
@@ -53,7 +53,7 @@ public:
     PP1Params(uint64_t B1, int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
     PP1Params(int max_size, ProbSmooth& prob, double log_sieving_depth, double log_known_divisors, double primality_cost);
 
-    virtual int stage1_cost() override;
+    virtual double stage1_cost() override;
 };
 
 class EdECMParams : public Params
@@ -61,9 +61,9 @@ class EdECMParams : public Params
 public:
     EdECMParams(uint64_t B1, uint64_t B2, int max_size, bool poly, int threads);
 
-    virtual int stage1_cost() override;
+    virtual double stage1_cost() override;
     virtual int stage1_size() override;
-    virtual int stage2_cost() override;
+    virtual double stage2_cost() override;
     virtual int stage2_size() override;
 
 public:

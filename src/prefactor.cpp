@@ -396,7 +396,7 @@ int main(int argc, char *argv[])
         if (size < size_ed2)
             size = size_ed2;
     }
-    int cost = logging.progress().cost_total();
+    double cost = logging.progress().cost_total();
     if (2*cost > primalityCost)
         logging.info("Running at %.0f%% cost of a primality test, using %.0f MB.\n", cost/primalityCost*100, gwnum_size(gwstate.gwdata())/1048576.0*size);
     else
@@ -527,11 +527,7 @@ int main(int argc, char *argv[])
 
                     Giant tmp;
                     tmp = ed.jinvariant(ed_d);
-                    jinvariant.resize(16, '0');
-                    if (tmp.size() > 1)
-                        snprintf(jinvariant.data(), 17, "%08X%08X", tmp.data()[1], tmp.data()[0]);
-                    else if (tmp.size() > 0)
-                        snprintf(jinvariant.data() + 8, 9, "%08X", tmp.data()[0]);
+                    jinvariant = tmp.to_res64();
                     logging.info("Curve j-invariant RES64: %s\n", jinvariant.data());
                 }
                 catch (const NoInverseException& e)

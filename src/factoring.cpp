@@ -491,7 +491,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         {
             write_file(file_state, 1, B1next, _state);
             last_write = time(NULL);
-            last_write_count = _state.size();
+            last_write_count = (int)_state.size();
         }
     }
     if (_points.size() > 1)

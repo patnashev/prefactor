@@ -2,6 +2,27 @@
 #include <cmath>
 #include "primelist.h"
 
+int phi(int N)
+{
+    int res = 1;
+    for (auto it = PrimeIterator::get(); *it*(*it) <= N; it++)
+        if (N%(*it) == 0)
+        {
+            N /= *it;
+            res *= *it - 1;
+            while (N%(*it) == 0)
+            {
+                N /= *it;
+                res *= *it;
+            }
+        }
+    if (N > 1)
+        res *= N - 1;
+    return res;
+}
+
+std::unique_ptr<PrimeList> PrimeList::_list65536;
+
 PrimeList::PrimeList(int max)
 {
     int i, j, k;
