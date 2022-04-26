@@ -13,6 +13,10 @@
 #include "logging.h"
 #include "poly.h"
 
+#ifdef _DEBUG
+#define DEBUG_POLY_STAGE2
+#endif
+
 class Stage2 : public Task
 {
 public:
@@ -76,6 +80,7 @@ protected:
         _L = L;
         _poly_degree = poly_degree;
         _poly_power = poly_power;
+        _poly_mod_degree = phi(D)/2;
         _pairing.first_D = (int)((_B1 + D/2)/D);
         _pairing.last_D = (int)((_B2 + D/2)/D);
         _poly_threads = poly_threads;
@@ -100,15 +105,17 @@ protected:
     bool is_poly() { return _poly_power > 0; }
     bool is_poly_threaded() { return _poly_threads > 1; }
     bool is_poly_helper() { return _poly_thread_main != nullptr; }
-    int poly_degree() { return _poly_degree; }
+    int poly_degree() { return _poly_accumulator ? _poly_degree : _poly_mod_degree - 1; }
     int poly_power() { return _poly_power; }
     void poly_init();
     void poly_setup(std::vector<arithmetic::GWNum*>& roots);
     void poly_release();
-    void poly_execute(std::vector<arithmetic::GWNum>& roots, arithmetic::GWNum& G);
+    void poly_execute(std::vector<arithmetic::GWNum>& roots);
+    void poly_merge(arithmetic::Poly& G);
+    void poly_final(arithmetic::GWNum& G);
     void poly_threads_init();
-    void poly_helper_done(arithmetic::GWNum& G);
-    void poly_threads_wait(arithmetic::GWNum& G);
+    void poly_helper_done();
+    void poly_threads_merge();
     friend void poly_thread(void* data);
 
 protected:
@@ -123,23 +130,30 @@ protected:
     double _timer = 0;
     int _transforms = 0;
     bool _success = false;
+    std::string _res64;
 
     int _poly_degree = 0;
     int _poly_power = 0;
+    int _poly_mod_degree = 0;
     std::deque<arithmetic::GWState> _poly_gwstate;
     std::deque<arithmetic::GWArithmetic> _poly_gw;
     std::vector<arithmetic::PolyMult> _poly_mult;
-    std::vector<arithmetic::Poly>* _poly_mod = nullptr;
-    std::vector<std::vector<arithmetic::Poly>> _poly_mod_container;
+    std::vector<std::vector<arithmetic::Poly>> _poly_mod;
+    std::unique_ptr<arithmetic::Poly> _poly_reciprocal;
     std::vector<std::vector<arithmetic::Poly>> _poly_prod;
+    std::unique_ptr<arithmetic::Poly> _poly_accumulator;
+    double _poly_timer;
+#ifdef DEBUG_POLY_STAGE2
+    std::vector<arithmetic::GWNum> _poly_rem;
+#endif
 
     int _poly_threads = 1;
     Stage2* _poly_thread_main = nullptr;
     std::vector<Stage2Thread> _poly_thread_helpers;
-    gwmutex _poly_mutex;
+    std::vector<Stage2*> _poly_thread_mergers;
+    std::exception_ptr _poly_thread_exception;
     gwevent _poly_done;
-    int _poly_threads_active;
-    std::unique_ptr<arithmetic::GWNum> _poly_G;
+    gwevent _poly_merged;
 };
 
 class PP1Stage2 : public Stage2

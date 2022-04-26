@@ -98,6 +98,7 @@ namespace arithmetic
         if (a._cache != nullptr)
             gwfree_array(gw().gwdata(), a._cache);
         a._cache = nullptr;
+        a._monic = false;
     }
 
     void PolyMult::copy(const Poly& a, Poly& res)
@@ -117,6 +118,14 @@ namespace arithmetic
         res._cache = a._cache;
         res._cache_size = a._cache_size;
         a._cache = nullptr;
+    }
+
+    void PolyMult::fft(const Poly& a, Poly& res)
+    {
+        alloc(res, a.size());
+        for (size_t i = 0; i < a.size(); i++)
+            gwfft(gw().gwdata(), a._poly[i], res._poly[i]);
+        res._monic = a._monic;
     }
 
     void PolyMult::init(bool monic, Poly& res)
@@ -182,7 +191,7 @@ namespace arithmetic
             return;
         }
 
-        polymult(pmdata(), a._poly.data(), sa, b._poly.data(), sb, res._poly.data(), res.size(), options | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+        polymult(pmdata(), a.data(), sa, b.data(), sb, res.data(), res.size(), options | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
         res._monic = a.monic() && b.monic();
     }
 
@@ -232,6 +241,23 @@ namespace arithmetic
             gwfree(gw().gwdata(), b._poly[sb - 1]);
         b._poly.clear();
         res._monic = res.monic() && b.monic();
+    }
+
+    void PolyMult::mul_lohi(Poly&& a, Poly&& b, Poly& res_lo, Poly& res_hi, int half, int options)
+    {
+        int sa = a.size();
+        int sb = b.size();
+        mul(std::move(a), std::move(b), res_lo, options);
+        free(res_hi);
+
+        int sr = sa + sb - (a.monic() || b.monic() ? 0 : 1);
+        if (sr >= half)
+        {
+            res_hi._poly.insert(res_hi._poly.begin(), res_lo._poly.begin() + half, res_lo._poly.end());
+            res_lo._poly.erase(res_lo._poly.begin() + half, res_lo._poly.end());
+            res_hi._monic = res_lo._monic;
+            res_lo._monic = false;
+        }
     }
 
     void PolyMult::preprocess(Poly& res, int size)
@@ -305,11 +331,11 @@ namespace arithmetic
         res._cache = nullptr;
     }
 
-    void PolyMult::mul_half(Poly& a, Poly& b, Poly& res, int options)
+    void PolyMult::mul_hi(Poly& a, Poly& b, Poly& res, int options)
     {
         if (a.degree() < b.degree() || a.size() < b.size())
         {
-            mul_half(b, a, res, options);
+            mul_hi(b, a, res, options);
             return;
         }
         if (b.degree() < 0 || a.degree() + b.degree() < res.size())
@@ -363,85 +389,92 @@ namespace arithmetic
         res._monic = a.monic() && b.monic() && sa + sb < 2*half;
     }
 
-    void PolyMult::mul_half_preprocessed(Poly&& a, Poly& b, Poly& res, int half, int options)
+    void PolyMult::mul_hi(Poly&& a, Poly& b, Poly& res, int half, int options)
     {
         GWASSERT(&a.pm().gw() == &res.pm().gw());
-        GWASSERT(b.preprocessed() || b.size() <= 1);
+        //GWASSERT(b.preprocessed() || b.size() <= 1);
         if (b.degree() < 0 || a.degree() + b.degree() < half)
         {
             free(res);
             return;
         }
-        if (&a != &res)
-            move(std::move(a), res);
         if (b.size() == 0) // monic
         {
+            if (&a != &res)
+                move(std::move(a), res);
             res >>= half;
             return;
         }
 
-        int sa = res.size();
+        int sa = a.size();
         int sb = b.size();
-        int full = sa + sb - (res.monic() || b.monic() ? 0 : 1);
+        int full = sa + sb - (a.monic() || b.monic() ? 0 : 1);
         int size = full < 2*half ? full - half : half;
-        if (res.size() < size)
-            res._poly.resize(size);
-        for (int i = sa; i < res.size(); i++)
-            res._poly[i] = gwalloc(gw().gwdata());
+        Poly to_free(a.pm());
+        std::vector<gwnum> poly;
+        poly.reserve(size);
+        for (int i = 0; i < a.size(); i++)
+            if (a._poly[i] != nullptr)
+            {
+                if (poly.size() < size)
+                    poly.push_back(a._poly[i]);
+                else
+                    to_free._poly.push_back(a._poly[i]);
+            }
+        while (poly.size() < size)
+            poly.push_back(gwalloc(a.pm().gw().gwdata()));
 
         if (sb == 1)
         {
             if (sa >= half && sa < 2*half)
             {
                 if (a.monic() && b.monic())
-                    gwadd3o(gw().gwdata(), res._poly[sa - 1], b._poly[0], res._poly[sa - half], GWADD_FORCE_NORMALIZE);
+                    gwadd3o(gw().gwdata(), a._poly[sa - 1], b._poly[0], poly[sa - half], GWADD_FORCE_NORMALIZE);
                 else if (a.monic())
-                    gwcopy(gw().gwdata(), b._poly[0], res._poly[sa - half]);
+                    gwcopy(gw().gwdata(), b._poly[0], poly[sa - half]);
                 else if (b.monic())
-                    gwcopy(gw().gwdata(), res._poly[sa - 1], res._poly[sa - half]);
+                    gwcopy(gw().gwdata(), a._poly[sa - 1], poly[sa - half]);
             }
             for (int i = sa - 1; i >= half; i--)
                 if (b.monic())
-                    gwmuladd4(gw().gwdata(), res._poly[i], b._poly[0], res._poly[i - 1], res._poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
+                    gwmuladd4(gw().gwdata(), a._poly[i], b._poly[0], a._poly[i - 1], poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
                 else
-                    gwmul3(gw().gwdata(), res._poly[i], b._poly[0], res._poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
-            for (int i = size; i < res.size(); i++)
-                gwfree(gw().gwdata(), res._poly[i]);
-            res._poly.resize(size);
-            res._monic = res.monic() && b.monic() && sa + sb < 2*half;
+                    gwmul3(gw().gwdata(), a._poly[i], b._poly[0], poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
+            a._poly.clear();
+            res._poly = std::move(poly);
+            res._monic = a.monic() && b.monic() && sa + sb < 2*half;
             return;
         }
 
-        res._poly.insert(res._poly.begin(), half, nullptr);
-        int padding = 2*half - res._poly.size();
+        poly.insert(poly.begin(), half, nullptr);
+        int padding = 2*half - poly.size();
         if (padding > 0)
-            res._poly.insert(res._poly.end(), padding, nullptr);
-        polymult(pmdata(), res.data() + half, sa, b.data(), sb, res.data(), 2*half, options | POLYMULT_CIRCULAR | (res.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+            poly.insert(poly.end(), padding, nullptr);
+        polymult(pmdata(), a.data(), sa, b.data(), sb, poly.data(), 2*half, options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
         if (padding > 0)
-            res._poly.erase(res._poly.end() - padding, res._poly.end());
-        res._poly.erase(res._poly.begin(), res._poly.begin() + half);
-        for (int i = size; i < res.size(); i++)
-            gwfree(gw().gwdata(), res._poly[i]);
-        res._poly.resize(size);
-        res._monic = res.monic() && b.monic() && sa + sb < 2*half;
+            poly.erase(poly.end() - padding, poly.end());
+        poly.erase(poly.begin(), poly.begin() + half);
+        a._poly.clear();
+        res._poly = std::move(poly);
+        res._monic = a.monic() && b.monic() && sa + sb < 2*half;
     }
 
-    void PolyMult::mul_half_preprocessed(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options)
+    void PolyMult::mul_hi(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options)
     {
         GWASSERT(&a.pm().gw() == &res1.pm().gw());
         GWASSERT(&a.pm().gw() == &res2.pm().gw());
-        GWASSERT(b.preprocessed() || b.size() <= 1);
-        GWASSERT(c.preprocessed() || c.size() <= 1);
+        //GWASSERT(b.preprocessed() || b.size() <= 1);
+        //GWASSERT(c.preprocessed() || c.size() <= 1);
         if (b.degree() < 0 || a.degree() + b.degree() < half)
         {
             free(res1);
-            mul_half_preprocessed(std::move(a), c, res2, half, options);
+            mul_hi(std::move(a), c, res2, half, options);
             return;
         }
         if (c.degree() < 0 || a.degree() + c.degree() < half)
         {
             free(res2);
-            mul_half_preprocessed(std::move(a), b, res1, half, options);
+            mul_hi(std::move(a), b, res1, half, options);
             return;
         }
         if (b.size() == 0 && c.size() == 0) // monic
@@ -460,7 +493,7 @@ namespace arithmetic
             for (int i = 0; i < res1.size(); i++)
                 gwcopy(gw().gwdata(), a._poly[i + half], res1._poly[i]);
             res1._monic = a.monic() && a.size() < 2*half;
-            mul_half_preprocessed(std::move(a), c, res2, half, options);
+            mul_hi(std::move(a), c, res2, half, options);
             return;
         }
         if (c.size() == 0) // monic
@@ -469,7 +502,7 @@ namespace arithmetic
             for (int i = 0; i < res2.size(); i++)
                 gwcopy(gw().gwdata(), a._poly[i + half], res2._poly[i]);
             res2._monic = a.monic() && a.size() < 2*half;
-            mul_half_preprocessed(std::move(a), b, res1, half, options);
+            mul_hi(std::move(a), b, res1, half, options);
             return;
         }
 
@@ -484,15 +517,15 @@ namespace arithmetic
         if (sb == 1)
         {
             alloc(res1, half);
-            mul_half(a, b, res1, options);
-            mul_half_preprocessed(std::move(a), c, res2, half, options);
+            mul_hi(a, b, res1, options);
+            mul_hi(std::move(a), c, res2, half, options);
             return;
         }
         if (sc == 1)
         {
             alloc(res2, half);
-            mul_half(a, c, res2, options);
-            mul_half_preprocessed(std::move(a), b, res1, half, options);
+            mul_hi(a, c, res2, options);
+            mul_hi(std::move(a), b, res1, half, options);
             return;
         }
 
