@@ -737,21 +737,24 @@ void Stage2::poly_merge(Poly& G)
         //Poly t1(G);
         //pm.mul_hi(std::move(t1), reciprocal, t1, 1 << poly_power(), 0);
         pm.mul_lohi(std::move(H), std::move(G), H, G, modulus.size(), 0);
-        //Poly q(pm);
-        //pm.mul(G, reciprocal, q, 0);
-        if (G.size() > 0)
+        if (G.degree() >= 0)
         {
-            pm.mul_hi(std::move(G), reciprocal, G, 1 << poly_power(), 0);
-            G >>= (1 << poly_power()) - (int)modulus.size();
+            //Poly q(pm);
+            //pm.mul(G, reciprocal, q, 0);
+            if (G.size() > 0)
+            {
+                pm.mul_hi(std::move(G), reciprocal, G, 1 << poly_power(), 0);
+                G >>= (1 << poly_power()) - (int)modulus.size();
+            }
+            //Poly p(pm);
+            //pm.mul(G, modulus, p, 0);
+            G <<= (1 << poly_power());
+            pm.mul_hi(std::move(G), modulus, G, 1 << poly_power(), 0);
+            for (int i = 0; i < H.size() && i < G.size(); i++)
+                pm.gw().sub((GWNum&)H.at(i), (GWNum&)G.at(i), (GWNum&)H.at(i), GWADD_DELAY_NORMALIZE);
+            //Poly t2(H);
+            //pm.mul_hi(std::move(t2), reciprocal, t2, 1 << poly_power(), 0);
         }
-        //Poly p(pm);
-        //pm.mul(G, modulus, p, 0);
-        G <<= (1 << poly_power());
-        pm.mul_hi(std::move(G), modulus, G, 1 << poly_power(), 0);
-        for (int i = 0; i < H.size() && i < G.size(); i++)
-            pm.gw().sub((GWNum&)H.at(i), (GWNum&)G.at(i), (GWNum&)H.at(i), GWADD_DELAY_NORMALIZE);
-        //Poly t2(H);
-        //pm.mul_hi(std::move(t2), reciprocal, t2, 1 << poly_power(), 0);
     }
     _poly_timer += (getHighResTimer() - timer)/getHighResTimerFrequency();
 }
@@ -760,6 +763,10 @@ void Stage2::poly_final(GWNum& G)
 {
     int i, j;
     double timer = getHighResTimer();
+
+    _poly_prod.resize(poly_power() + 1);
+    for (j = 0; j <= poly_power(); j++)
+        _poly_prod[j].resize((1 << (poly_power() - j)), Poly(_poly_mult[j]));
 
     _poly_mult[poly_power()].mul_hi(std::move(*_poly_accumulator), *_poly_reciprocal, _poly_prod[poly_power()][0], 1 << poly_power(), &_poly_mod[poly_power()][0].pm().gw() == &_poly_mod[poly_power() - 1][0].pm().gw() ? POLYMULT_STARTNEXTFFT : 0);
 
@@ -857,6 +864,13 @@ void Stage2::poly_threads_init()
             _poly_thread_helpers[i].stage2->_pairing.first_D = _pairing.first_D + Ds_per_thread_first + Ds_per_thread*(i - 1);
             _poly_thread_helpers[i].stage2->_pairing.last_D = _pairing.first_D + Ds_per_thread_first + Ds_per_thread*i - 1;
         }
+        uint64_t recommend = 0;
+        if (total < _poly_mod_degree - 1)
+            recommend = _poly_mod_degree - 1;
+        if (total < (_poly_mod_degree - 1)*(_poly_threads - 1))
+            recommend = (_poly_mod_degree - 1)*(_poly_threads - 1);
+        if (recommend > 0)
+            _logging->info("recommended B2 = %" PRId64 "\n", (_pairing.first_D + recommend - 1)*_D + _D/2 - 1);
     }
     else
     {
@@ -886,7 +900,7 @@ void Stage2::poly_threads_init()
             throw TaskAbortException();
         if (j != 0 || Ds_per_thread_over > Ds_per_thread_small)
         {
-            int recommend = _poly_threads*(_poly_mod_degree - 1) + (full + j)*_poly_degree;
+            uint64_t recommend = _poly_threads*(_poly_mod_degree - 1) + (full + j)*_poly_degree;
             if (j == 0 && Ds_per_thread_over > Ds_per_thread_small)
                 recommend += _poly_threads*_poly_degree;
             _logging->info("recommended B2 = %" PRId64 "\n", (_pairing.first_D + recommend - 1)*_D + _D/2 - 1);
@@ -902,12 +916,6 @@ void Stage2::poly_threads_init()
         gwevent_init(&it->stage2->_poly_done);
         gwevent_init(&it->stage2->_poly_merged);
         gwthread_create_waitable(&it->id, &poly_thread, (void *)it->stage2.get());
-    }
-    for (i = 1; i < _poly_threads; i <<= 1)
-    {
-        _poly_thread_mergers.push_back(_poly_thread_helpers[i - 1].stage2.get());
-        for (j = 2*i; j + i < _poly_threads; j += 2*i)
-            _poly_thread_helpers[j - 1].stage2->_poly_thread_mergers.push_back(_poly_thread_helpers[j + i - 1].stage2.get());
     }
 }
 
@@ -965,6 +973,11 @@ void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
         input->setup(*gwstate);
         logging->warning("Switching to %s\n", gwstate->fft_description.data());
     }
+    if (is_poly() && !is_poly_helper())
+    {
+        _pairing.first_D = (int)((_B1 + _D/2)/_D);
+        _pairing.last_D = (int)((_B2 + _D/2)/_D);
+    }
     if (is_poly_threaded())
         for (int i = 0; i < _poly_thread_helpers.size(); i++)
         {
@@ -973,6 +986,8 @@ void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
             input->setup(*_poly_thread_helpers[i].gwstate);
             if (file != nullptr)
                 _poly_thread_helpers[i].file = file->add_child(std::to_string(i + 2), File::unique_fingerprint(gwstate->fingerprint, std::to_string(i + 2)));
+            else
+                _poly_thread_helpers[i].file = nullptr;
         }
 
     Task::init(gwstate, file, state, logging, _pairing.last_D - _pairing.first_D + 1);
@@ -1022,8 +1037,11 @@ void Stage2::done(const arithmetic::Giant& factor)
     if (is_poly_threaded())
     {
         for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
-            it->file->clear();
-        _poly_thread_helpers.clear();
+        {
+            it->gwstate.reset();
+            if (it->file != nullptr)
+                it->file->clear();
+        }
     }
 }
 

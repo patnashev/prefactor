@@ -81,12 +81,16 @@ protected:
         _poly_degree = poly_degree;
         _poly_power = poly_power;
         _poly_mod_degree = phi(D)/2;
-        _pairing.first_D = (int)((_B1 + D/2)/D);
-        _pairing.last_D = (int)((_B2 + D/2)/D);
         _poly_threads = poly_threads;
         _poly_thread_helpers.resize(poly_threads - 1);
         for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
             it->stage2.reset(new T(static_cast<T*>(this)));
+        for (int i = 1; i < _poly_threads; i <<= 1)
+        {
+            _poly_thread_mergers.push_back(_poly_thread_helpers[i - 1].stage2.get());
+            for (int j = 2*i; j + i < _poly_threads; j += 2*i)
+                _poly_thread_helpers[j - 1].stage2->_poly_thread_mergers.push_back(_poly_thread_helpers[j + i - 1].stage2.get());
+        }
     }
 
 public:

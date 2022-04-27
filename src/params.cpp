@@ -83,6 +83,7 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     {
         find_poly_stage2_optimal_params(max_size, threads);
         LN = 128;
+        //LN = 1024;
         //LN = PolyDegree;
     }
     else
@@ -107,72 +108,32 @@ int EdECMParams::stage1_size()
 
 void Params::find_poly_stage2_optimal_params(int max_size, int threads)
 {
-    D = 1050;
+    static int poly_params[][2] = { {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, 
+        /* 7*/ {127, 1050},
+        /* 8*/ {255, 2310},
+        /* 9*/ {511, 4620},
+        /*10*/ {1023, 9240},
+        /*11*/ {2047, 19110},
+        /*12*/ {4095, 39270},
+        /*13*/ {8191, 79170},
+        /*14*/ {16383, 159390},
+        /*15*/ {32767, 330330},
+        /*16*/ {65535, 690690},
+        /*17*/ {131071, 1381380},
+        {0, 0} };
+
     A = 1;
     L = 1;
-    PolyDegree = 127;
-    PolyPower = 7;
     PolyThreads = threads;
+    PolyPower = 7;
+    PolyDegree = poly_params[PolyPower][0];
+    D = poly_params[PolyPower][1];
     //return;
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
+    while (poly_params[PolyPower + 1][0] && (B2 - B1)/D/PolyDegree > 2*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + 2*threads*(1 << (PolyPower + 1)))
     {
-        D = 2310;
-        PolyDegree = 255;
-        PolyPower = 8;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 4620;
-        PolyDegree = 511;
-        PolyPower = 9;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 9240;
-        PolyDegree = 1023;
-        PolyPower = 10;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 19110;
-        PolyDegree = 2047;
-        PolyPower = 11;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 39270;
-        PolyDegree = 4095;
-        PolyPower = 12;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 79170;
-        PolyDegree = 8191;
-        PolyPower = 13;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 159390;
-        PolyDegree = 16383;
-        PolyPower = 14;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 330330;
-        PolyDegree = 32767;
-        PolyPower = 15;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 690690;
-        PolyDegree = 65535;
-        PolyPower = 16;
-    }
-    if ((B2 - B1)/D/PolyDegree > 4*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + threads*(1 << (PolyPower + 1)))
-    {
-        D = 1381380;
-        PolyDegree = 131071;
-        PolyPower = 17;
+        PolyPower++;
+        PolyDegree = poly_params[PolyPower][0];
+        D = poly_params[PolyPower][1];
     }
 }
 
