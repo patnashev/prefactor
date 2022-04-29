@@ -37,6 +37,10 @@ void polymult_init (
 
 // Control how many threads to use during polymult.  This must be set prior to first call to polymult.  If gwnum library has a thread_callback
 // routine set, the polymult library will use the same callback routine with action code 20 and 21. */
+#define polymult_set_max_num_threads(h,n)	(h)->max_num_threads = (n)
+
+// Control how many threads to use during polymult.  This must be set prior to first call to polymult.  If gwnum library has a thread_callback
+// routine set, the polymult library will use the same callback routine with action code 20 and 21. */
 #define polymult_set_num_threads(h,n)	(h)->num_threads = (n)
 
 // Set the cache size to optimize FFTs for
@@ -133,6 +137,7 @@ void polymult_vector(
 /* The pmhandle structure containing all of polymult's "global" data. */
 struct pmhandle_struct {
 	gwhandle *gwdata;		// Handle for gwnum FFT library
+	int	max_num_threads;	// Number of threads to use computing polymults
 	int	num_threads;		// Number of threads to use computing polymults
 	gwevent work_to_do;		// Event to signal polymult helper threads there is work to do
 	gwevent helpers_done;		// Event to signal polymult helper threads are done
@@ -157,6 +162,8 @@ struct pmhandle_struct {
     pmarg	*args;			// Vector of second input polys and output polys
     int	args_size;			// Size of the vector
     int options;            
+    int adjusted_invec1_size;
+    int fft_size;           
 	// These items allow users of the polymult library to also use the polymult helper threads for whatever they see fit.
 	bool	helpers_doing_polymult;	// TRUE if helpers are doing polymult work, not user work
 	bool	helpers_sync_clone_stats; // TRUE if helpers are syncing cloned gwdata stats, not user work

@@ -85,12 +85,6 @@ protected:
         _poly_thread_helpers.resize(poly_threads - 1);
         for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
             it->stage2.reset(new T(static_cast<T*>(this)));
-        for (int i = 1; i < _poly_threads; i <<= 1)
-        {
-            _poly_thread_mergers.push_back(_poly_thread_helpers[i - 1].stage2.get());
-            for (int j = 2*i; j + i < _poly_threads; j += 2*i)
-                _poly_thread_helpers[j - 1].stage2->_poly_thread_mergers.push_back(_poly_thread_helpers[j + i - 1].stage2.get());
-        }
     }
 
 public:
@@ -98,6 +92,7 @@ public:
 
     bool success() { return _success; }
     State* state() { return static_cast<State*>(Task::state()); }
+    std::string& res64() { return _res64; }
 
 protected:
     template<class Element>
@@ -107,7 +102,7 @@ protected:
     void done(const arithmetic::Giant& factor);
 
     bool is_poly() { return _poly_power > 0; }
-    bool is_poly_threaded() { return _poly_threads > 1; }
+    bool is_poly_threaded() { return _poly_thread_main == nullptr && _poly_threads > 1; }
     bool is_poly_helper() { return _poly_thread_main != nullptr; }
     int poly_degree() { return _poly_accumulator ? _poly_degree : _poly_mod_degree - 1; }
     int poly_power() { return _poly_power; }
@@ -139,25 +134,29 @@ protected:
     int _poly_degree = 0;
     int _poly_power = 0;
     int _poly_mod_degree = 0;
+    int _poly_threads = 1;
+    int _poly_merges;
+    double _poly_timer;
+
     std::deque<arithmetic::GWState> _poly_gwstate;
     std::deque<arithmetic::GWArithmetic> _poly_gw;
     std::vector<arithmetic::PolyMult> _poly_mult;
-    std::vector<std::vector<arithmetic::Poly>> _poly_mod;
-    std::unique_ptr<arithmetic::Poly> _poly_reciprocal;
     std::vector<std::vector<arithmetic::Poly>> _poly_prod;
     std::unique_ptr<arithmetic::Poly> _poly_accumulator;
-    double _poly_timer;
 #ifdef DEBUG_POLY_STAGE2
     std::vector<arithmetic::GWNum> _poly_rem;
 #endif
-
-    int _poly_threads = 1;
     Stage2* _poly_thread_main = nullptr;
-    std::vector<Stage2Thread> _poly_thread_helpers;
-    std::vector<Stage2*> _poly_thread_mergers;
-    std::exception_ptr _poly_thread_exception;
-    gwevent _poly_done;
     gwevent _poly_merged;
+
+    // main only
+    std::vector<std::vector<arithmetic::Poly>> _poly_mod;
+    std::unique_ptr<arithmetic::Poly> _poly_reciprocal;
+    std::exception_ptr _poly_thread_exception;
+    std::vector<Stage2Thread> _poly_thread_helpers;
+    Stage2* _poly_thread_to_merge = nullptr;
+    gwevent _poly_done;
+    gwmutex _poly_mutex;
 };
 
 class PP1Stage2 : public Stage2

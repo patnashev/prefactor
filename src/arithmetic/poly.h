@@ -13,7 +13,7 @@ namespace arithmetic
     class PolyMult
     {
     public:
-        PolyMult(GWArithmetic& gw);
+        PolyMult(GWArithmetic& gw, int max_threads = 1);
         ~PolyMult();
 
         void alloc(Poly& a);
@@ -39,6 +39,8 @@ namespace arithmetic
         void convert(const Poly& a, Poly& res);
         void insert(GWNum&& a, Poly& res, size_t pos);
         GWNum remove(Poly& a, size_t pos);
+
+        void set_threads(int threads);
 
         GWArithmetic& gw() const { return _gw; }
         int max_output() const { return _max_output; }

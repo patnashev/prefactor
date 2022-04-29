@@ -56,15 +56,25 @@ namespace arithmetic
         return res;
     }
 
-    PolyMult::PolyMult(GWArithmetic& gw) : _gw(gw)
+    PolyMult::PolyMult(GWArithmetic& gw, int max_threads) : _gw(gw)
     {
         _max_output = gw.state().max_polymult_output();
         polymult_init(pmdata(), gw.gwdata());
+#ifdef polymult_set_max_num_threads
+        polymult_set_max_num_threads(pmdata(), max_threads);
+#endif
     }
 
     PolyMult::~PolyMult()
     {
         polymult_done(pmdata());
+    }
+
+    void PolyMult::set_threads(int threads)
+    {
+#ifdef polymult_set_max_num_threads
+        polymult_set_num_threads(pmdata(), threads);
+#endif
     }
 
     void PolyMult::alloc(Poly& a)
