@@ -96,7 +96,7 @@ void Logging::report(const std::string& message, int level)
     if (_print_prefix)
         std::cout << _prefix;
     std::cout << message;
-    _print_prefix = message.back() == '\n';
+    _print_prefix = !message.empty() && message.back() == '\n';
 }
 
 void Logging::report_progress()

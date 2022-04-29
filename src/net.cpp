@@ -42,15 +42,17 @@ void NetLogging::report(const std::string& message, int level)
     Logging::report(message, level);
     if (_net_level > level)
         return;
-    std::unique_ptr<Writer> writer(_file.get_writer());
-    writer->write(message.data(), (int)message.size());
-    _file.commit_writer(*writer);
+    _file.write_text(message);
 }
 
 void NetLogging::report_factor(InputNum& input, const Giant& f)
 {
     Logging::report_factor(input, f);
-    _net.task()->factor = f;
+    if (_net.task()->factor == "1")
+        _net.task()->factor.clear();
+    else
+        _net.task()->factor += ',';
+    _net.task()->factor += f.to_string();
 }
 
 void NetLogging::report_progress()
@@ -82,7 +84,7 @@ File* NetFile::add_child(const std::string& name, uint32_t fingerprint)
     return _children.back().get();
 }
 
-Writer* NetFile::get_writer(char type, char version)
+Writer* NetFile::get_writer()
 {
     _net_ctx.logging().update_progress();
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
@@ -92,74 +94,74 @@ Writer* NetFile::get_writer(char type, char version)
         _buffer.swap(_net_ctx.buffer());
         _uploading = false;
     }
-    return File::get_writer(type, version);
+    Writer* writer = new Writer(std::move(_buffer));
+    writer->buffer().clear();
+    return writer;
 }
 
-Reader* NetFile::get_reader()
+void NetFile::read_buffer()
 {
-    if (_buffer.empty())
-    {
-        boost::optional<std::string> md5;
-        std::string str_data;
+    if (!_buffer.empty())
+        return;
 
-        // Run our example in a lambda co-routine
-        auto done = _net_ctx.client()->ProcessWithPromiseT<bool>([&](Context& ctx) {
-            // This is the co-routine, running in a worker-thread
+    boost::optional<std::string> md5;
+    std::string str_data;
 
-            while (true)
-                try
-                {
-                    // Construct a request to the server
-                    auto reply = RequestBuilder(ctx)
-                        .Get(_net_ctx.url() + "pf/" + _net_ctx.task_id() + "/" + filename())
-                        .Argument("workerID", _net_ctx.worker_id())
+    // Run our example in a lambda co-routine
+    auto done = _net_ctx.client()->ProcessWithPromiseT<bool>([&](Context& ctx) {
+        // This is the co-routine, running in a worker-thread
 
-                        // Send the request
-                        .Execute();
-
-                    md5 = reply->GetHeader("MD5");
-                    str_data = reply->GetBodyAsString();
-
-                    return true;
-                }
-                catch (const HttpNotFoundException&) {
-                    //clog << "No file." << endl;
-                    str_data.clear();
-                    return true;
-                }
-                catch (const HttpForbiddenException&) {
-                    //clog << "No task." << endl;
-                    Task::abort();
-                    return false;
-                }
-                catch (const std::exception& ex) {
-                    std::clog << "File " << filename() << " download failed: " << ex.what() << std::endl;
-                    ctx.Sleep(boost::posix_time::microseconds(15000000));
-                    continue;
-                }
-
-            return true;
-            });
-
-        if (!done.get())
-            return nullptr;
-
-        if (hash && !str_data.empty() && md5)
-        {
-            char md5hash[33];
-            md5_raw_input(md5hash, (unsigned char*)str_data.data(), (int)str_data.size());
-            _md5hash = md5hash;
-            if (md5.get() != _md5hash)
+        while (true)
+            try
             {
-                clear();
-                return nullptr;
-            }
-        }
+                // Construct a request to the server
+                auto reply = RequestBuilder(ctx)
+                    .Get(_net_ctx.url() + "pf/" + _net_ctx.task_id() + "/" + filename())
+                    .Argument("workerID", _net_ctx.worker_id())
 
-        _buffer.insert(_buffer.end(), str_data.begin(), str_data.end());
+                    // Send the request
+                    .Execute();
+
+                md5 = reply->GetHeader("MD5");
+                str_data = reply->GetBodyAsString();
+
+                return true;
+            }
+            catch (const HttpNotFoundException&) {
+                //clog << "No file." << endl;
+                str_data.clear();
+                return true;
+            }
+            catch (const HttpForbiddenException&) {
+                //clog << "No task." << endl;
+                Task::abort();
+                return false;
+            }
+            catch (const std::exception& ex) {
+                std::clog << "File " << filename() << " download failed: " << ex.what() << std::endl;
+                ctx.Sleep(boost::posix_time::microseconds(15000000));
+                continue;
+            }
+
+        return true;
+        });
+
+    if (!done.get())
+        return;
+
+    if (hash && !str_data.empty() && md5)
+    {
+        char md5hash[33];
+        md5_raw_input(md5hash, (unsigned char*)str_data.data(), (int)str_data.size());
+        _md5hash = md5hash;
+        if (md5.get() != _md5hash)
+        {
+            clear();
+            return;
+        }
     }
 
-    return get_reader_from_buffer();
+    _buffer.insert(_buffer.end(), str_data.begin(), str_data.end());
 }
 
 void NetFile::commit_writer(Writer& writer)
@@ -491,7 +493,7 @@ int net_main(int argc, char *argv[])
         logging.set_prefix(net.task_id() + ", ");
         logging.progress() = Progress();
         logging.progress().time_init(net.task()->time);
-        net.task()->factor = 1;
+        net.task()->factor = "1";
         std::string dhash = "";
         if (net.task()->b2 < net.task()->b1)
             net.task()->b2 = net.task()->b1;
@@ -511,6 +513,7 @@ int net_main(int argc, char *argv[])
                 Factoring factoring(input, gwstate, logging);
                 NetFile& file_input = files.emplace_back(net, "input", gwstate.fingerprint);
                 NetFile& file_output = files.emplace_back(net, "output", gwstate.fingerprint);
+                NetFile& file_dhash = files.emplace_back(net, "dhash", 0);
 
                 if (!factoring.read_points(file_input))
                 {
@@ -523,11 +526,7 @@ int net_main(int argc, char *argv[])
                             count = std::stoi(gen.substr(gen.find(",") + 1));
                         dhash = factoring.generate(seed, count);
                         factoring.write_points(file_input);
-
-                        NetFile& file_dhash = files.emplace_back(net, "dhash", 0);
-                        std::unique_ptr<Writer> writer(file_dhash.get_writer());
-                        writer->write((char*)dhash.data(), (int)dhash.length());
-                        file_dhash.commit_writer(*writer);
+                        file_dhash.write_text(dhash);
                     }
                     else
                     {
@@ -549,11 +548,7 @@ int net_main(int argc, char *argv[])
                     Factoring factoring_range(input, gwstate, logging);
                     factoring.copy(factoring_range);
                     dhash = factoring_range.verify(false);
-
-                    NetFile& file_dhash = files.emplace_back(net, "dhash", 0);
-                    std::unique_ptr<Writer> writer(file_dhash.get_writer());
-                    writer->write((char*)dhash.data(), (int)dhash.length());
-                    file_dhash.commit_writer(*writer);
+                    file_dhash.write_text(dhash);
                 }
 
                 if (net.task()->b1 > factoring.B1())
@@ -574,14 +569,13 @@ int net_main(int argc, char *argv[])
 
                 if (net.task()->b2 > factoring.B1())
                 {
-                    NetFile& file_checkpoint = files.emplace_back(net, "checkpoint.s2", File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(net.task()->b2)));
-                    factoring.read_state(file_checkpoint, net.task()->b2);
+                    NetFile& file_results = files.emplace_back(net, "results", 0);
                     logging.progress().add_stage((int)factoring.points().size());
-                    factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, file_checkpoint);
+                    dhash = factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, file_results);
                     logging.progress().next_stage();
                 }
-
-                dhash = factoring.verify(true);
+                else
+                    dhash = factoring.verify(true);
             }
             else
             {
@@ -777,7 +771,7 @@ int net_main(int argc, char *argv[])
 					RequestBuilder(ctx)
 						.Post(net.url() + "pf/res/" + net.task_id())
 						.Argument("workerID", net.worker_id())
-                        .Argument("result", net.task()->factor.to_string())
+                        .Argument("result", net.task()->factor)
                         .Argument("dhash", dhash)
                         .Argument("time", std::to_string(logging.progress().time_total()))
                         .Argument("version", NET_PREFACTOR_VERSION)

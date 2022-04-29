@@ -120,6 +120,7 @@ void Params::find_poly_stage2_optimal_params(int max_size, int threads)
         /*15*/ {32767, 330330},
         /*16*/ {65535, 690690},
         /*17*/ {131071, 1381380},
+        /*18*/ {262143, 2852850},
         {0, 0} };
 
     A = 1;
@@ -184,7 +185,7 @@ double Params::stage2_cost()
 {
     if (PolyPower > 0)
     {
-        return PolyPower*PolyPower*(1 << PolyPower) + (B2 - B1)/D*6 + (B2 - B1)/D/PolyDegree*(PolyPower*PolyPower*(1 << PolyPower) + 3*PolyPower*(1 << PolyPower));
+        return PolyPower*PolyPower*(1 << PolyPower) + (B2 - B1)/D*6.0 + (B2 - B1)/D/PolyDegree*(PolyPower*PolyPower*(1 << PolyPower) + 3*PolyPower*(1 << PolyPower));
     }
 
     int i, j;

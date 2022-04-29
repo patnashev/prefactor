@@ -38,7 +38,7 @@ struct PFTask {
     int fft_len;
     double progress;
     double time_op;
-    arithmetic::Giant factor;
+    std::string factor;
     bool aborted = false;
 };
 
@@ -66,9 +66,11 @@ public:
     NetFile(NetContext& net_ctx, const std::string& filename, uint32_t fingerprint) : File(filename, fingerprint), _net_ctx(net_ctx) { }
 
     File* add_child(const std::string& name, uint32_t fingerprint) override;
+
     using File::get_writer;
-    Writer* get_writer(char type, char version) override;
-    Reader* get_reader() override;
+    Writer* get_writer() override;
+
+    void read_buffer() override;
     void commit_writer(Writer& writer) override;
     void clear() override;
 

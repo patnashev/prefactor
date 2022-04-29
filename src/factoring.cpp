@@ -16,16 +16,6 @@
 
 using namespace arithmetic;
 
-void write_dhash(const std::string& filename, const std::string& dhash)
-{
-    FILE* fp = fopen(filename.data(), "w");
-    if (fp)
-    {
-        fwrite(dhash.data(), 1, dhash.length(), fp);
-        fclose(fp);
-    }
-}
-
 void Factoring::write_file(File& file, char type, uint64_t B1, std::vector<Curve>& points)
 {
     file.appid = FACTORING_APPID;
@@ -503,23 +493,21 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, File& file_state)
+std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, File& file_results)
 {
-    int i;
-
-    i = 0;
-    file_state.appid = FACTORING_APPID;
-    std::unique_ptr<Reader> reader(file_state.get_reader());
-    if (reader && reader->type() == 2)
-        reader->read(i);
-    reader.reset();
+    int i = 0;
+    std::string res64;
+    std::unique_ptr<TextReader> reader(file_results.get_textreader());
+    while (reader->read_textline(res64))
+        i++;
+    std::unique_ptr<Writer> results(new Writer(std::move(file_results.buffer())));
 
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
     EdECMParams params_edecm(_B1, B2, maxSize, poly, threads);
     if (params_edecm.PolyPower > 0 && _gwstate.max_polymult_output() < 2*(1 << params_edecm.PolyPower))
     {
         _logging.error("FFT size too small for polynomial stage 2. Set -fft+1.\n");
-        return;
+        return "";
     }
     EdECMStage2 stage2(params_edecm.B1, params_edecm.B2);
     if (params_edecm.PolyPower == 0)
@@ -543,14 +531,24 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         //double timer = getHighResTimer();
         stage2.init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
-        stage2.run();
+        try
+        {
+            stage2.run();
+        }
+        catch (const TaskAbortException&)
+        {
+            file_results.commit_writer(*results);
+            throw;
+        }
         //if (stage2.success())
         //    _logging.warning("curve #%d found the factor.\n", _seed + i);
         //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
         _logging.set_prefix(prefix);
 
+        results->write_textline(stage2.res64());
         i++;
+
         if (time(NULL) - last_progress > Task::PROGRESS_TIME && i < _points.size())
         {
             _logging.progress().update(i/(double)_points.size(), i);
@@ -558,14 +556,16 @@ void Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, Fil
             last_progress = time(NULL);
         }
 
-        if (time(NULL) - last_write > Task::DISK_WRITE_TIME && i < _points.size())
+        if (time(NULL) - last_write > Task::DISK_WRITE_TIME || i == _points.size())
         {
-            std::unique_ptr<Writer> writer(file_state.get_writer(2, 0));
-            writer->write(i);
-            file_state.commit_writer(*writer);
+            std::unique_ptr<Writer> writer(file_results.get_writer());
+            writer->write(results->buffer().data(), (int)results->buffer().size());
+            file_results.commit_writer(*writer);
             last_write = time(NULL);
         }
     }
+
+    return results->hash_str();
 }
 
 int factoring_main(int argc, char *argv[])
@@ -852,6 +852,8 @@ int factoring_main(int argc, char *argv[])
         logging.set_prefix(filename + ", ");
         File file_points(filename, gwstate.fingerprint);
         file_points.hash = false;
+        File file_dhash(filename + ".dhash", 0);
+        file_dhash.hash = false;
 
         if (!factoring.read_points(file_points))
         {
@@ -869,7 +871,7 @@ int factoring_main(int argc, char *argv[])
                 }
                 std::string dhash = factoring.generate(seed, count);
                 factoring.write_points(file_points);
-                write_dhash(filename + ".dhash", dhash);
+                file_dhash.write_text(dhash);
                 logging.info("generated %d curve%s starting with #%d.\n", count, count > 1 ? "s" : "", seed);
                 logging.info("dhash: %s\n", dhash.data());
             }
@@ -891,7 +893,7 @@ int factoring_main(int argc, char *argv[])
             {
                 Factoring factoring_range(input, gwstate, logging);
                 factoring.copy(factoring_range);
-                write_dhash(filename + ".dhash", factoring_range.verify(false));
+                file_dhash.write_text(factoring_range.verify(false));
             }
 
             std::string filename_state = filename + ".tmp";
@@ -910,12 +912,13 @@ int factoring_main(int argc, char *argv[])
         if (B2 > factoring.B1())
         {
             std::string filename_state = filename + ".tmp";
-            File file_state(filename_state, File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(B2)));
+            File file_state(filename_state, 0);
             file_state.hash = false;
             logging.progress().add_stage((int)factoring.points().size());
-            factoring.stage2(B2, maxMem, poly, polyThreads, file_state);
+            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, file_state);
             logging.progress().next_stage();
             file_state.clear();
+            logging.info("RES64 hash: %s\n", reshash.data());
         }
 
         if (modulus)
@@ -933,7 +936,10 @@ int factoring_main(int argc, char *argv[])
                 File file_split(splitName, gwstate.fingerprint);
                 file_split.hash = false;
                 factoring_split.write_points(file_split);
-                write_dhash(splitName + ".dhash", factoring_split.verify(false));
+
+                File file_split_dhash(splitName + ".dhash", 0);
+                file_split_dhash.hash = false;
+                file_split_dhash.write_text(factoring_split.verify(false));
             }
         }
 
@@ -945,7 +951,7 @@ int factoring_main(int argc, char *argv[])
             if (factoring_merge.read_points(file_merge) && factoring.merge(factoring_merge))
             {
                 factoring.write_points(file_points);
-                write_dhash(filename + ".dhash", factoring.verify(false));
+                file_dhash.write_text(factoring.verify(false));
                 verify = 0;
             }
         }
@@ -953,20 +959,14 @@ int factoring_main(int argc, char *argv[])
         if (verify)
         {
             std::string dhash = factoring.verify(verifyCurve);
-            std::string dhashfile = filename + ".dhash";
-            FILE* fp = fopen(dhashfile.data(), "r");
-            if (fp)
+            std::string dhashfile;
+            std::unique_ptr<TextReader> reader(file_dhash.get_textreader());
+            if (reader->read_textline(dhashfile))
             {
-                char hash[33];
-                if (fread(hash, 1, 32, fp) == 32)
-                {
-                    hash[32] = 0;
-                    if (dhash != hash)
-                        logging.error("dhash mismatch!\n");
-                    else
-                        logging.info("dhash ok.\n");
-                }
-                fclose(fp);
+                if (dhash != dhashfile)
+                    logging.error("dhash mismatch!\n");
+                else
+                    logging.info("dhash ok.\n");
             }
         }
     }

@@ -52,6 +52,29 @@ void Writer::write(const char* ptr, int count)
     _buffer.insert(_buffer.end(), ptr, ptr + count);
 }
 
+void Writer::write_text(const char* ptr)
+{
+    int count = strlen(ptr);
+    _buffer.insert(_buffer.end(), ptr, ptr + count);
+}
+
+void Writer::write_text(const std::string& value)
+{
+    _buffer.insert(_buffer.end(), (char*)value.data(), (char*)(value.data() + value.length()));
+}
+
+void Writer::write_textline(const char* ptr)
+{
+    write_text(ptr);
+    _buffer.insert(_buffer.end(), {'\r', '\n'});
+}
+
+void Writer::write_textline(const std::string& value)
+{
+    write_text(value);
+    _buffer.insert(_buffer.end(), { '\r', '\n' });
+}
+
 std::vector<char> Writer::hash()
 {
     std::vector<char> digest(16);
@@ -133,6 +156,22 @@ bool Reader::read(arithmetic::Giant& value)
     return true;
 }
 
+bool TextReader::read_textline(std::string& value)
+{
+    int i;
+    if (_pos >= _size)
+        return false;
+    for (i = _pos + 1; i < _size && _data[i - 1] != '\n'; i++);
+    if (i - 2 >= _pos && _data[i - 2] == '\r' && _data[i - 1] == '\n')
+        value = std::string(_data + _pos, i - 2 - _pos);
+    else if (_data[i - 1] == '\n')
+        value = std::string(_data + _pos, i - 1 - _pos);
+    else
+        value = std::string(_data + _pos, i - _pos);
+    _pos = i;
+    return true;
+}
+
 File* File::add_child(const std::string& name, uint32_t fingerprint)
 {
     _children.emplace_back(new File(_filename + "." + name, fingerprint));
@@ -161,8 +200,7 @@ Writer* File::get_writer()
 
 Writer* File::get_writer(char type, char version)
 {
-    Writer* writer = new Writer(std::move(_buffer));
-    writer->buffer().clear();
+    Writer* writer = get_writer();
     writer->write(MAGIC_NUM);
     writer->write(appid + (0 << 8) + (type << 16) + (version << 24));
     if (_fingerprint != 0)
@@ -170,13 +208,16 @@ Writer* File::get_writer(char type, char version)
     return writer;
 }
 
-Reader* File::get_reader()
+void File::read_buffer()
 {
+    if (!_buffer.empty())
+        return;
+
     FILE* fd = fopen(_filename.data(), "rb");
     if (!fd)
     {
         _buffer.clear();
-        return nullptr;
+        return;
     }
     fseek(fd, 0L, SEEK_END);
     int filelen = ftell(fd);
@@ -187,7 +228,7 @@ Reader* File::get_reader()
     if (filelen != _buffer.size())
     {
         _buffer.clear();
-        return nullptr;
+        return;
     }
 
     if (hash)
@@ -207,17 +248,17 @@ Reader* File::get_reader()
                 if (saved_hash != md5hash)
                 {
                     _buffer.clear();
-                    return nullptr;
+                    return;
                 }
             }
         }
     }
-
-    return get_reader_from_buffer();
 }
 
-Reader* File::get_reader_from_buffer()
+Reader* File::get_reader()
 {
+    read_buffer();
+
     if (_buffer.size() < 8)
         return nullptr;
     if (*(uint32_t*)_buffer.data() != MAGIC_NUM)
@@ -230,6 +271,12 @@ Reader* File::get_reader_from_buffer()
         return nullptr;
 
     return new Reader(_buffer[5], _buffer[6], _buffer[7], _buffer.data(), (int)_buffer.size(), _fingerprint != 0 ? 12 : 8);
+}
+
+TextReader* File::get_textreader()
+{
+    read_buffer();
+    return new TextReader(_buffer.data(), (int)_buffer.size(), 0);
 }
 
 bool writeThrough(char *filename, const void *buffer, size_t count)
@@ -297,5 +344,19 @@ void File::write(TaskState& state)
 {
     std::unique_ptr<Writer> writer(get_writer(state.type(), state.version()));
     state.write(*writer);
+    commit_writer(*writer);
+}
+
+void File::write_text(const std::string& value)
+{
+    std::unique_ptr<Writer> writer(get_writer());
+    writer->write_text(value);
+    commit_writer(*writer);
+}
+
+void File::write_textline(const std::string& value)
+{
+    std::unique_ptr<Writer> writer(get_writer());
+    writer->write_textline(value);
     commit_writer(*writer);
 }
