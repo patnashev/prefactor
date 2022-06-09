@@ -571,7 +571,7 @@ int net_main(int argc, char *argv[])
                 {
                     NetFile& file_results = files.emplace_back(net, "results", 0);
                     logging.progress().add_stage((int)factoring.points().size());
-                    dhash = factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, file_results);
+                    dhash = factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, false, file_results);
                     logging.progress().next_stage();
                 }
                 else

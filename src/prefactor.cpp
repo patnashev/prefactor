@@ -55,6 +55,7 @@ int main(int argc, char *argv[])
     int edecm = 0;
     bool poly = false;
     int polyThreads = 1;
+    bool polyCheck = false;
     double sievingDepth = 0;
     uint64_t maxMem = 2048*1048576ULL;
     std::unique_ptr<PM1Params> params_pm1;
@@ -204,16 +205,24 @@ int main(int argc, char *argv[])
             else if (strcmp(argv[i], "-poly") == 0)
             {
                 poly = true;
-                if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
-                {
-                    i += 2;
-                    polyThreads = atoi(argv[i]);
-                }
-                if (i < argc - 1 && argv[i + 1][0] == 't')
-                {
-                    i++;
-                    polyThreads = atoi(argv[i] + 1);
-                }
+                while (true)
+                    if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
+                    {
+                        i += 2;
+                        polyThreads = atoi(argv[i]);
+                    }
+                    else if (i < argc - 1 && argv[i + 1][0] == 't')
+                    {
+                        i++;
+                        polyThreads = atoi(argv[i] + 1);
+                    }
+                    else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
+                    {
+                        i++;
+                        polyCheck = true;
+                    }
+                    else
+                        break;
             }
             else if (strcmp(argv[i], "-time") == 0)
             {
@@ -564,13 +573,16 @@ int main(int argc, char *argv[])
                 }
             }
             logging.progress().next_stage();
+            //for (i = 1; i < polyThreads*params_edecm->PolyDegree*3; i++)
             if (interstate != nullptr)
             {
+                //file2.clear();
+                //params_edecm->B2 = params_edecm->B1 + i*params_edecm->D;
                 EdECMStage2 stage2(params_edecm->B1, params_edecm->B2);
                 if (params_edecm->PolyPower == 0)
                     stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging);
                 else
-                    stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->PolyDegree, params_edecm->PolyPower, params_edecm->PolyThreads);
+                    stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->PolyDegree, params_edecm->PolyPower, params_edecm->PolyThreads, polyCheck);
                 stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                 stage2.run();
                 success = stage2.success();

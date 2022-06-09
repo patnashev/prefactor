@@ -40,7 +40,7 @@ ProbSmooth::ProbSmooth()
                 _F[fi] += c_cur[i]*p;
         c_cur.swap(c_prev);
     }
-    for (; fi > 0; fi--)
+    for (; fi >= 0; fi--)
         _F[fi] = 0;
 }
 

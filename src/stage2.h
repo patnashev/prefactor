@@ -13,10 +13,6 @@
 #include "logging.h"
 #include "poly.h"
 
-#ifdef _DEBUG
-#define DEBUG_POLY_STAGE2
-#endif
-
 class Stage2 : public Task
 {
 public:
@@ -73,7 +69,7 @@ protected:
     }
 
     template<class T>
-    void stage2_poly(int D, int L, int poly_degree, int poly_power, int poly_threads)
+    void stage2_poly(int D, int L, int poly_degree, int poly_power, int poly_threads, bool poly_check)
     {
         _D = D;
         _A = 1;
@@ -82,6 +78,7 @@ protected:
         _poly_power = poly_power;
         _poly_mod_degree = phi(D)/2;
         _poly_threads = poly_threads;
+        _poly_check = poly_check;
         _poly_thread_helpers.resize(poly_threads - 1);
         for (auto it = _poly_thread_helpers.begin(); it != _poly_thread_helpers.end(); it++)
             it->stage2.reset(new T(static_cast<T*>(this)));
@@ -104,14 +101,17 @@ protected:
     bool is_poly() { return _poly_power > 0; }
     bool is_poly_threaded() { return _poly_thread_main == nullptr && _poly_threads > 1; }
     bool is_poly_helper() { return _poly_thread_main != nullptr; }
-    int poly_degree() { return _poly_accumulator ? _poly_degree : _poly_mod_degree - 1; }
+    int poly_degree() { return _poly_accumulator ? (1 << _poly_power) : _poly_mod_degree; }
     int poly_power() { return _poly_power; }
+    bool poly_check() { return _poly_check; }
+
     void poly_init();
     void poly_setup(std::vector<arithmetic::GWNum*>& roots);
     void poly_release();
     void poly_execute(std::vector<arithmetic::GWNum>& roots);
     void poly_merge(arithmetic::Poly& G);
     void poly_final(arithmetic::GWNum& G);
+    void poly_final_subtree(int level, int offset, int base_level);
     void poly_threads_init();
     void poly_helper_done();
     void poly_threads_merge();
@@ -134,7 +134,9 @@ protected:
     int _poly_degree = 0;
     int _poly_power = 0;
     int _poly_mod_degree = 0;
+    int _poly_optmem = 5;
     int _poly_threads = 1;
+    bool _poly_check = false;
     int _poly_merges;
     double _poly_timer;
 
@@ -143,14 +145,13 @@ protected:
     std::vector<arithmetic::PolyMult> _poly_mult;
     std::vector<std::vector<arithmetic::Poly>> _poly_prod;
     std::unique_ptr<arithmetic::Poly> _poly_accumulator;
-#ifdef DEBUG_POLY_STAGE2
-    std::vector<arithmetic::GWNum> _poly_rem;
-#endif
+    std::vector<std::pair<int, arithmetic::GWNum>> _poly_check_rem;
     Stage2* _poly_thread_main = nullptr;
     gwevent _poly_merged;
 
     // main only
     std::vector<std::vector<arithmetic::Poly>> _poly_mod;
+    std::unique_ptr<arithmetic::Poly> _poly_modulus;
     std::unique_ptr<arithmetic::Poly> _poly_reciprocal;
     std::exception_ptr _poly_thread_exception;
     std::vector<Stage2Thread> _poly_thread_helpers;
@@ -166,7 +167,7 @@ public:
     PP1Stage2(PP1Stage2* main) : Stage2(main->_B1, main->_B2)
     {
         _poly_thread_main = main;
-        stage2_poly(main->_D, main->_L, main->_poly_degree, main->_poly_power, 1);
+        stage2_poly(main->_D, main->_L, main->_poly_degree, main->_poly_power, 1, main->_poly_check);
     }
 
     void stage2_pairing(int D, int A, int L, Logging& logging)
@@ -174,9 +175,9 @@ public:
         Stage2::stage2_pairing(D, A, L, logging);
     }
 
-    void stage2_poly(int D, int L, int poly_degree, int poly_power, int poly_threads)
+    void stage2_poly(int D, int L, int poly_degree, int poly_power, int poly_threads, bool poly_check = false)
     {
-        Stage2::stage2_poly<PP1Stage2>(D, L, poly_degree, poly_power, poly_threads);
+        Stage2::stage2_poly<PP1Stage2>(D, L, poly_degree, poly_power, poly_threads, poly_check);
     }
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& P, bool minus1);
@@ -206,7 +207,7 @@ public:
     EdECMStage2(EdECMStage2* main) : Stage2(main->_B1, main->_B2)
     {
         _poly_thread_main = main;
-        stage2_poly(main->_D, main->_L, main->_LN, main->_poly_degree, main->_poly_power, 1);
+        stage2_poly(main->_D, main->_L, main->_LN, main->_poly_degree, main->_poly_power, 1, main->_poly_check);
     }
 
     void stage2_pairing(int D, int L, int LN, Logging& logging)
@@ -215,10 +216,10 @@ public:
         Stage2::stage2_pairing(D, 1, L, logging);
     }
 
-    void stage2_poly(int D, int L, int LN, int poly_degree, int poly_power, int poly_threads)
+    void stage2_poly(int D, int L, int LN, int poly_degree, int poly_power, int poly_threads, bool poly_check = false)
     {
         _LN = LN;
-        Stage2::stage2_poly<EdECMStage2>(D, L, poly_degree, poly_power, poly_threads);
+        Stage2::stage2_poly<EdECMStage2>(D, L, poly_degree, poly_power, poly_threads, poly_check);
     }
 
     void init(InputNum* input, arithmetic::GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD);
@@ -240,7 +241,9 @@ private:
 
     std::unique_ptr<arithmetic::GWNum> _ed_d;
     std::unique_ptr<arithmetic::MontgomeryArithmetic> montgomery;
+    std::unique_ptr<arithmetic::EdwardsArithmetic> ed;
     std::vector<std::unique_ptr<arithmetic::EdY>> _precomp;
+    std::unique_ptr<arithmetic::EdPoint> _EdW;
     std::unique_ptr<arithmetic::EdY> _W;
     std::unique_ptr<arithmetic::EdY> _Pn;
     std::unique_ptr<arithmetic::EdY> _Pn1;

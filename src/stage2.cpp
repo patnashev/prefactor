@@ -12,6 +12,11 @@
 
 using namespace arithmetic;
 
+#ifdef _DEBUG
+#define DEBUG_STAGE2_PRECOMP
+#define DEBUG_POLY_STAGE2
+#endif
+
 template<int TL>
 Stage2::Pairing get_pairing_L(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances)
 {
@@ -459,22 +464,16 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
                 arithmetic.dbl(XDA, XDA);
         }
         _D *= _A;
-        /*XD = X1;
+#ifdef DEBUG_STAGE2_PRECOMP
+        XD = X1;
         XD *= _D/_A;
-        GWASSERT(XD == XDA);*/
+        GWASSERT(XD == XDA);
+#endif
     }
     // V_D
     swap(XD, Xn);
     if (_L == 1 && _D%4 != 0)
-    {
-        arithmetic.init(XD);
-        for (j = 0; j < _D/4; j++)
-            if (precomp[j] && gcd(2*j + 1, _D) != 1)
-            {
-                precomp[j].reset();
-                precomp_size--;
-            }
-    }
+        arithmetic.init(XD); // No way to compute XD
     else if (_D/2/dist != 1)
     {
         int pd = _D/2/dist;
@@ -484,9 +483,18 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
         for (; j > 0; j--)
             arithmetic.dbl(XD, XD);
     }
-    /*Xn = X1;
+#ifdef DEBUG_STAGE2_PRECOMP
+    Xn = X1;
     Xn *= _D;
-    GWASSERT(Xn == XD);*/
+    GWASSERT(Xn == XD);
+#endif
+    // Cleanup
+    for (j = 0; j < (_L == 1 ? _D/4 : _D/2); j++)
+        if (precomp[j] && gcd(2*j + 1, _D) != 1)
+        {
+            precomp[j].reset();
+            precomp_size--;
+        }
 
     // Irregular L
     Xn = XD;
@@ -512,14 +520,18 @@ int Stage2::precompute(DifferentialGroupArithmetic<Element>& arithmetic, Element
             precomp[j].reset();
             precomp_size--;
         }
-    /*for (i = 1; i < _D/2*_L; i++)
+#ifdef DEBUG_STAGE2_PRECOMP
+    for (i = 1, j = 0; i < _D/2*_L; i++)
         if (gcd(_D/_A, i%(_D/2)) == 1)
         {
             int d = i%(_D/2) + ((1 << (i/(_D/2)*1)) - 1)*_D;
             Xn = X1;
             Xn *= d;
             GWASSERT(Xn == *precomp[d/2]);
-        }*/
+            j++;
+        }
+    GWASSERT(j == precomp_size);
+#endif
 
     return precomp_size;
 }
@@ -553,13 +565,28 @@ void Stage2::poly_init()
         //polymult_set_num_threads(_poly_mult[i].pmdata(), 2);
         _poly_mult[i].set_threads(1);
     }
-    //_gwstate->gwdata()->gwnum_max_free_count = (1 << poly_power());
-    //for (i = 0; i < _poly_gwstate.size(); i++)
-    //    _poly_gwstate[i].gwdata()->gwnum_max_free_count = (1 << poly_power());
+    _gwstate->gwdata()->gwnum_max_free_count = 2*(1 << poly_power());
+    for (i = 0; i < _poly_gwstate.size(); i++)
+    {
+        if (!is_poly_helper())
+            _logging->warning("Using also %s\n", _poly_gwstate[i].fft_description.data());
+        _poly_gwstate[i].gwdata()->gwnum_max_free_count = 2*(1 << poly_power());
+    }
+    if (is_poly_helper())
+    {
+        for (i = 0; i < _poly_thread_main->_poly_check_rem.size(); i++)
+            _poly_check_rem.emplace_back(_poly_thread_main->_poly_check_rem[i].first, GWNum(gw())).second = 1;
+    }
+    else
+    {
 #ifdef DEBUG_POLY_STAGE2
-    for (i = 0; i < _poly_mod_degree; i++)
-        _poly_rem.emplace_back(gw()) = 1;
+        for (i = 0; i < _poly_mod_degree; i++)
+            _poly_check_rem.emplace_back(i, GWNum(gw())).second = 1;
+#else
+        if (poly_check())
+            _poly_check_rem.emplace_back(Giant::rnd(32).data()[0]%_poly_mod_degree, GWNum(gw())).second = 1;
 #endif
+    }
 }
 
 // http://cr.yp.to/arith/scaledmod-20040820.pdf
@@ -570,7 +597,6 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
 
     if (_poly_mod_degree != roots.size())
         throw TaskAbortException();
-    poly_init();
     _poly_mod.resize(poly_power() + 1);
     for (j = 0; j <= poly_power(); j++)
         _poly_mod[j].reserve((size_t)1 << (poly_power() - j));
@@ -588,7 +614,7 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
             Poly tmp(_poly_mult[j - 1], 0, true);
             for (i = 0; i < (1 << (poly_power() - j)); i++)
             {
-                _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], tmp, 1 << j, 0);
+                _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], tmp, 1 << j, 0 | POLYMULT_PRE_FFT);
                 _poly_mod[j].emplace_back(_poly_mult[j], 0, true);
                 _poly_mult[j - 1].convert(tmp, _poly_mod[j][i]);
             }
@@ -598,39 +624,47 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
             for (i = 0; i < (1 << (poly_power() - j)); i++)
             {
                 _poly_mod[j].emplace_back(_poly_mult[j], 0, true);
-                _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i], 1 << j, POLYMULT_STARTNEXTFFT);
+                if ((j - 1)%_poly_optmem == 0)
+                    _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i], 1 << j, POLYMULT_NEXTFFT | POLYMULT_PRE_FFT);
+                    //_poly_mult[j - 1].mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i], POLYMULT_NEXTFFT);
+                else
+                    _poly_mult[j - 1].mul(std::move(_poly_mod[j - 1][2*i]), std::move(_poly_mod[j - 1][2*i + 1]), _poly_mod[j][i], POLYMULT_NEXTFFT);
             }
         }
+    // For multithreaded
     for (i = 0; i < roots.size(); i++)
         gwfft(gw().gwdata(), *_poly_mod[0][i].data(), *_poly_mod[0][i].data());
-#ifdef _DEBUG
-/*    std::vector<GWNum> polyTest;
-    for (i = 0; i < (1 << poly_power()) && _poly_mod[0][i].degree() > 0; i++)
+#ifdef DEBUG_POLY_STAGE2
+    for (i = 0; i < _poly_mod_degree; i++)
     {
-        polyTest.emplace_back(gw());
-        GWNum a(gw());
+        GWNum a(_poly_mult[0].gw());
         a = 0;
-        gw().sub(a, *roots[i], a, GWADD_GUARANTEED_OK);
-        polyTest.back() = _poly_mod[poly_power()][0].eval(a);
-        GWASSERT(polyTest.back() == 0);
-    }*/
+        gw().sub(a, (GWNum&)_poly_mod[0][i].at(0), a, GWADD_GUARANTEED_OK);
+        GWNum b(_poly_mult[poly_power()].gw());
+        if (&a.arithmetic() != &b.arithmetic())
+            gwconvert(a.arithmetic().gwdata(), b.arithmetic().gwdata(), *a, *b);
+        else
+            b = a;
+        GWASSERT(_poly_mod[poly_power()][0].eval(b) == 0);
+    }
 #endif
     PolyMult& pm = _poly_mult[poly_power()];
     Poly& modulus = _poly_mod[poly_power()][0];
+    _poly_modulus.reset(new Poly(pm));
     _poly_reciprocal.reset(new Poly(pm));
     Poly& reciprocal = *_poly_reciprocal;
-    reciprocal = std::move(modulus.reciprocal(_poly_degree, POLYMULT_STARTNEXTFFT));
+    reciprocal = std::move(modulus.reciprocal((1 << poly_power()) - 1, POLYMULT_NEXTFFT));
     int degree = (1 << (poly_power() + 1)) - modulus.degree();
     if (reciprocal.degree() < degree)
         reciprocal <<= degree - reciprocal.degree();
-#ifdef _DEBUG
-/*    Poly polyT(pm, 1 << poly_power(), false);
-    pm.mul_hi(reciprocal, modulus, polyT, 0);
-    for (i = 0; i < _poly_degree; i++)
-        GWASSERT(polyT.at((1 << poly_power()) - i - 1) == 0);*/
+    pm.preprocess(modulus, *_poly_modulus, 1 << (poly_power() + 1));
+    pm.preprocess(reciprocal, *_poly_reciprocal, 1 << (poly_power() + 1));
+#ifdef DEBUG_POLY_STAGE2
+    Poly polyT(pm);
+    pm.mul_range(reciprocal, modulus, polyT, 1 << poly_power(), 1 << poly_power(), 0);
+    for (i = 0; i < _poly_degree-1; i++)
+        GWASSERT(polyT.at((1 << poly_power()) - i - 1) == 0);
 #endif
-    pm.preprocess(modulus, 1 << (poly_power() + 1));
-    pm.preprocess(reciprocal, 1 << (poly_power() + 1));
 
     commit_setup();
     if (is_poly_threaded())
@@ -642,9 +676,7 @@ void Stage2::poly_setup(std::vector<GWNum*>& roots)
 
 void Stage2::poly_release()
 {
-#ifdef DEBUG_POLY_STAGE2
-    _poly_rem.clear();
-#endif
+    _poly_check_rem.clear();
     _poly_mod.clear();
     _poly_reciprocal.reset();
     _poly_prod.clear();
@@ -652,11 +684,13 @@ void Stage2::poly_release()
     _poly_mult.clear();
     _poly_gw.clear();
     _poly_gwstate.clear();
+    gwfree_cached(gw().gwdata());
 }
 
 void Stage2::poly_execute(std::vector<GWNum>& roots)
 {
     int i, j;
+    //double timer = getHighResTimer();
 
     GWASSERT((int)roots.size() <= (1 << poly_power()));
     if (_poly_prod.size() < poly_power() + 1)
@@ -667,99 +701,199 @@ void Stage2::poly_execute(std::vector<GWNum>& roots)
             _poly_prod[0].emplace_back(_poly_mult[0], 0, true);
         if (i < roots.size())
         {
+            if (_poly_check_rem.size() > 0)
+            {
+                if (is_poly_helper())
+                    gwevent_wait(&_poly_thread_main->_poly_done, 0);
+                for (j = 0; j < _poly_check_rem.size(); j++)
+                    _poly_check_rem[j].second *= roots[i] - (GWNum&)(is_poly_helper() ? _poly_thread_main->_poly_mod[0] : _poly_mod[0])[_poly_check_rem[j].first].at(0);
+            }
 #ifdef DEBUG_POLY_STAGE2
-            if (is_poly_helper())
-                gwevent_wait(&_poly_thread_main->_poly_done, 0);
-            for (j = 0; j < _poly_rem.size(); j++)
-                _poly_rem[j] *= roots[i] - (GWNum&)(is_poly_helper() ? _poly_thread_main->_poly_mod[0] : _poly_mod[0])[j].at(0);
-#endif
+            _poly_mult[0].init(roots[i], true, _poly_prod[0][i]);
+#else
             _poly_mult[0].init(std::move(roots[i]), true, _poly_prod[0][i]);
+#endif
         }
         else
             _poly_mult[0].init(true, _poly_prod[0][i]);
     }
+#ifdef DEBUG_POLY_STAGE2
+    std::unique_ptr<Poly> modulus;
+#endif
     for (j = 1; j <= poly_power(); j++)
-        if (&_poly_mult[j].gw() != &_poly_mult[j - 1].gw())
-        {
-            Poly tmp(_poly_mult[j - 1], 0, true);
-            for (i = 0; i < (1 << (poly_power() - j)); i++)
-            {
-                _poly_mult[j - 1].mul(std::move(_poly_prod[j - 1][2*i]), std::move(_poly_prod[j - 1][2*i + 1]), tmp, 0);
-                while (_poly_prod[j].size() <= i)
-                    _poly_prod[j].emplace_back(_poly_mult[j], 0, true);
-                _poly_mult[j - 1].convert(tmp, _poly_prod[j][i]);
-            }
-        }
-        else
-        {
-            for (i = 0; i < (1 << (poly_power() - j)); i++)
-            {
-                while (_poly_prod[j].size() <= i)
-                    _poly_prod[j].emplace_back(_poly_mult[j], 0, true);
-                _poly_mult[j - 1].mul(std::move(_poly_prod[j - 1][2*i]), std::move(_poly_prod[j - 1][2*i + 1]), _poly_prod[j][i], POLYMULT_STARTNEXTFFT);
-            }
-        }
-#ifdef _DEBUG
-/*    for (i = 0; i < roots.size(); i++)
     {
-        GWNum a(gw());
+        PolyMult* prev = &_poly_mult[j - 1];
+        PolyMult* cur = &_poly_mult[j];
+        bool convert = &cur->gw() != &prev->gw();
+        int options = !convert ? POLYMULT_NEXTFFT : 0;
+        Poly tmp(*prev, 0, true);
+
+        for (i = 0; i < (1 << (poly_power() - j)); i++)
+        {
+            while (_poly_prod[j].size() <= i)
+                _poly_prod[j].emplace_back(*cur, 0, true);
+            Poly* res = convert ? &tmp : &_poly_prod[j][i];
+            if (!_poly_accumulator && j == poly_power() && _poly_prod[j - 1][2*i].size() + _poly_prod[j - 1][2*i + 1].size() == _poly_mod_degree)
+            {
+                if (is_poly_helper())
+                    gwevent_wait(&_poly_thread_main->_poly_done, 0);
+#ifdef DEBUG_POLY_STAGE2
+                modulus.reset(new Poly(*cur));
+                *modulus = is_poly_helper() ? _poly_thread_main->_poly_mod[poly_power()][0] : _poly_mod[poly_power()][0];
+#endif
+                if (is_poly_helper())
+                    *res = _poly_thread_main->_poly_mod[poly_power()][0];
+                else if (is_poly_threaded())
+                    *res = _poly_mod[poly_power()][0];
+                else
+                    *res = std::move(_poly_mod[poly_power()][0]);
+                prev->fma_range(_poly_prod[j - 1][2*i], _poly_prod[j - 1][2*i + 1], *res, *res, 0, _poly_mod_degree, options | POLYMULT_FMSUB);
+            }
+            else
+                prev->mul(std::move(_poly_prod[j - 1][2*i]), std::move(_poly_prod[j - 1][2*i + 1]), *res, options);
+            if (convert)
+                prev->convert(tmp, _poly_prod[j][i]);
+        }
+    }
+#ifdef DEBUG_POLY_STAGE2
+    for (i = 0; i < roots.size(); i++)
+    {
+        GWNum a(_poly_mult[0].gw());
         a = 0;
-        gw().sub(a, *roots[i], a, GWADD_GUARANTEED_OK);
-        GWNum b(_poly_mult[pm].gw());
-        b = a;
-        GWASSERT(_poly_prod[poly_power()][0].eval(b) == 0);
-    }*/
+        gw().sub(a, roots[i], a, GWADD_GUARANTEED_OK);
+        GWNum b(_poly_mult[poly_power()].gw());
+        if (&a.arithmetic() != &b.arithmetic())
+            gwconvert(a.arithmetic().gwdata(), b.arithmetic().gwdata(), *a, *b);
+        else
+            b = a;
+        if (modulus)
+            GWASSERT(_poly_prod[poly_power()][0].eval(b) + modulus->eval(b) == 0);
+        else
+            GWASSERT(_poly_prod[poly_power()][0].eval(b) == 0);
+    }
 #endif
 
     poly_merge(_poly_prod[poly_power()][0]);
 
     for (i = 0; i < roots.size(); i++)
-        if (_poly_prod[poly_power()][0].size() > 0 && _poly_gwstate.size() == 0)
-            roots[i] = std::move(_poly_prod[poly_power()][0].pop_back());
-        else
-            roots[i].arithmetic().alloc(roots[i]);
+        if (*roots[i] == nullptr)
+        {
+            if (_poly_prod[poly_power()][0].size() > 0 && _poly_gwstate.size() == 0)
+                roots[i] = std::move(_poly_prod[poly_power()][0].pop_back());
+            else
+                roots[i].arithmetic().alloc(roots[i]);
+        }
+    //_poly_timer += (getHighResTimer() - timer)/getHighResTimerFrequency();
 }
 
 void Stage2::poly_merge(Poly& G)
 {
     double timer = getHighResTimer();
-    if (!_poly_accumulator && G.size() < _poly_mod_degree)
+    if (!_poly_accumulator && G.degree() < _poly_mod_degree)
         _poly_accumulator.reset(new Poly(std::move(G))); // TODO: different pm
     else
     {
         if (is_poly_helper())
             gwevent_wait(&_poly_thread_main->_poly_done, 0);
-        Poly& modulus = is_poly_helper() ? _poly_thread_main->_poly_mod[poly_power()][0] : _poly_mod[poly_power()][0];
+        Poly& modulus = is_poly_helper() ? *_poly_thread_main->_poly_modulus : *_poly_modulus;
         Poly& reciprocal = is_poly_helper() ? *_poly_thread_main->_poly_reciprocal : *_poly_reciprocal;
         PolyMult& pm = _poly_mult[poly_power()];
         if (!_poly_accumulator)
             _poly_accumulator.reset(new Poly(pm, 0, true));
         Poly& H = *_poly_accumulator;
 
-        //Poly t1(G);
-        //pm.mul_hi(std::move(t1), reciprocal, t1, 1 << poly_power(), 0);
-        pm.mul_lohi(std::move(H), std::move(G), H, G, _poly_mod_degree, POLYMULT_STARTNEXTFFT);
+        pm.mul_split(std::move(H), std::move(G), H, G, _poly_mod_degree, POLYMULT_NEXTFFT);
         if (G.degree() >= 0)
         {
-            //Poly q(pm);
-            //pm.mul(G, reciprocal, q, 0);
             if (G.size() > 0)
-            {
-                pm.mul_hi(std::move(G), reciprocal, G, 1 << poly_power(), POLYMULT_STARTNEXTFFT);
-                G >>= (1 << poly_power()) - _poly_mod_degree;
-            }
-            //Poly p(pm);
-            //pm.mul(G, modulus, p, 0);
-            G <<= (1 << poly_power());
-            pm.mul_hi(std::move(G), modulus, G, 1 << poly_power(), POLYMULT_STARTNEXTFFT);
-            for (int i = 0; i < H.size() && i < G.size(); i++)
-                pm.gw().sub((GWNum&)H.at(i), (GWNum&)G.at(i), (GWNum&)H.at(i), GWADD_DELAY_NORMALIZE);
-            //Poly t2(H);
-            //pm.mul_hi(std::move(t2), reciprocal, t2, 1 << poly_power(), 0);
+                pm.mul_range(G, reciprocal, G, (1 << (poly_power() + 1)) - _poly_mod_degree, _poly_mod_degree, POLYMULT_NEXTFFT);
+            pm.fma_range(G, modulus, H, H, 0, _poly_mod_degree, POLYMULT_FNMADD | POLYMULT_NEXTFFT);
         }
         _poly_merges++;
     }
     _poly_timer += (getHighResTimer() - timer)/getHighResTimerFrequency();
+}
+
+void Stage2::poly_final_subtree(int level, int offset, int base_level)
+{
+    int i, j;
+
+    for (j = base_level + 1; j < level; j++)
+        if (&_poly_mult[j].gw() != &_poly_mult[j - 1].gw())
+        {
+            Poly tmp(_poly_mult[j - 1], 0, true);
+            for (i = (1 << (level - j))*offset; i < (1 << (level - j))*(offset + 1); i++)
+            {
+                /*if (j - 1 > base_level)
+                    _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], tmp, 1 << j, 0 | POLYMULT_PRE_FFT);
+                else*/
+                    _poly_mult[j - 1].mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], tmp, POLYMULT_NEXTFFT);
+                _poly_mult[j - 1].convert(tmp, _poly_mod[j][i]);
+            }
+        }
+        else
+        {
+            for (i = (1 << (level - j))*offset; i < (1 << (level - j))*(offset + 1); i++)
+            {
+                /*if (j - 1 > base_level)
+                    _poly_mult[j - 1].preprocess_and_mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i], 1 << j, POLYMULT_NEXTFFT | POLYMULT_PRE_FFT);
+                else*/
+                    _poly_mult[j - 1].mul(_poly_mod[j - 1][2*i], _poly_mod[j - 1][2*i + 1], _poly_mod[j][i], POLYMULT_NEXTFFT);
+            }
+        }
+
+    for (j = level - 1; j >= base_level; j--)
+    {
+        PolyMult* prev = &_poly_mult[j + 1];
+        PolyMult* cur = &_poly_mult[j];
+        PolyMult* next = j > 0 ? &_poly_mult[j - 1] : cur;
+        bool convert = &prev->gw() != &cur->gw();
+        int options = !convert ? POLYMULT_NEXTFFT : 0;
+
+        for (i = (1 << (level - j))*offset; i < (1 << (level - j))*(offset + 1); i += 2)
+        {
+            if (_poly_mod[j][i + 1].degree() == 0 && _poly_mod[j][i].degree() == 0)
+            {
+                prev->free(_poly_prod[j + 1][i/2]);
+                continue;
+            }
+            if (convert)
+            {
+                Poly tmp(*cur, 0, false);
+                prev->convert(_poly_prod[j + 1][i/2], tmp);
+                prev->free(_poly_prod[j + 1][i/2]);
+
+                /*cur->alloc(_poly_prod[j][i], 1 << j);
+                cur->mul_hi(tmp, _poly_mod[j][i + 1], _poly_prod[j][i], options);
+                cur->alloc(_poly_prod[j][i + 1], 1 << j);
+                cur->mul_hi(tmp, _poly_mod[j][i], _poly_prod[j][i + 1], options);*/
+                if (_poly_mod[j][i + 1].degree() == 0)
+                {
+                    _poly_prod[j][i] = std::move(tmp);
+                    cur->mul_range(_poly_prod[j][i], _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, 1 << j, options);
+                }
+                else
+                    cur->mul_twohalf(std::move(tmp), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
+            }
+            else
+            {
+                /*cur->alloc(_poly_prod[j][i], 1 << j);
+                cur->mul_range(_poly_prod[j + 1][i/2], _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, 1 << j, options);
+                cur->alloc(_poly_prod[j][i + 1], 1 << j);
+                cur->mul_range(_poly_prod[j + 1][i/2], _poly_mod[j][i], _poly_prod[j][i + 1], 1 << j, 1 << j, options);
+                prev->free(_poly_prod[j + 1][i/2]);*/
+                if (_poly_mod[j][i + 1].degree() == 0)
+                {
+                    _poly_prod[j][i] = std::move(_poly_prod[j + 1][i/2]);
+                    cur->mul_range(_poly_prod[j][i], _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, 1 << j, options);
+                }
+                else
+                    cur->mul_twohalf(std::move(_poly_prod[j + 1][i/2]), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
+            }
+            cur->free(_poly_mod[j][i]);
+            cur->free(_poly_mod[j][i + 1]);
+        }
+    }
 }
 
 void Stage2::poly_final(GWNum& G)
@@ -774,15 +908,27 @@ void Stage2::poly_final(GWNum& G)
     for (j = 5; j <= poly_power(); j++)
         _poly_mult[j].set_threads(_poly_threads);
 
-    _poly_mult[poly_power()].mul_hi(std::move(*_poly_accumulator), *_poly_reciprocal, _poly_prod[poly_power()][0], 1 << poly_power(), &_poly_mod[poly_power()][0].pm().gw() == &_poly_mod[poly_power() - 1][0].pm().gw() ? POLYMULT_STARTNEXTFFT : 0);
+    _poly_mult[poly_power()].free(_poly_mod[poly_power()][0]);
+    _poly_prod[poly_power()][0] = std::move(*_poly_accumulator);
+    _poly_mult[poly_power()].mul_range(_poly_prod[poly_power()][0], *_poly_reciprocal, _poly_prod[poly_power()][0], 1 << poly_power(), 1 << poly_power(), &_poly_mult[poly_power()].gw() == &_poly_mult[poly_power() - 1].gw() ? POLYMULT_NEXTFFT : 0);
+    _poly_reciprocal.reset();
 
+    int base;
+    for (j = poly_power(); j > 0; j = base)
+    {
+        base = j - 1;
+        base -= base%_poly_optmem;
+        for (i = 0; i < _poly_prod[j].size(); i++)
+            poly_final_subtree(j, i, base);
+    }
+#ifdef commt
     for (j = poly_power() - 1; j >= 0; j--)
     {
         PolyMult* prev = &_poly_mult[j + 1];
         PolyMult* cur = &_poly_mult[j];
         PolyMult* next = j > 0 ? &_poly_mult[j - 1] : cur;
         bool convert = &prev->gw() != &cur->gw();
-        int options = !convert ? POLYMULT_STARTNEXTFFT : 0;
+        int options = !convert ? POLYMULT_NEXTFFT : 0;
 
         for (i = 0; i < (1 << (poly_power() - j)); i += 2)
         {
@@ -802,37 +948,54 @@ void Stage2::poly_final(GWNum& G)
                 cur->alloc(_poly_prod[j][i + 1], 1 << j);
                 cur->mul_hi(tmp, _poly_mod[j][i], _poly_prod[j][i + 1], options);*/
                 if (_poly_mod[j][i + 1].degree() == 0)
-                    cur->mul_hi(std::move(tmp), _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, options);
+                {
+                    _poly_prod[j][i] = std::move(tmp);
+                    cur->mul_range(_poly_prod[j][i], _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, 1 << j, options);
+                }
                 else
-                    cur->mul_hi(std::move(tmp), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
+                    cur->mul_twohalf(std::move(tmp), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
             }
             else
             {
                 /*cur->alloc(_poly_prod[j][i], 1 << j);
-                cur->mul_hi(_poly_prod[j + 1][i/2], _poly_mod[j][i + 1], _poly_prod[j][i], options);
+                cur->mul_range(_poly_prod[j + 1][i/2], _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, 1 << j, options);
                 cur->alloc(_poly_prod[j][i + 1], 1 << j);
-                cur->mul_hi(_poly_prod[j + 1][i/2], _poly_mod[j][i], _poly_prod[j][i + 1], options);
+                cur->mul_range(_poly_prod[j + 1][i/2], _poly_mod[j][i], _poly_prod[j][i + 1], 1 << j, 1 << j, options);
                 prev->free(_poly_prod[j + 1][i/2]);*/
                 if (_poly_mod[j][i + 1].degree() == 0)
-                    cur->mul_hi(std::move(_poly_prod[j + 1][i/2]), _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, options);
+                {
+                    _poly_prod[j][i] = std::move(_poly_prod[j + 1][i/2]);
+                    cur->mul_range(_poly_prod[j][i], _poly_mod[j][i + 1], _poly_prod[j][i], 1 << j, 1 << j, options);
+                }
                 else
-                    cur->mul_hi(std::move(_poly_prod[j + 1][i/2]), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
+                    cur->mul_twohalf(std::move(_poly_prod[j + 1][i/2]), _poly_mod[j][i + 1], _poly_mod[j][i], _poly_prod[j][i], _poly_prod[j][i + 1], 1 << j, options);
             }
         }
     }
+#endif
 
 #ifdef DEBUG_POLY_STAGE2
     for (j = 1; j <= poly_power(); j++)
         for (i = 0; i < (1 << (poly_power() - j)); i++)
             GWASSERT(_poly_prod[j][i].size() == 0);
-    for (i = 0; i < _poly_rem.size(); i++)
-        GWASSERT(_poly_rem[i] == _poly_prod[0][i].at(0));
+    for (i = 0; i < _poly_mod_degree; i++)
+        GWASSERT(_poly_prod[0][i].size() == 1);
 #endif
+    for (i = 0; i < _poly_check_rem.size(); i++)
+        if (_poly_check_rem[i].second != _poly_prod[0][_poly_check_rem[i].first].at(0))
+        {
+            _logging->error("check failed.\n");
+#ifdef DEBUG_POLY_STAGE2
+            GWASSERT(0);
+#endif
+            throw TaskAbortException();
+        }
+    if (_poly_check_rem.size() > 0)
+        _logging->info("check passed.\n");
 
     for (i = _poly_mod_degree - 1; i >= 0; i--)
     {
         gw().mul((GWNum&)_poly_prod[0][i].at(0), G, G, GWMUL_STARTNEXTFFT_IF(i > 0));
-        GWASSERT(_poly_prod[0][i].size() == 1);
     }
 
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
@@ -933,6 +1096,7 @@ void Stage2::poly_helper_done()
     poly_threads_merge();
     _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
     _transforms += (int)_gwstate->handle.fft_count;
+    gwfree_cached(gw().gwdata());
     gwevent_wait(&_poly_merged, 0);
     gwevent_destroy(&_poly_merged);
 }
@@ -978,7 +1142,6 @@ void Stage2::poly_threads_merge()
 
         if (merge == nullptr)
             break;
-        //pm.set_threads(_poly_threads);
 
         if (ex)
             gwevent_signal(&merge->_poly_merged);
@@ -990,10 +1153,8 @@ void Stage2::poly_threads_merge()
             if (!G)
                 G.reset(new Poly(pm, 1 << poly_power(), false));
             pm.fft(*merge->_poly_accumulator, *G);
-#ifdef DEBUG_POLY_STAGE2
-            for (int j = 0; j < _poly_rem.size(); j++)
-                _poly_rem[j] *= merge->_poly_rem[j];
-#endif
+            for (int j = 0; j < _poly_check_rem.size(); j++)
+                _poly_check_rem[j].second *= merge->_poly_check_rem[j].second;
             gwevent_signal(&merge->_poly_merged);
             pm.set_threads(_poly_threads);
             poly_merge(*G);
@@ -1130,6 +1291,8 @@ void PP1Stage2::setup()
     if (!_Wa && _A > 1)
         _Wa.reset(new LucasV(*lucas));
 
+    if (is_poly())
+        poly_init();
     if (is_poly_threaded())
         poly_threads_init();
 
@@ -1183,11 +1346,7 @@ void PP1Stage2::setup()
     }
     commit_setup();
 
-    if (is_poly_helper() && _poly_mult.empty())
-    {
-        poly_init();
-    }
-    else if (is_poly() && _poly_mult.empty())
+    if (is_poly() && !is_poly_helper() && _poly_mod.empty())
     {
         std::vector<GWNum*> poly_r;
         for (auto it = _precomp.begin(); it != _precomp.end(); it++)
@@ -1302,7 +1461,6 @@ void PP1Stage2::execute()
         tmp = G;
         tmp %= gw().N();
         _res64 = tmp.to_res64();
-        //GWASSERT(tmp.data()[0] == 4109384104);
         tmp = gcd(std::move(tmp), gw().N());
 
         done(tmp);
@@ -1350,6 +1508,9 @@ void EdECMStage2::setup()
     if (!montgomery)
         montgomery.reset(new MontgomeryArithmetic(*_ed_d));
     montgomery->set_gw(gw());
+    if (!ed)
+        ed.reset(new EdwardsArithmetic());
+    ed->set_gw(gw());
 
     if (!_Pn)
         _Pn.reset(new EdY(*montgomery));
@@ -1357,21 +1518,34 @@ void EdECMStage2::setup()
         _Pn1.reset(new EdY(*montgomery));
     if (!_W)
         _W.reset(new EdY(*montgomery));
+    if (!_EdW)
+        _EdW.reset(new EdPoint(*ed));
 
-    EdwardsArithmetic ed(gw());
-    EdPoint EdP(ed);
+    EdPoint EdP(*ed);
     EdP.deserialize(_X, _Y, _Z, _T);
-    EdPoint EdW(ed);
     Giant tmp;
-    tmp = _D;
-    ed.mul(EdP, tmp, EdW);
+    if (!is_poly_helper())
+    {
+        tmp = _D;
+        ed->mul(EdP, tmp, *_EdW);
+    }
+    else
+        *_EdW = *static_cast<EdECMStage2*>(_poly_thread_main)->_EdW;
 
+    if (is_poly())
+        poly_init();
     if (is_poly_threaded())
+    {
+        _EdW->normalize();
+        gw().fft(*_EdW->X, *_EdW->X);
+        gw().fft(*_EdW->Y, *_EdW->Y);
+        gw().fft(*_EdW->T, *_EdW->T);
         poly_threads_init();
+    }
 
     if (is_poly_helper())
     {
-        *_W = EdW;
+        *_W = *_EdW;
     }
     else if (_precomp.empty())
     {
@@ -1380,7 +1554,7 @@ void EdECMStage2::setup()
         std::vector<std::unique_ptr<EdY>> precomp;
         int precomp_size = precompute<EdY>(*montgomery, *_Pn, *_W, *_Pn1, precomp);
         if (_L == 1 && _D%4 != 0)
-            *_W = EdW;
+            *_W = *_EdW;
 
         precomp.emplace_back(_W.release());
         try
@@ -1414,23 +1588,19 @@ void EdECMStage2::setup()
     if (v > 0)
     {
         tmp = v;
-        ed.mul(EdW, tmp, EdP);
+        ed->mul(*_EdW, tmp, EdP);
         *_Pn = EdP;
         montgomery->optimize(*_Pn);
         if (v > 1)
-            ed.add(EdP, EdW, EdP, ed.ED_PROJECTIVE);
+            ed->add(EdP, *_EdW, EdP, ed->ED_PROJECTIVE);
         else
-            ed.dbl(EdP, EdP, ed.ED_PROJECTIVE);
+            ed->dbl(EdP, EdP, ed->ED_PROJECTIVE);
         *_Pn1 = EdP;
         montgomery->optimize(*_Pn1);
     }
     commit_setup();
 
-    if (is_poly_helper() && _poly_mult.empty())
-    {
-        poly_init();
-    }
-    else if (is_poly() && _poly_mult.empty())
+    if (is_poly() && !is_poly_helper() && _poly_mod.empty())
     {
         std::vector<GWNum*> poly_r;
         for (auto it = _precomp.begin(); it != _precomp.end(); it++)
@@ -1450,6 +1620,8 @@ void EdECMStage2::release()
     _W.reset();
     _ed_d.reset();
     montgomery.reset();
+    _EdW.reset();
+    ed.reset();
 }
 
 void EdECMStage2::execute()
@@ -1579,8 +1751,6 @@ void EdECMStage2::execute()
             tmp = G;
             tmp %= gw().N();
             _res64 = tmp.to_res64();
-            //GWASSERT(_res64 == "5E0857283607657F"); // PolyPower=7 "1023*2^3160+1" -edecm -curve seed 83988 -B1 10k -B2 2000k
-            //GWASSERT(_res64 == "D186F12CDEAC8801"); // PolyPower=8 "1023*2^3160+1" -edecm -curve seed 83988 -B1 10k -B2 2000k
             tmp = gcd(std::move(tmp), gw().N());
 
             done(tmp);

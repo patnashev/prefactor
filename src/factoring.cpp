@@ -493,7 +493,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, File& file_results)
+std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, bool check, File& file_results)
 {
     int i = 0;
     std::string res64;
@@ -513,7 +513,7 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     if (params_edecm.PolyPower == 0)
         stage2.stage2_pairing(params_edecm.D, params_edecm.L, params_edecm.LN, _logging);
     else
-        stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.PolyDegree, params_edecm.PolyPower, params_edecm.PolyThreads);
+        stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.PolyDegree, params_edecm.PolyPower, params_edecm.PolyThreads, check);
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, params_edecm.PolyDegree);
 
     SubLogging logging(_logging, _logging.level() + 1);
@@ -580,6 +580,7 @@ int factoring_main(int argc, char *argv[])
     uint64_t maxMem = 2048*1048576ULL;
     bool poly = false;
     int polyThreads = 1;
+    bool polyCheck = false;
     int seed = 0;
     int count = 0;
     std::string filename;
@@ -687,16 +688,24 @@ int factoring_main(int argc, char *argv[])
             else if (strcmp(argv[i], "-poly") == 0)
             {
                 poly = true;
-                if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
-                {
-                    i += 2;
-                    polyThreads = atoi(argv[i]);
-                }
-                if (i < argc - 1 && argv[i + 1][0] == 't')
-                {
-                    i++;
-                    polyThreads = atoi(argv[i] + 1);
-                }
+                while (true)
+                    if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
+                    {
+                        i += 2;
+                        polyThreads = atoi(argv[i]);
+                    }
+                    else if (i < argc - 1 && argv[i + 1][0] == 't')
+                    {
+                        i++;
+                        polyThreads = atoi(argv[i] + 1);
+                    }
+                    else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
+                    {
+                        i++;
+                        polyCheck = true;
+                    }
+                    else
+                        break;
             }
             else if (strcmp(argv[i], "-time") == 0)
             {
@@ -915,7 +924,7 @@ int factoring_main(int argc, char *argv[])
             File file_state(filename_state, 0);
             file_state.hash = false;
             logging.progress().add_stage((int)factoring.points().size());
-            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, file_state);
+            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, polyCheck, file_state);
             logging.progress().next_stage();
             file_state.clear();
             logging.info("RES64 hash: %s\n", reshash.data());

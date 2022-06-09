@@ -27,11 +27,11 @@ namespace arithmetic
         void init(GWNum&& a, bool monic, Poly& res);
         void mul(Poly& a, Poly& b, Poly& res, int options);
         void mul(Poly&& a, Poly&& b, Poly& res, int options);
-        void mul_lohi(Poly&& a, Poly&& b, Poly& res_lo, Poly& res_hi, int half, int options);
-        void mul_hi(Poly& a, Poly& b, Poly& res, int options);
-        void mul_hi(Poly&& a, Poly& b, Poly& res, int half, int options);
-        void mul_hi(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
-        void preprocess(Poly& res, int size);
+        void mul_split(Poly&& a, Poly&& b, Poly& res_lo, Poly& res_hi, int size, int options);
+        void mul_range(Poly& a, Poly& b, Poly& res, int offset, int count, int options);
+        void mul_twohalf(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
+        void fma_range(Poly& a, Poly& b, Poly& fma, Poly& res, int offset, int count, int options);
+        void preprocess(Poly& a, Poly& res, int size);
         void preprocess_and_mul(Poly& a, Poly& b, Poly& res, int size, int options);
         void reciprocal(Poly& a, Poly& res, int options);
         void shiftleft(Poly& a, int b, Poly& res);
@@ -45,6 +45,9 @@ namespace arithmetic
         GWArithmetic& gw() const { return _gw; }
         int max_output() const { return _max_output; }
         pmhandle* pmdata() { return &_pmdata; }
+
+    private:
+        void poly_seize(Poly& a, Poly& res, Poly& to_free, int size);
 
     private:
         GWArithmetic& _gw;

@@ -16,7 +16,7 @@ namespace arithmetic
         else if (size() == 0)
             res = 0;
         else
-            res = at(0);
+            pm().gw().unfft((GWNum&)at(0), res);
         std::unique_ptr<GWNum> t;
         std::unique_ptr<GWNum> p;
         int i, d;
@@ -60,9 +60,7 @@ namespace arithmetic
     {
         _max_output = gw.state().max_polymult_output();
         polymult_init(pmdata(), gw.gwdata());
-#ifdef polymult_set_max_num_threads
         polymult_set_max_num_threads(pmdata(), max_threads);
-#endif
     }
 
     PolyMult::~PolyMult()
@@ -72,9 +70,7 @@ namespace arithmetic
 
     void PolyMult::set_threads(int threads)
     {
-#ifdef polymult_set_max_num_threads
         polymult_set_num_threads(pmdata(), threads);
-#endif
     }
 
     void PolyMult::alloc(Poly& a)
@@ -113,6 +109,7 @@ namespace arithmetic
 
     void PolyMult::copy(const Poly& a, Poly& res)
     {
+        GWASSERT(!a.preprocessed());
         alloc(res, a.size());
         for (size_t i = 0; i < a.size(); i++)
             gwcopy(gw().gwdata(), a._poly[i], res._poly[i]);
@@ -132,6 +129,7 @@ namespace arithmetic
 
     void PolyMult::fft(const Poly& a, Poly& res)
     {
+        GWASSERT(!a.preprocessed());
         alloc(res, a.size());
         for (size_t i = 0; i < a.size(); i++)
             gwfft(gw().gwdata(), a._poly[i], res._poly[i]);
@@ -172,7 +170,7 @@ namespace arithmetic
             free(res);
             return;
         }
-        if (b.size() == 0) // monic
+        if (b.size() == 0 && !a.preprocessed()) // monic
         {
             if (&a != &res)
                 copy(a, res);
@@ -183,7 +181,7 @@ namespace arithmetic
         int sb = b.size();
         alloc(res, sa + sb - (a.monic() || b.monic() ? 0 : 1));
 
-        if (sb == 1)
+        if (sb == 1 && !a.preprocessed() && !b.preprocessed())
         {
             if (a.monic() && b.monic())
                 gwadd3o(gw().gwdata(), a._poly[sa - 1], b._poly[0], res._poly[sa], GWADD_FORCE_NORMALIZE);
@@ -191,17 +189,17 @@ namespace arithmetic
                 gwcopy(gw().gwdata(), b._poly[0], res._poly[sa]);
             else if (b.monic())
                 gwcopy(gw().gwdata(), a._poly[sa - 1], res._poly[sa]);
-            for (int i = sa - 1; i > 0; i--)
-                if (b.monic())
-                    gwmuladd4(gw().gwdata(), a._poly[i], b._poly[0], a._poly[i - 1], res._poly[i], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
+            for (int i = sa - 1; i >= 0; i--)
+                if (b.monic() && i > 0)
+                    gwmuladd4(gw().gwdata(), a._poly[i], b._poly[0], a._poly[i - 1], res._poly[i], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3);
                 else
                     gwmul3(gw().gwdata(), a._poly[i], b._poly[0], res._poly[i], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
-            gwmul3(gw().gwdata(), a._poly[0], b._poly[0], res._poly[0], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
             res._monic = a.monic() && b.monic();
             return;
         }
 
         polymult(pmdata(), a.data(), sa, b.data(), sb, res.data(), res.size(), options | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+
         res._monic = a.monic() && b.monic();
     }
 
@@ -209,6 +207,8 @@ namespace arithmetic
     {
         GWASSERT(&a.pm().gw() == &res.pm().gw());
         GWASSERT(&b.pm().gw() == &res.pm().gw());
+        GWASSERT(!a.preprocessed());
+        GWASSERT(!b.preprocessed());
         if (a.degree() < b.degree() || a.size() < b.size())
         {
             mul(std::move(b), std::move(a), res, options);
@@ -246,14 +246,16 @@ namespace arithmetic
         res._poly.resize(sa + sb - (res.monic() || b.monic() ? 0 : 1));
         for (int i = 0; sa + i < res.size(); i++)
             res._poly[sa + i] = b._poly[i];
+
         polymult(pmdata(), res._poly.data(), sa, b._poly.data(), sb, res._poly.data(), res.size(), options | (res.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+
         if (!res.monic() && !b.monic())
             gwfree(gw().gwdata(), b._poly[sb - 1]);
         b._poly.clear();
         res._monic = res.monic() && b.monic();
     }
 
-    void PolyMult::mul_lohi(Poly&& a, Poly&& b, Poly& res_lo, Poly& res_hi, int half, int options)
+    void PolyMult::mul_split(Poly&& a, Poly&& b, Poly& res_lo, Poly& res_hi, int size, int options)
     {
         int sa = a.size();
         int sb = b.size();
@@ -261,25 +263,28 @@ namespace arithmetic
         free(res_hi);
 
         int sr = sa + sb - (a.monic() || b.monic() ? 0 : 1);
-        if (sr >= half)
+        if (sr >= size)
         {
-            res_hi._poly.insert(res_hi._poly.begin(), res_lo._poly.begin() + half, res_lo._poly.end());
-            res_lo._poly.erase(res_lo._poly.begin() + half, res_lo._poly.end());
+            res_hi._poly.insert(res_hi._poly.begin(), res_lo._poly.begin() + size, res_lo._poly.end());
+            res_lo._poly.erase(res_lo._poly.begin() + size, res_lo._poly.end());
             res_hi._monic = res_lo._monic;
             res_lo._monic = false;
         }
     }
 
-    void PolyMult::preprocess(Poly& res, int size)
+    void PolyMult::preprocess(Poly& a, Poly& res, int size)
     {
-        if (res.size() > 1 && res._cache == nullptr)
+        if (a.size() > 1 && a._cache == nullptr)
         {
-            res._cache = polymult_preprocess(pmdata(), res._poly.data(), res._poly.size(), size, size, POLYMULT_CIRCULAR | POLYMULT_FFT | (res.monic() ? POLYMULT_INVEC1_MONIC : 0));
-            res._cache_size = res._poly.size();
+            res._cache = polymult_preprocess(pmdata(), a._poly.data(), a._poly.size(), size, size, POLYMULT_CIRCULAR | POLYMULT_PRE_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
+            res._cache_size = a._poly.size();
             for (auto it = res._poly.begin(); it != res._poly.end(); it++)
                 gwfree(gw().gwdata(), *it);
             res._poly.clear();
+            res._monic = a.monic();
         }
+        else
+            copy(a, res);
     }
 
     void PolyMult::preprocess_and_mul(Poly& a, Poly& b, Poly& res, int size, int options)
@@ -288,6 +293,8 @@ namespace arithmetic
         GWASSERT(&b.pm().gw() == &res.pm().gw());
         GWASSERT(&a != &res);
         GWASSERT(&b != &res);
+        GWASSERT(!a.preprocessed());
+        GWASSERT(!b.preprocessed());
         if (a.degree() < b.degree() || a.size() < b.size())
         {
             preprocess_and_mul(b, a, res, size, options);
@@ -304,7 +311,7 @@ namespace arithmetic
         if (sa > 1)
         {
             move(std::move(a), res);
-            a._cache = polymult_preprocess(pmdata(), res._poly.data(), sa, size, size, POLYMULT_CIRCULAR | POLYMULT_FFT | (res.monic() ? POLYMULT_INVEC1_MONIC : 0));
+            a._cache = polymult_preprocess(pmdata(), res._poly.data(), sa, size, size, POLYMULT_CIRCULAR | (options & POLYMULT_PRE_FFT ? POLYMULT_PRE_FFT : 0) | (res.monic() ? POLYMULT_INVEC1_MONIC : 0));
             a._cache_size = sa;
         }
         else
@@ -317,159 +324,108 @@ namespace arithmetic
             mul(res, b, res, options);
             return;
         }
-        b._cache = polymult_preprocess(pmdata(), b._poly.data(), sb, size, size, POLYMULT_CIRCULAR | POLYMULT_FFT| (b.monic() ? POLYMULT_INVEC1_MONIC : 0));
+        b._cache = polymult_preprocess(pmdata(), b._poly.data(), sb, size, size, POLYMULT_CIRCULAR | (options & POLYMULT_PRE_FFT ? POLYMULT_PRE_FFT : 0) | (b.monic() ? POLYMULT_INVEC1_MONIC : 0));
         b._cache_size = sb;
 
         res._poly.resize(sa + sb - (res.monic() || b.monic() ? 0 : 1));
         for (int i = 0; sa + i < res.size(); i++)
             res._poly[sa + i] = b._poly[i];
-        int padding = size - res._poly.size();
-        res._poly.insert(res._poly.end(), padding, nullptr);
-        polymult(pmdata(), a._cache, sa, b._cache, sb, res._poly.data(), size, options | POLYMULT_CIRCULAR | (res.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        res._poly.erase(res._poly.end() - padding, res._poly.end());
+
+        polymult(pmdata(), a._cache, sa, b._cache, sb, res._poly.data(), res._poly.size(), options | (res.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+
         if (!res.monic() && !b.monic())
             gwfree(gw().gwdata(), b._poly[sb - 1]);
         b._poly.clear();
         res._monic = res.monic() && b.monic();
-        if (res._monic && padding == 0)
-        {
-            gwunfft(gw().gwdata(), res._poly[0], res._poly[0]);
-            gwaddsmall(gw().gwdata(), res._poly[0], -1);
-        }
-        if (res._cache != nullptr)
-            gwfree_array(gw().gwdata(), res._cache);
-        res._cache = nullptr;
     }
 
-    void PolyMult::mul_hi(Poly& a, Poly& b, Poly& res, int options)
+    void PolyMult::poly_seize(Poly& a, Poly& res, Poly& to_free, int size)
     {
-        if (a.degree() < b.degree() || a.size() < b.size())
-        {
-            mul_hi(b, a, res, options);
-            return;
-        }
-        if (b.degree() < 0 || a.degree() + b.degree() < res.size())
-        {
-            free(res);
-            return;
-        }
-        if (b.size() == 0) // monic
-        {
-            for (int i = 0; i < res.size() && i + res.size() < a.size(); i++)
-                gwcopy(gw().gwdata(), a._poly[i + res.size()], res._poly[i]);
-            alloc(res, a.size() - res.size());
-            res._monic = a.monic();
-            return;
-        }
-
-        int sa = a.size();
-        int sb = b.size();
-        int half = res.size();
-        int full = sa + sb - (a.monic() || b.monic() ? 0 : 1);
-        if (full < 2*half)
-            alloc(res, full - half);
-
-        if (sb == 1)
-        {
-            if (sa >= half && sa < 2*half)
-            {
-                if (a.monic() && b.monic())
-                    gwadd3o(gw().gwdata(), a._poly[sa - 1], b._poly[0], res._poly[sa - half], GWADD_FORCE_NORMALIZE);
-                else if (a.monic())
-                    gwcopy(gw().gwdata(), b._poly[0], res._poly[sa - half]);
-                else if (b.monic())
-                    gwcopy(gw().gwdata(), a._poly[sa - 1], res._poly[sa - half]);
-            }
-            for (int i = sa - 1; i >= half; i--)
-                if (b.monic())
-                    gwmuladd4(gw().gwdata(), a._poly[i], b._poly[0], a._poly[i - 1], res._poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
-                else
-                    gwmul3(gw().gwdata(), a._poly[i], b._poly[0], res._poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
-            res._monic = a.monic() && b.monic() && sa + sb < 2*half;
-            return;
-        }
-        
-        res._poly.insert(res._poly.begin(), half, nullptr);
-        int padding = 2*half - res._poly.size();
-        res._poly.insert(res._poly.end(), padding, nullptr);
-        // (full > 2*half ? POLYMULT_CIRCULAR : 0)
-        polymult(pmdata(), a.data(), sa, b.data(), sb, res.data(), res.size(), options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        res._poly.erase(res._poly.end() - padding, res._poly.end());
-        res._poly.erase(res._poly.begin(), res._poly.begin() + half);
-        res._monic = a.monic() && b.monic() && sa + sb < 2*half;
-    }
-
-    void PolyMult::mul_hi(Poly&& a, Poly& b, Poly& res, int half, int options)
-    {
-        GWASSERT(&a.pm().gw() == &res.pm().gw());
-        //GWASSERT(b.preprocessed() || b.size() <= 1);
-        if (b.degree() < 0 || a.degree() + b.degree() < half)
-        {
-            free(res);
-            return;
-        }
-        if (b.size() == 0) // monic
-        {
-            if (&a != &res)
-                move(std::move(a), res);
-            res >>= half;
-            return;
-        }
-
-        int sa = a.size();
-        int sb = b.size();
-        int full = sa + sb - (a.monic() || b.monic() ? 0 : 1);
-        int size = full < 2*half ? full - half : half;
-        Poly to_free(a.pm());
-        std::vector<gwnum> poly;
-        poly.reserve(size);
-        for (int i = 0; i < a.size(); i++)
+        res._poly.reserve(size);
+        for (int i = 0; i < a._poly.size(); i++)
             if (a._poly[i] != nullptr)
             {
-                if (poly.size() < size)
-                    poly.push_back(a._poly[i]);
+                if (res._poly.size() < size)
+                    res._poly.push_back(a._poly[i]);
                 else
                     to_free._poly.push_back(a._poly[i]);
             }
-        while (poly.size() < size)
-            poly.push_back(gwalloc(a.pm().gw().gwdata()));
+        res.pm().alloc(res, size);
+    }
 
-        if (sb == 1)
+    void PolyMult::mul_range(Poly& a, Poly& b, Poly& res, int offset, int count, int options)
+    {
+        if (a.degree() < b.degree() || a.size() < b.size())
         {
-            if (sa >= half && sa < 2*half)
+            mul_range(b, a, res, offset, count, options);
+            return;
+        }
+        if (b.degree() < 0 || a.degree() + b.degree() < offset)
+        {
+            free(res);
+            return;
+        }
+        Poly to_free(res.pm());
+        if (b.size() == 0 && !a.preprocessed()) // monic
+        {
+            if (&a != &res)
             {
-                if (a.monic() && b.monic())
-                    gwadd3o(gw().gwdata(), a._poly[sa - 1], b._poly[0], poly[sa - half], GWADD_FORCE_NORMALIZE);
-                else if (a.monic())
-                    gwcopy(gw().gwdata(), b._poly[0], poly[sa - half]);
-                else if (b.monic())
-                    gwcopy(gw().gwdata(), a._poly[sa - 1], poly[sa - half]);
+                res.pm().alloc(res, a.size() < offset + count ? a.size() - offset : count);
+                for (int i = 0; i < res.size(); i++)
+                    gwcopy(gw().gwdata(), a._poly[i + offset], res._poly[i]);
+                res._monic = a.monic() && a.size() < offset + count;
             }
-            for (int i = sa - 1; i >= half; i--)
-                if (b.monic())
-                    gwmuladd4(gw().gwdata(), a._poly[i], b._poly[0], a._poly[i - 1], poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
-                else
-                    gwmul3(gw().gwdata(), a._poly[i], b._poly[0], poly[i - half], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
-            a._poly.clear();
-            res._poly = std::move(poly);
-            res._monic = a.monic() && b.monic() && sa + sb < 2*half;
+            else
+            {
+                res >>= offset;
+                if (res.size() >= count)
+                {
+                    res._monic = false;
+                    to_free._poly.insert(to_free._poly.end(), res._poly.begin() + count, res._poly.end());
+                    res._poly.resize(count);
+                    GWASSERT(res.pm().gw().gwdata() == gw().gwdata());
+                }
+            }
             return;
         }
 
-        poly.insert(poly.begin(), half, nullptr);
-        int padding = 2*half - poly.size();
-        if (padding > 0)
-            poly.insert(poly.end(), padding, nullptr);
-        polymult(pmdata(), a.data(), sa, b.data(), sb, poly.data(), 2*half, options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        if (padding > 0)
-            poly.erase(poly.end() - padding, poly.end());
-        poly.erase(poly.begin(), poly.begin() + half);
-        a._poly.clear();
-        res._poly = std::move(poly);
-        res._monic = a.monic() && b.monic() && sa + sb < 2*half;
+        int sa = a.size();
+        int sb = b.size();
+        int full = sa + sb - (a.monic() || b.monic() ? 0 : 1);
+        int circular = offset + count;
+        if (circular < full - offset)
+            circular = full - offset;
+        if (circular >= pmdata()->FFT_BREAK)
+            circular = polymult_fft_size(circular);
+        int size = full < offset + count ? full - offset : count;
+        Poly tmp(res.pm());
+        poly_seize(res, tmp, to_free, size);
+
+        if (sb == 1 && !a.preprocessed() && !b.preprocessed())
+        {
+            if (sa >= offset && sa < offset + count)
+            {
+                if (a.monic() && b.monic())
+                    gwadd3o(gw().gwdata(), a._poly[sa - 1], b._poly[0], tmp._poly[sa - offset], GWADD_FORCE_NORMALIZE);
+                else if (a.monic())
+                    gwcopy(gw().gwdata(), b._poly[0], tmp._poly[sa - offset]);
+                else if (b.monic())
+                    gwcopy(gw().gwdata(), a._poly[sa - 1], tmp._poly[sa - offset]);
+            }
+            for (int i = (sa < offset + count ? sa : offset + count) - 1; i >= offset; i--)
+                if (b.monic() && i > 0)
+                    gwmuladd4(gw().gwdata(), a._poly[i], b._poly[0], a._poly[i - 1], tmp._poly[i - offset], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3);
+                else
+                    gwmul3(gw().gwdata(), a._poly[i], b._poly[0], tmp._poly[i - offset], (options & POLYMULT_STARTNEXTFFT ? GWMUL_STARTNEXTFFT : 0) | GWMUL_FFT_S1 | GWMUL_FFT_S2);
+        }
+        else
+            polymult2(pmdata(), a.data(), sa, b.data(), sb, tmp.data(), tmp.size(), nullptr, (full > circular ? circular : 0), offset, options | POLYMULT_MULMID | (full > circular ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+
+        res._monic = a.monic() && b.monic() && full < offset + count;
+        res._poly = std::move(tmp._poly);
     }
 
-    void PolyMult::mul_hi(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options)
+    void PolyMult::mul_twohalf(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options)
     {
         GWASSERT(&a.pm().gw() == &res1.pm().gw());
         GWASSERT(&a.pm().gw() == &res2.pm().gw());
@@ -478,13 +434,15 @@ namespace arithmetic
         if (b.degree() < 0 || a.degree() + b.degree() < half)
         {
             free(res1);
-            mul_hi(std::move(a), c, res2, half, options);
+            res2 = std::move(a);
+            mul_range(res2, c, res2, half, half, options);
             return;
         }
         if (c.degree() < 0 || a.degree() + c.degree() < half)
         {
             free(res2);
-            mul_hi(std::move(a), b, res1, half, options);
+            res1 = std::move(a);
+            mul_range(res1, b, res1, half, half, options);
             return;
         }
         if (b.size() == 0 && c.size() == 0) // monic
@@ -503,7 +461,8 @@ namespace arithmetic
             for (int i = 0; i < res1.size(); i++)
                 gwcopy(gw().gwdata(), a._poly[i + half], res1._poly[i]);
             res1._monic = a.monic() && a.size() < 2*half;
-            mul_hi(std::move(a), c, res2, half, options);
+            res2 = std::move(a);
+            mul_range(res2, c, res2, half, half, options);
             return;
         }
         if (c.size() == 0) // monic
@@ -512,7 +471,8 @@ namespace arithmetic
             for (int i = 0; i < res2.size(); i++)
                 gwcopy(gw().gwdata(), a._poly[i + half], res2._poly[i]);
             res2._monic = a.monic() && a.size() < 2*half;
-            mul_hi(std::move(a), b, res1, half, options);
+            res1 = std::move(a);
+            mul_range(res1, b, res1, half, half, options);
             return;
         }
 
@@ -526,16 +486,16 @@ namespace arithmetic
 
         if (sb == 1)
         {
-            alloc(res1, half);
-            mul_hi(a, b, res1, options);
-            mul_hi(std::move(a), c, res2, half, options);
+            mul_range(a, b, res1, half, half, options);
+            res2 = std::move(a);
+            mul_range(res2, c, res2, half, half, options);
             return;
         }
         if (sc == 1)
         {
-            alloc(res2, half);
-            mul_hi(a, c, res2, options);
-            mul_hi(std::move(a), b, res1, half, options);
+            mul_range(a, c, res2, half, half, options);
+            res1 = std::move(a);
+            mul_range(res1, b, res1, half, half, options);
             return;
         }
 
@@ -552,65 +512,151 @@ namespace arithmetic
         alloc(res1, size1);
         alloc(res2, size2);
 
-#if !defined(POLYMULT_VECTOR)
-        a._cache = polymult_preprocess(pmdata(), a._poly.data(), a._poly.size(), 2*half, 2*half, POLYMULT_CIRCULAR | POLYMULT_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
+#ifdef NO_POLYMULT_SEVERAL
+        a._cache = polymult_preprocess(pmdata(), a._poly.data(), a._poly.size(), 2*half, 2*half, POLYMULT_CIRCULAR | POLYMULT_PRE_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
 
         res1._poly.insert(res1._poly.begin(), half, nullptr);
-        int padding1 = 2*half - res1._poly.size();
-        if (padding1 > 0)
-            res1._poly.insert(res1._poly.end(), padding1, nullptr);
-        polymult(pmdata(), a._cache, sa, b.data(), sb, res1.data(), 2*half, options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        if (padding1 > 0)
-            res1._poly.erase(res1._poly.end() - padding1, res1._poly.end());
+        polymult(pmdata(), a._cache, sa, b.data(), sb, res1.data(), res1.size(), options | (full1 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
         res1._poly.erase(res1._poly.begin(), res1._poly.begin() + half);
 
         res2._poly.insert(res2._poly.begin(), half, nullptr);
-        int padding2 = 2*half - res2._poly.size();
-        if (padding2 > 0)
-            res2._poly.insert(res2._poly.end(), padding2, nullptr);
-        polymult(pmdata(), a._cache, sa, c.data(), sc, res2.data(), 2*half, options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (c.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        if (padding2 > 0)
-            res2._poly.erase(res2._poly.end() - padding2, res2._poly.end());
+        polymult(pmdata(), a._cache, sa, c.data(), sc, res2.data(), res2.size(), options | (full2 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (c.monic() ? POLYMULT_INVEC2_MONIC : 0));
         res2._poly.erase(res2._poly.begin(), res2._poly.begin() + half);
 
         gwfree_array(gw().gwdata(), a._cache);
         a._cache = nullptr;
 #else
-        res1._poly.insert(res1._poly.begin(), half, nullptr);
-        int padding1 = 2*half - res1._poly.size();
-        if (padding1 > 0)
-            res1._poly.insert(res1._poly.end(), padding1, nullptr);
-        res2._poly.insert(res2._poly.begin(), half, nullptr);
-        int padding2 = 2*half - res2._poly.size();
-        if (padding2 > 0)
-            res2._poly.insert(res2._poly.end(), padding2, nullptr);
-
-        pmarg args[2];
-        args[0].invec2 = b.data();
-        args[0].invec2_size = sb;
-        args[0].outvec = res1.data();
-        args[0].outvec_size = 2*half;
-        args[0].options = b.monic() ? POLYMULT_INVEC2_MONIC : 0;
-        args[1].invec2 = c.data();
-        args[1].invec2_size = sc;
-        args[1].outvec = res2.data();
-        args[1].outvec_size = 2*half;
-        args[1].options = c.monic() ? POLYMULT_INVEC2_MONIC : 0;
-        polymult_vector(pmdata(), a.data(), sa, args, 2, options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
-
-        if (padding1 > 0)
-            res1._poly.erase(res1._poly.end() - padding1, res1._poly.end());
-        res1._poly.erase(res1._poly.begin(), res1._poly.begin() + half);
-        if (padding2 > 0)
-            res2._poly.erase(res2._poly.end() - padding2, res2._poly.end());
-        res2._poly.erase(res2._poly.begin(), res2._poly.begin() + half);
+        polymult_arg args[2];
+        polymult_arg& arg_b = args[0];
+        polymult_arg& arg_c = args[1];
+        arg_b.invec2 = b.data();
+        arg_b.invec2_size = sb;
+        arg_b.outvec = res1.data();
+        arg_b.outvec_size = res1.size();
+        arg_b.fmavec = nullptr;
+        arg_b.circular_size = (full1 > 2*half ? 2*half : 0);
+        arg_b.first_mulmid = 0;
+        arg_b.options = (full1 > 2*half ? POLYMULT_CIRCULAR : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0);
+        arg_c.invec2 = c.data();
+        arg_c.invec2_size = sc;
+        arg_c.outvec = res2.data();
+        arg_c.outvec_size = res2.size();
+        arg_c.fmavec = nullptr;
+        arg_c.circular_size = (full2 > 2*half ? 2*half : 0);
+        arg_c.first_mulmid = 0;
+        arg_c.options = (full2 > 2*half ? POLYMULT_CIRCULAR : 0) | (c.monic() ? POLYMULT_INVEC2_MONIC : 0);
+        polymult_several(pmdata(), a.data(), sa, args, 2, options | POLYMULT_MULHI | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
 #endif
 
         for (int i = size1 + size2; i < a.size(); i++)
             gwfree(gw().gwdata(), a._poly[i]);
         a._poly.clear();
-        res1._monic = a.monic() && b.monic() && sa + sb < 2*half;
-        res2._monic = a.monic() && c.monic() && sa + sc < 2*half;
+        res1._monic = a.monic() && b.monic() && full1 < 2*half;
+        res2._monic = a.monic() && c.monic() && full2 < 2*half;
+    }
+
+    void PolyMult::fma_range(Poly& a, Poly& b, Poly& fma, Poly& res, int offset, int count, int options)
+    {
+        GWASSERT(!fma.preprocessed());
+        if (a.degree() < b.degree() || a.size() < b.size())
+        {
+            fma_range(b, a, fma, res, offset, count, options);
+            return;
+        }
+        Poly to_free(res.pm());
+        if (b.degree() < 0 || a.degree() + b.degree() < offset)
+        {
+            if (fma.degree() < offset)
+            {
+                free(res);
+                return;
+            }
+            GWASSERT(0);
+        }
+        if (b.size() == 0 && !a.preprocessed()) // monic
+        {
+            Poly tmp(res.pm());
+            tmp._monic = (a.monic() && fma.degree() < a.size()) ||
+                (fma.monic() && a.degree() < fma.size() && ((options & POLYMULT_FMADD) || (options & POLYMULT_FNMADD)));
+            int fma_full = (a.degree() > fma.degree() ? a.degree() : fma.degree()) + (tmp.monic() ? 0 : 1);
+            poly_seize(res, tmp, to_free, fma_full < offset + count ? fma_full - offset : count);
+
+            int i;
+            for (i = 0; i < tmp.size() && i + offset < a.size() && i + offset < fma.size(); i++)
+                if (options & POLYMULT_FMADD)
+                    gwadd3o(gw().gwdata(), a._poly[i + offset], fma._poly[i + offset], tmp._poly[i], GWADD_FORCE_NORMALIZE);
+                else if (options & POLYMULT_FMSUB)
+                    gwsub3o(gw().gwdata(), a._poly[i + offset], fma._poly[i + offset], tmp._poly[i], GWADD_FORCE_NORMALIZE);
+                else if (options & POLYMULT_FNMADD)
+                    gwsub3o(gw().gwdata(), fma._poly[i + offset], a._poly[i + offset], tmp._poly[i], GWADD_FORCE_NORMALIZE);
+            for (; i < tmp.size() && i + offset < a.size(); i++)
+                if ((options & POLYMULT_FMADD) || (options & POLYMULT_FMSUB))
+                    gwcopy(gw().gwdata(), a._poly[i + offset], tmp._poly[i]);
+                else if (options & POLYMULT_FNMADD)
+                {
+                    dbltogw(gw().gwdata(), 0, tmp._poly[i]);
+                    gwsub3o(gw().gwdata(), tmp._poly[i], a._poly[i + offset], tmp._poly[i], GWADD_GUARANTEED_OK);
+                }
+            for (; i < tmp.size() && i + offset < fma.size(); i++)
+                if ((options & POLYMULT_FMADD) || (options & POLYMULT_FNMADD))
+                    gwcopy(gw().gwdata(), fma._poly[i + offset], tmp._poly[i]);
+                else if (options & POLYMULT_FMSUB)
+                {
+                    dbltogw(gw().gwdata(), 0, tmp._poly[i]);
+                    gwsub3o(gw().gwdata(), tmp._poly[i], fma._poly[i + offset], tmp._poly[i], GWADD_GUARANTEED_OK);
+                }
+            if (!tmp.monic() && fma_full <= offset + count && a.size() < fma_full && fma.size() < fma_full)
+                dbltogw(gw().gwdata(), 0, tmp._poly[a.size() - offset]);
+            if (a.monic() && a.size() < offset + count && a.size() < fma_full)
+                gwsmalladd(gw().gwdata(), (options & POLYMULT_FNMADD) ? -1 : 1, tmp._poly[a.size() - offset]);
+            if (fma.monic() && fma.size() < offset + count && fma.size() < fma_full)
+                gwsmalladd(gw().gwdata(), (options & POLYMULT_FMSUB) ? -1 : 1, tmp._poly[fma.size() - offset]);
+
+            res._monic = tmp.monic() && fma_full < offset + count;
+            res._poly = std::move(tmp._poly);
+            return;
+        }
+
+        int sa = a.size();
+        int sb = b.size();
+        int full = sa + sb - (a.monic() || b.monic() ? 0 : 1);
+        int circular = offset + count;
+        if (circular < full - offset)
+            circular = full - offset;
+        if (circular >= pmdata()->FFT_BREAK)
+            circular = polymult_fft_size(circular);
+        int size = full < offset + count ? full - offset : count;
+        Poly tmp(res.pm());
+        int degree = full - (a.monic() && b.monic() ? 0 : 1);
+        tmp._monic = (a.monic() && b.monic() && fma.degree() < full) ||
+            (fma.monic() && degree < fma.size() && ((options & POLYMULT_FMADD) || (options & POLYMULT_FNMADD)));
+        int fma_full = (degree > fma.degree() ? degree : fma.degree()) + (tmp.monic() ? 0 : 1);
+        poly_seize(res, tmp, to_free, fma_full < offset + count ? fma_full - offset : count);
+
+        int padding = offset + count - fma.size();
+        if (padding > 0)
+            fma._poly.insert(fma._poly.end(), padding, nullptr);
+        polymult2(pmdata(), a.data(), sa, b.data(), sb, tmp.data(), size, fma.data() + offset, (full > circular ? circular : 0), offset, options | POLYMULT_MULMID | (full > circular ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
+        if (padding > 0)
+            fma._poly.erase(fma._poly.end() - padding, fma._poly.end());
+
+        for (int i = size; i < tmp.size() && i + offset < fma.size(); i++)
+            if ((options & POLYMULT_FMADD) || (options & POLYMULT_FNMADD))
+                gwcopy(gw().gwdata(), fma._poly[i + offset], tmp._poly[i]);
+            else if (options & POLYMULT_FMSUB)
+            {
+                dbltogw(gw().gwdata(), 0, tmp._poly[i]);
+                gwsub3o(gw().gwdata(), tmp._poly[i], fma._poly[i + offset], tmp._poly[i], GWADD_GUARANTEED_OK);
+            }
+        if (!tmp.monic() && fma_full <= offset + count && full < fma_full && fma.size() < fma_full)
+            dbltogw(gw().gwdata(), 0, tmp._poly[full - offset]);
+        if (a.monic() && b.monic() && full < offset + count && full < fma_full)
+            gwsmalladd(gw().gwdata(), (options & POLYMULT_FNMADD) ? -1 : 1, tmp._poly[full - offset]);
+        if (fma.monic() && fma.size() < offset + count && fma.size() < fma_full)
+            gwsmalladd(gw().gwdata(), (options & POLYMULT_FMSUB) ? -1 : 1, tmp._poly[fma.size() - offset]);
+
+        res._monic = tmp.monic() && fma_full < offset + count;
+        res._poly = std::move(tmp._poly);
     }
 
     void PolyMult::reciprocal(Poly& a, Poly& res, int options)
@@ -620,11 +666,10 @@ namespace arithmetic
         int d;
         for (d = 2; d < res.size() + (a.monic() ? 1 : 0); d <<= 1);
 
-        gwnum* g = res._poly.data() + res.size() - 1;
-        std::vector<gwnum> tmp(d);
-        std::vector<gwnum> tmp2(d);
+        gwnum* g = res.data() + res.size() - 1;
+        std::vector<gwnum> tmp(d/2);
         std::vector<gwnum> f(d);
-        for (j = d/2; j < d; j++)
+        for (j = 0; j < tmp.size(); j++)
             tmp[j] = gwalloc(gw().gwdata());
 
         int sa = a.size();
@@ -634,22 +679,27 @@ namespace arithmetic
             gwsub3o(gw().gwdata(), *g, a._poly[sa - 1], *g, GWADD_GUARANTEED_OK);
             for (i = 2; i < d; g -= i, i <<= 1)
             {
-                for (j = 0; j < 2*i; j++)
-                    f[j] = (sa - 2*i + j) >= 0 ? a._poly[sa - 2*i + j] : nullptr;
-                polymult(pmdata(), g, i - 1, f.data(), 2*i, tmp.data() + d/2 - i, 2*i, POLYMULT_CIRCULAR | POLYMULT_INVEC1_MONIC);
-                for (j = 0; j < i; j++)
-                    tmp2[d/2 + j] = (g + j - i) >= res._poly.data() ? g[j - i] : nullptr;
-                polymult(pmdata(), g, i - 1, tmp.data() + d/2 - 1, i + 1, tmp2.data() + d/2 - i, 2*i, POLYMULT_CIRCULAR | POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_NEGATE);
+                for (j = 0; j < 2*i - 1; j++)
+                    f[j] = (sa - 2*i + 1 + j) >= 0 ? a._poly[sa - 2*i + 1 + j] : nullptr;
+                polymult2(pmdata(), g, i - 1, f.data(), 2*i - 1, tmp.data(), i, nullptr, 2*i, i - 1, POLYMULT_CIRCULAR | POLYMULT_MULMID | POLYMULT_INVEC1_MONIC | POLYMULT_NEXTFFT);
+                j = res.size() - 2*i + 1;
+                polymult2(pmdata(), g, i - 1, tmp.data(), i, res.data() + (j >= 0 ? j : 0), i + (j < 0 ? j : 0), nullptr, 0, i - 1 - (j < 0 ? j : 0), POLYMULT_MULMID | POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_NEGATE | (2*i < d ? POLYMULT_NEXTFFT : options));
             }
         }
         else
         {
-            Giant tmp = gw().popg();
-            gwtobinary(gw().gwdata(), a._poly[sa - 1], tmp.data(), tmp.capacity());
-            tmp.inv(gw().N());
+            gw().inv((GWNum&)GWNumWrapper(gw(), a._poly[sa - 1]), (GWNum&)GWNumWrapper(gw(), *g));
+            for (i = 1; i < d; g -= i, i <<= 1)
+            {
+                for (j = 0; j < 2*i - 1; j++)
+                    f[j] = (sa - 2*i + j) >= 0 ? a._poly[sa - 2*i + j] : nullptr;
+                polymult2(pmdata(), g, i, f.data(), 2*i - 1, tmp.data(), i, nullptr, 2*i, i - 1, POLYMULT_CIRCULAR | POLYMULT_MULMID | POLYMULT_NEXTFFT);
+                j = res.size() - 2*i;
+                polymult2(pmdata(), g, i, tmp.data(), i, res.data() + (j >= 0 ? j : 0), i + (j < 0 ? j : 0), nullptr, 0, i - 1 - (j < 0 ? j : 0), POLYMULT_MULMID | POLYMULT_INVEC2_NEGATE | (2*i < d ? POLYMULT_NEXTFFT : options));
+            }
         }
 
-        for (j = d/2; j < d; j++)
+        for (j = 0; j < tmp.size(); j++)
             gwfree(gw().gwdata(), tmp[j]);
         res._monic = a.monic();
     }
@@ -665,11 +715,15 @@ namespace arithmetic
     void PolyMult::shiftright(Poly& a, int b, Poly& res)
     {
         GWASSERT(&a.pm().gw() == &res.pm().gw());
+        if (b > a.size())
+        {
+            free(res);
+            return;
+        }
         if (&a == &res)
         {
             for (int i = 0; i < b && i < res.size(); i++)
-                if (res._poly[i] != nullptr)
-                    gwfree(gw().gwdata(), res._poly[i]);
+                gwfree(gw().gwdata(), res._poly[i]);
             res._poly.erase(res._poly.begin(), res._poly.begin() + b);
         }
         else
@@ -677,6 +731,7 @@ namespace arithmetic
             alloc(res, (int)a.size() - b);
             for (int i = 0; i < res.size(); i++)
                 gwcopy(gw().gwdata(), a._poly[b + i], res._poly[i]);
+            res._monic = a._monic;
         }
     }
 

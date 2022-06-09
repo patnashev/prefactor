@@ -83,7 +83,7 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     {
         find_poly_stage2_optimal_params(max_size, threads);
         LN = 128;
-        //LN = 1024;
+        LN = 1024;
         //LN = PolyDegree;
     }
     else
@@ -108,33 +108,37 @@ int EdECMParams::stage1_size()
 
 void Params::find_poly_stage2_optimal_params(int max_size, int threads)
 {
-    static int poly_params[][2] = { {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, 
-        /* 7*/ {127, 1050},
-        /* 8*/ {255, 2310},
-        /* 9*/ {511, 4620},
-        /*10*/ {1023, 9240},
-        /*11*/ {2047, 19110},
-        /*12*/ {4095, 39270},
-        /*13*/ {8191, 79170},
-        /*14*/ {16383, 159390},
-        /*15*/ {32767, 330330},
-        /*16*/ {65535, 690690},
-        /*17*/ {131071, 1381380},
-        /*18*/ {262143, 2852850},
-        {0, 0} };
+    static int poly_params[] = { 0, 0, 0, 0, 0, 0, 0, 
+        /* 7     128*/ 1050,
+        /* 8     256*/ 2310,
+        /* 9     512*/ 4620,
+        /*10    1024*/ 9240,
+        /*11    2048*/ 19110,
+        /*12    4099*/ 39270,
+        /*13    8192*/ 79170,
+        /*14   16384*/ 159390,
+        /*15   32768*/ 330330,
+        /*16   65536*/ 690690,
+        /*17  131072*/ 1381380,
+        /*18  262144*/ 2852850,
+        /*19  524288*/ 5705700,
+        /*20 1048576*/ 11411400,
+        0 };
 
     A = 1;
     L = 1;
     PolyThreads = threads;
     PolyPower = 7;
-    PolyDegree = poly_params[PolyPower][0];
-    D = poly_params[PolyPower][1];
+    PolyDegree = 1 << PolyPower;
+    D = poly_params[PolyPower];
+#ifdef _DEBUG
     //return;
-    while (poly_params[PolyPower + 1][0] && (B2 - B1)/D/PolyDegree > 2*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + 2*threads*(1 << (PolyPower + 1)))
+#endif
+    while (poly_params[PolyPower + 1] && (B2 - B1)/D/PolyDegree > 2*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + 2*threads*(1 << (PolyPower + 1)))
     {
         PolyPower++;
-        PolyDegree = poly_params[PolyPower][0];
-        D = poly_params[PolyPower][1];
+        PolyDegree = 1 << PolyPower;
+        D = poly_params[PolyPower];
     }
 }
 
