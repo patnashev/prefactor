@@ -18,6 +18,7 @@
     <ClCompile Include="..\arithmetic\lucas.cpp" />
     <ClCompile Include="..\arithmetic\montgomery.cpp" />
     <ClCompile Include="..\arithmetic\poly.cpp" />
+    <ClCompile Include="..\factoring.cpp" />
     <ClCompile Include="..\file.cpp" />
     <ClCompile Include="..\inputnum.cpp" />
     <ClCompile Include="..\logging.cpp" />
@@ -28,6 +29,7 @@
     <ClCompile Include="..\prob.cpp" />
     <ClCompile Include="..\stage1.cpp" />
     <ClCompile Include="..\stage2.cpp" />
+    <ClCompile Include="..\stage2poly.cpp" />
     <ClCompile Include="..\task.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -40,6 +42,7 @@
     <ClInclude Include="..\arithmetic\lucas.h" />
     <ClInclude Include="..\arithmetic\montgomery.h" />
     <ClInclude Include="..\arithmetic\poly.h" />
+    <ClInclude Include="..\factoring.h" />
     <ClInclude Include="..\file.h" />
     <ClInclude Include="..\inputnum.h" />
     <ClInclude Include="..\logging.h" />
@@ -49,6 +52,7 @@
     <ClInclude Include="..\prob.h" />
     <ClInclude Include="..\stage1.h" />
     <ClInclude Include="..\stage2.h" />
+    <ClInclude Include="..\stage2poly.h" />
     <ClInclude Include="..\task.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
