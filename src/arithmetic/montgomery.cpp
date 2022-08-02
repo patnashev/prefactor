@@ -62,7 +62,8 @@ namespace arithmetic
 
     void MontgomeryArithmetic::init(const EdPoint& a, EdY& res)
     {
-        res.Y.reset(new GWNum(gw()));
+        if (!res.Y)
+            res.Y.reset(new GWNum(gw()));
         *res.Y = *a.Y;
         if (a.Z)
         {
@@ -114,7 +115,7 @@ namespace arithmetic
             tmp.reset(new GWNum(gw()));
 
         if (b.Z && (&b == &res))
-            swap(*tmp, *res.Z);
+            std::swap(tmp, res.Z);
         if (a.Z)
             gw().mul(*a.Z, *b.Y, *res.Z, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1));
         else
@@ -129,7 +130,7 @@ namespace arithmetic
         gw().mulmuladd(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, (&a_minus_b == &res) ? *tmp : *res.ZpY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT_IF(safe11));
         gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && ((a.Z && b.Z) || safe1)));
         if (&a_minus_b == &res)
-            swap(*res.ZpY, *tmp);
+            std::swap(res.ZpY, tmp);
         if (safe11)
             gw().fft(*res.ZpY, *res.ZpY);
         if (safe11 && ((a.Z && b.Z) || safe1))
@@ -223,7 +224,7 @@ namespace arithmetic
         }
         if (first == end)
             return;
-        swap(*(*first)->ZpY, *(*first)->Z);
+        std::swap((*first)->ZpY, (*first)->Z);
         Iter prev = first;
         for ((it = first)++; it != end; it++)
             if (*it)
@@ -233,11 +234,11 @@ namespace arithmetic
             }
         try
         {
-            (*last)->ZpY->inv();
+            gw().inv(*(*last)->ZpY, *(*last)->ZpY);
         }
         catch (const ArithmeticException&)
         {
-            swap(*(*first)->ZpY, *(*first)->Z);
+            std::swap((*first)->ZpY, (*first)->Z);
             throw;
         }
         for ((it = last)++, prev = last; it != first;)
@@ -247,7 +248,7 @@ namespace arithmetic
             {
                 for ((prev = it)--; !(*prev); prev--);
                 gw().mul(*(*it)->ZpY, *(*prev)->ZpY, *(*prev)->ZpY, GWMUL_STARTNEXTFFT);
-                swap(*(*it)->ZpY, *(*prev)->ZpY);
+                std::swap((*it)->ZpY, (*prev)->ZpY);
                 gw().mul(*(*it)->Z, *(*prev)->ZpY, *(*prev)->ZpY, GWMUL_STARTNEXTFFT);
             }
             if ((*it)->Y)

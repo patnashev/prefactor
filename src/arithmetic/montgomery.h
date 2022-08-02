@@ -10,6 +10,8 @@ namespace arithmetic
     class MontgomeryArithmetic : public DifferentialGroupArithmetic<EdY>
     {
         friend class EdY;
+    public:
+        using Element = EdY;
 
     public:
         MontgomeryArithmetic(GWNum& ed_d) : _gw(nullptr), _ed_d(ed_d) { }
@@ -35,12 +37,14 @@ namespace arithmetic
 
     private:
         GWArithmetic* _gw;
-        GWNum _ed_d;
+        GWNum& _ed_d;
     };
 
     class EdY : public DifferentialGroupElement<MontgomeryArithmetic, EdY>
     {
         friend class MontgomeryArithmetic;
+    public:
+        using Arithmetic = MontgomeryArithmetic;
 
     public:
         EdY(MontgomeryArithmetic& arithmetic) : DifferentialGroupElement<MontgomeryArithmetic, EdY>(arithmetic)

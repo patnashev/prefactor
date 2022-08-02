@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.8"
+#define GWNUM_VERSION		"30.9"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	8
+#define GWNUM_MINOR_VERSION	9
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -210,9 +210,17 @@ void gwdone (
 /* to FFT implementations that support the SUM(INPUTS) != SUM(OUTPUTS) error check. */
 /* NOTE:  This error check is not available for k*b^n+c IBDWT FFTs when c is positive.  Setting this option will have no effect. */
 /* NOTE: sum_inputs checking is only available in SSE2 FFTs and earlier.  Thus, using this option is not recommended. */
-#define gwset_sum_inputs_checking(h,b) ((h)->sum_inputs_checking = (char) (b))
+#define gwset_sum_inputs_checking(h,b)	((h)->sum_inputs_checking = (char) (b))
 
-/* Prior to calling one of the gwsetup routines, you can tell the gwnum library that the polymult library will also be used. */
+/* By default gwnum uses mutexes rather than spin waits to implement multithreading.  This macro lets you try spin waits to see if they are faster. */
+/* A setting of one tells the main thread to spin wait on helper threads to finish up.  A setting above one tells the main thread to spin wait plus */
+/* n-1 helper threads to spin wait on work to do.  NOTE:  Many, including Linus Torvalds, believe spin waits in user space is evil.  Read up on the */
+/* hazards of spin waits at https://www.realworldtech.com/forum/?threadid=189711&curpostid=189723 and elsewhere.  That said, a system dedicated to */
+/* running a program doing multithreaded gwnum work could see a benefit. */
+#define gwset_use_spin_wait(h,n)	((h)->use_spin_wait = (char) (n))
+
+/* Prior to calling one of the gwsetup routines, you must tell the gwnum library if the polymult library will also be used.  Using polymult can affect */
+/* how much memory is allocated by each gwalloc call. */
 #define gwset_using_polymult(h)		((h)->polymult = TRUE)
 
 /* Prior to calling one of the gwsetup routines, you can tell the gwnum library to do a faster partial setup.  You won't be able to do any math */
@@ -258,13 +266,9 @@ void gwfree_array (
 void gwfreeall (
 	gwhandle *gwdata);	/* Handle initialized by gwsetup */
 
-/* Free internal memory that can be safely freed.  Call this prior to using a lot of gwnum memory. */
-/* There may be some internal gwnum memory that can be safely freed. */
-#define gwfree_internal_memory(h) { \
-		gwfree((h), (h)->GW_RANDOM), (h)->GW_RANDOM = NULL; \
-		if ((h)->FFT1_state == 1 && !(h)->FFT1_user_allocated) { gwfree((h), (h)->GW_FFT1), (h)->GW_FFT1 = NULL; (h)->FFT1_state = 0; } \
-		if ((h)->to_radix_gwdata != NULL) gwdone ((h)->to_radix_gwdata), free ((h)->to_radix_gwdata), (h)->to_radix_gwdata = NULL; \
-		if ((h)->from_radix_gwdata != NULL) gwdone ((h)->from_radix_gwdata), free ((h)->from_radix_gwdata), (h)->from_radix_gwdata = NULL; }
+/* Free internal memory that can be safely freed.  Call this prior to using a lot of gwnum memory (this also calls gwfree_cached to further reduce mem used). */
+void gwfree_internal_memory (
+	gwhandle *gwdata);	/* Handle initialized by gwsetup */
 
 /* Empty cache of freed gwnums.  Call this to minimize gwnum library's memory footprint when no more gwallocs are anticipated anytime soon. */
 void gwfree_cached (
@@ -687,7 +691,8 @@ int gwclone (
 /* Merge various stats (MAXERR, fft_count, etc.) back into the parent gwdata.  This routine does not do any locking to make sure the */
 /* parent gwdata is not busy nor are any other cloned gwdatas simultaneously merging stats.  Locking is the caller's responsibility. */
 void gwclone_merge_stats (
-	gwhandle *cloned_gwdata);	/* Handle for a cloned gwdata */
+	gwhandle *dest_gwdata,		/* Handle to a (possibly cloned) gwdata to merge stats into */
+	gwhandle *cloned_gwdata);	/* Handle to a cloned gwdata to merge stats from */
 
 /*---------------------------------------------------------------------+
 |                 ALTERNATIVE INTERFACES USING GIANTS                  |
@@ -1026,7 +1031,10 @@ struct gwhandle_struct {
 	char	will_hyperthread;	/* Set if FFTs will use hyperthreading (affects select of fastest FFT implementation from gwnum.txt) */
 	char	will_error_check;	/* Set if FFTs will error check (affects select of fastest FFT implementation from gwnum.txt) */
 	char	information_only;	/* Set if doing a faster partial setup */
-	char	unused_setup_flags[2];
+	char	use_spin_wait;		/* FALSE = use mutex, TRUE = spin wait.  Linus Torvalds hates spinning, see https://www.realworldtech.com/forum/?threadid=189711&curpostid=189723 */
+					/* GWNUM does use a spin lock, rather it can spin waiting for an atomic counter of active threads to reach zero. */
+					/* There is likely negligible difference between mutex wait and spin wait. */
+	char	unused_setup_flags[1];
 	int	bench_num_cores;	/* Set to expected number of cores that will FFT (affects select fastest FFT implementation) */
 	int	bench_num_workers;	/* Set to expected number of workers that will FFT (affects select fastest FFT implementation) */
 	/* End of variables affecting gwsetup */
@@ -1072,13 +1080,15 @@ struct gwhandle_struct {
 					/* At the FFT limit this will be set to EB_GWMUL_SAVINGS.  That is, this measures extra bits */
 					/* available for multiplications, not squarings. */
 	gwnum	GW_RANDOM;		/* A random number used in gwmul3_carefully. */
+	gwnum	GW_RANDOM_SQUARED;	/* Cached square of the random number used in gwmul3_carefully. */
+	gwnum	GW_RANDOM_FFT;		/* Cached FFT of the random number used in gwmul3_carefully. */
 	gwnum	GW_ADDIN;		/* The gwsetaddin value when we need to emulate GWMUL3_ADDINCONST. */
 	gwnum	GW_FFT1;		/* The number 1 FFTed.  Sometimes need by gwmuladd4 and gwmulsub4. */
 	char	FFT1_state;		/* 0 = FFT(1) needed for FMA but not yet allocated, 1 = FFT(1) needed for FMA and allocated, */
 					/* 2 = FFT(1) is not needed for FMA. */
 	char	FFT1_user_allocated;	/* TRUE if FFT(1) was allocated at user's request */
 	char	polymult;		/* Set this to true if gwnums might be used by polymult library */
-	char	UNUSED_CHAR;
+	char	paranoid_mul_careful;	/* Set this to TRUE if gwmul3_carefully can be called with two different source args AND the two values could be the same */
 	char	GWSTRING_REP[60];	/* The gwsetup modulo number as a string. */
 	unsigned long saved_copyz_n;	/* Used to reduce COPYZERO calculations */
 	unsigned int NORMNUM;		/* The post-multiply normalize routine index */
@@ -1110,15 +1120,14 @@ struct gwhandle_struct {
 	void	(*thread_callback)(int, int, void *); /* Auxiliary thread callback routine letting */
 					/* the gwnum library user set auxiliary thread priority and affinity */
 	void	*thread_callback_data;	/* User-supplied data to pass to the auxiliary thread callback routine */
-	unsigned int num_active_threads; /* Count of the number of active auxiliary threads */
 	gwmutex	thread_lock;		/* This mutex limits one thread at a time in critical sections. */
-	gwevent	thread_work_to_do;	/* This event is set whenever the auxiliary threads have work to do. */
-	gwevent	all_threads_done;	/* This event is set whenever the auxiliary threads are done and the */
-					/* main thread can resume.  That is, it is set if and only if num_active_threads==0 */
-	gwevent can_carry_into;		/* This event signals pass 1 sections that the block they are waiting on to carry */
-					/* into may now be ready. */
-	short	threads_must_exit;	/* Flag set to force all auxiliary threads to terminate */
-	short	catch_straggler_threads;/* Flag set when auxiliary threads have finished their work */
+	gwevent	work_to_do;		/* Event (if not spin waiting) to signal auxiliary threads there is work to do */
+	gwatomic alt_work_to_do;	/* Atomic alternative to work to do mutex when spin waiting */
+	gwevent	all_helpers_done;	/* Event (if not spin waiting) to signal main thread that the auxiliary threads are done */
+	gwatomic num_active_helpers;	/* Number of active helpers (awakened from the work_to_do event).  Is also the alternative to all_helpers_done mutex. */
+	short volatile helpers_must_exit; /* Flag set to force all auxiliary threads to terminate */
+	short volatile all_work_assigned; /* Flag indicating all helper thread work has been assigned (some helpers ma still be active) */
+	gwevent can_carry_into;		/* This event signals pass 1 sections that the block they are waiting on to carry into may now be ready. */
 	int	pass1_state;		/* Mainly used to keep track of what we are doing in pass 1 of an FFT.  See */
 					/* pass1_get_next_block for details.  Also, 999 means we are in pass 2 of the FFT. */
 	void	*pass1_var_data;	/* pass1 variable sin/cos/premultiplier/fudge/biglit data */
@@ -1127,7 +1136,7 @@ struct gwhandle_struct {
 	unsigned long biglit_data_offset; /* Offset of the big/lit data in the pass 1 variable data */
 	unsigned long pass1_var_data_size; /* Used to calculate address of pass 1 premultiplier data */
 	unsigned long pass2_premult_block_size; /* Used to calculate address of pass 2 premultiplier data */
-	unsigned long next_block;	/* Next block for threads to process */
+	gwatomic next_block;		/* Next block for threads to process */
 	unsigned long num_pass1_blocks; /* Number of data blocks in pass 1 for threads to process */
 	unsigned long num_pass2_blocks; /* Number of data blocks in pass 2 for threads to process */
 	unsigned long num_postfft_blocks; /* Number of data blocks that must delay forward fft because POSTFFT is set. */

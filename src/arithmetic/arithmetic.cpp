@@ -20,6 +20,9 @@ namespace arithmetic
             gwset_use_large_pages(gwdata());
         if (force_general_mod)
             gwdata()->force_general_mod = 1;
+        if (polymult)
+            gwset_using_polymult(gwdata());
+        gwset_use_spin_wait(gwdata(), spin_threads);
         if (gwsetup(gwdata(), k, b, n, c))
             throw ArithmeticException();
         bit_length = (int)gwdata()->bit_length;
@@ -53,6 +56,9 @@ namespace arithmetic
             gwset_use_large_pages(gwdata());
         if (force_general_mod)
             gwdata()->force_general_mod = 1;
+        if (polymult)
+            gwset_using_polymult(gwdata());
+        gwset_use_spin_wait(gwdata(), spin_threads);
         if (gwsetup_general_mod(gwdata(), g.data(), g.size()))
             throw ArithmeticException();
         bit_length = g.bitlen();
@@ -82,6 +88,9 @@ namespace arithmetic
             gwset_will_error_check(gwdata());
         if (large_pages)
             gwset_use_large_pages(gwdata());
+        if (polymult)
+            gwset_using_polymult(gwdata());
+        gwset_use_spin_wait(gwdata(), spin_threads);
         if (gwsetup_without_mod(gwdata(), bitlen))
             throw ArithmeticException();
         bit_length = (int)gwdata()->bit_length;;
@@ -93,6 +102,19 @@ namespace arithmetic
         gwfft_description(gwdata(), buf);
         fft_description = buf;
         fft_length = gwfftlen(gwdata());
+    }
+
+    void GWState::clone(GWState& state)
+    {
+        copy(state);
+        gwclone(&handle, &state.handle);
+        bit_length = state.bit_length;
+        giants._capacity = state.giants._capacity;
+        N = new Giant(giants);
+        *N = *state.N;
+        fingerprint = state.fingerprint;
+        fft_description = state.fft_description;
+        fft_length = state.fft_length;
     }
 
     void GWState::done()
@@ -796,6 +818,18 @@ namespace arithmetic
         }
         _op++;
     }
+
+    void ThreadSafeGWArithmetic::alloc(GWNum& a)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        GWArithmetic::alloc(a);
+    }
+
+    void ThreadSafeGWArithmetic::free(GWNum& a)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        GWArithmetic::free(a);
+    }
 }
 
 int gwconvert(
@@ -812,7 +846,14 @@ int gwconvert(
     /* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
 
     if (FFT_state(s) != NOT_FFTed) gwunfft(gwdata_s, s, s);
-    if (FFT_state(d) != NOT_FFTed) gwunfft(gwdata_d, d, d);
+
+    /* Initialize the header */
+
+    unnorms(d) = 0.0f;						/* Unnormalized adds count */
+    *(uint32_t *)((char*)d - 28) = 0;					/* Has-been-pre-ffted flag */
+    *(double *)((char*)d - 16) = 0.0;
+    *(double *)((char*)d - 24) = 0.0;
+
 
     /* If this is a general-purpose mod, then only convert the needed words */
     /* which will be less than half the FFT length.  If this is a zero padded */

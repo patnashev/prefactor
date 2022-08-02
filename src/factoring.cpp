@@ -13,6 +13,7 @@
 #include "params.h"
 #include "stage1.h"
 #include "stage2.h"
+#include "stage2poly.h"
 
 using namespace arithmetic;
 
@@ -509,12 +510,12 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
         _logging.error("FFT size too small for polynomial stage 2. Set -fft+1.\n");
         return "";
     }
-    EdECMStage2 stage2(params_edecm.B1, params_edecm.B2);
+    std::unique_ptr<Stage2> stage2;
     if (params_edecm.PolyPower == 0)
-        stage2.stage2_pairing(params_edecm.D, params_edecm.L, params_edecm.LN, _logging);
+        stage2.reset(new EdECMStage2(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, _logging));
     else
-        stage2.stage2_poly(params_edecm.D, params_edecm.L, params_edecm.LN, params_edecm.PolyDegree, params_edecm.PolyPower, params_edecm.PolyThreads, check);
-    _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, params_edecm.PolyDegree);
+        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, params_edecm.PolySmallPower, params_edecm.PolyThreads, check));
+    _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, 1 << params_edecm.PolyPower);
 
     SubLogging logging(_logging, _logging.level() + 1);
     logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
@@ -530,10 +531,10 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     {
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         //double timer = getHighResTimer();
-        stage2.init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
+        dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
         try
         {
-            stage2.run();
+            stage2->run();
         }
         catch (const TaskAbortException&)
         {
@@ -546,7 +547,7 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
         //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
         _logging.set_prefix(prefix);
 
-        results->write_textline(stage2.res64());
+        results->write_textline(stage2->res64());
         i++;
 
         if (time(NULL) - last_progress > Task::PROGRESS_TIME && i < _points.size())

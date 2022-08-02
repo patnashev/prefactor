@@ -10,6 +10,8 @@
 #ifndef _POLYMULT_H
 #define _POLYMULT_H
 
+#include "gwthread.h"		// Needed for atomics
+
 /* This is a C library.  If used in a C++ program, don't let the C++ compiler mangle names. */
 
 #ifdef __cplusplus
@@ -175,11 +177,36 @@ void polymult_several (		// Multiply one poly with several polys
 	int	num_other_polys,// Number of other polys to multiply with first input poly
 	int	options);	// Poly #1 options.  Options not associated with poly #1 are applied to all other polys.
 
-/* These routines allow the user to use the polymult helper threads and locking mechanisms to craft their own multithreaded helper routines. */
-/* The helper_callback and helper_callback_data fields must be set prior to launching the helpers.  Each helper is given its own clone of gwdata */
-/* to safely call gwnum operations -- cloning is necessary as independent threads cannot use use same gwdata structure. */
+/*------------------------------------------------------------------------------------------------
+|	Easy multithreading using polymult threads.   Complete with example code!!
+|	Study poly_helper_example in polymult.c so you can write your own helper function.
++------------------------------------------------------------------------------------------------*/
 
-/* This routine launches the polymult helper threads.  The polymult library uses this routine to do multithreading, users can too! */
+// Example using polymult threads for faster execution of some simple poly utilities.  Study the code in polymult.c.
+void poly_helper_example (int helper_num, gwhandle *gwdata, void *info);
+
+/* Poly_helper_example provides a multithreaded implementation of the following utility routines */
+
+// Copy invec to outvec
+void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size);
+
+// UNFFT and/or FFT all the coefficients in a poly.  Why might one want to do this?  In P-1/ECM Stage 2, we start with a large number of size 1 polys.  We multiply
+// pairs to create size 2 polys.  We multiply pairs again to create size 4 polys, and so on.  Say you are working with small numbers where the gwnum library
+// cannot multithread (or poorly multithreads) gwunfft or gwfft calls.  Say your machine supports 16 threads and polymult is asked to multiply two size 2 polys.
+// If polymult, fires up helper threads to gwfft inputs or gwunfft outputs, there are only 4 coefficients to work on leaving 12 threads sitting idle.  The solution,
+// is to combine the large number size 2 polys into one gigantic poly and use the routines below to gwunfft and/or gwfft all the coefficients in one batch,
+// keeping all 16 threads busy at once.  This is done in conjunction with the POLYMULT_NO_UNFFT polymult option.  Note that using poly_unfft_fft_coefficients
+// in the P-1/ECM scenario is more efficient because the gwunfft followed immediately by gwfft is likely to find the gwnum still in the CPU caches.
+void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+
+	
+/* Underlying routines that allow the users of this library to use the polymult helper threads and locking mechanisms to craft their own multithreaded */
+/* helper routines.  The helper_callback and helper_callback_data fields must be set prior to launching the helpers.  Each helper is given its own clone */
+/* of gwdata to safely call gwnum operations -- cloning is necessary as independent threads cannot use use same gwdata structure. */
+
+/* This routine launches the polymult helper threads.  The polymult library uses this routine to do multithreading, you can too! */
 void polymult_launch_helpers (
 	pmhandle *pmdata);		// Handle for polymult library
 
@@ -197,15 +224,15 @@ struct pmhandle_struct {
 	gwhandle *gwdata;		// Handle for gwnum FFT library
 	int	max_num_threads;	// Maximum number of threads that can be used to compute polymults
 	int	num_threads;		// Number of threads to use computing polymults (must not exceed max_num_threads)
-	gwevent work_to_do;		// Event to signal polymult helper threads there is work to do
-	gwevent helpers_done;		// Event to signal polymult helper threads are done
-	gwevent main_can_wakeup;	// Event to signal polymult helper threads are waiting for work, thus the main thread can resume
+	gwevent work_to_do;		// Event (if not spin waiting) to signal polymult helper threads there is work to do
+	gwatomic alt_work_to_do;	// Atomic alternative to work to do mutex when spin waiting
+	gwevent	all_helpers_done;	// Event (if not spin waiting) to signal main thread that the auxiliary threads are done
+	gwatomic num_active_helpers;	// Number of active helpers (awakened from the work_to_do event).  Is also the alternative to all_helpers_done mutex.
 	gwmutex	poly_mutex;		// Mutex to make polymult thread safe when multi-threading
-	int	next_thread_num;	// Lets us generate a unique id for each helper thread
-	int	next_line;		// Next line for a thread to process
-	int	helpers_active;		// Count of helper threads that are still active
-	int	helpers_waiting_work;	// Count of helper threads thathave reached waiting for work_to_do
-	bool	termination_in_progress; // Flag for helper threads to exit
+	gwatomic next_thread_num;	// Lets us generate a unique id for each helper thread
+	gwatomic next_line;		// Next line for a helper thread to process
+	bool volatile helpers_must_exit; // Flag set to force all auxiliary threads to terminate
+	bool volatile all_work_assigned; // Flag indicating all helper thread work has been assigned (some helpers ma still be active)
 	gwthread *thread_ids;		// Thread ids for the spawned threads
 	int	twiddles_initialized;	// Size of the twiddle tables
 	bool	twiddles_are_from_cache; // TRUE if the current twiddles came from the twiddle cache
@@ -236,11 +263,11 @@ struct pmhandle_struct {
 	int	alloc_tmpvec_size;	// Pre-calculated allocation size for tmpvec
 	polymult_plan *plan;		// Plan for implementing the multiplication of invec1 and several invec2s
 	// These items allow users of the polymult library to also use the polymult helper threads for whatever they see fit.
-	bool	helpers_doing_polymult;	// TRUE if helpers are doing polymult work, not user work
-	bool	helpers_sync_clone_stats; // TRUE if helpers are syncing cloned gwdata stats, not user work
 	void	(*helper_callback)(int, gwhandle *, void *); // User-defined helper callback routine
 	void	*helper_callback_data;	// User-defined data to pass to the user-defined helper callback routine
+	bool volatile helpers_doing_polymult; // TRUE if helpers are doing polymult work, not user work
 	int	saved_gwdata_num_threads; // Used internally to restore gwdata's multithreading after a user defined callback
+	gwhandle *stats_gwdata;		// The cloned gwdata that is accumulating stats as each user-defined helper finshes up
 };
 
 // Header for a preprocessed poly.  Conceptually a preprocessed poly is an array of invec1 or invec2 as returned by read_line called from polymult_line.

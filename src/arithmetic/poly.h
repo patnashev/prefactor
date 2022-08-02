@@ -16,7 +16,6 @@ namespace arithmetic
         PolyMult(GWArithmetic& gw, int max_threads = 1);
         ~PolyMult();
 
-        void alloc(Poly& a);
         void alloc(Poly& a, int size);
         void free(Poly& a);
         void copy(const Poly& a, Poly& res);
@@ -25,10 +24,13 @@ namespace arithmetic
         void init(bool monic, Poly& res);
         void init(const GWNum& a, bool monic, Poly& res);
         void init(GWNum&& a, bool monic, Poly& res);
+        void init(gwnum* data, size_t size, bool freeable, bool monic, Poly& res);
         void mul(Poly& a, Poly& b, Poly& res, int options);
         void mul(Poly&& a, Poly&& b, Poly& res, int options);
+        void mul_split(Poly& a, Poly& b, Poly& res_lo, Poly& res_hi, int size, int options);
         void mul_split(Poly&& a, Poly&& b, Poly& res_lo, Poly& res_hi, int size, int options);
         void mul_range(Poly& a, Poly& b, Poly& res, int offset, int count, int options);
+        void mul_twohalf(Poly& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
         void mul_twohalf(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
         void fma_range(Poly& a, Poly& b, Poly& fma, Poly& res, int offset, int count, int options);
         void preprocess(Poly& a, Poly& res, int size);
@@ -36,7 +38,7 @@ namespace arithmetic
         void reciprocal(Poly& a, Poly& res, int options);
         void shiftleft(Poly& a, int b, Poly& res);
         void shiftright(Poly& a, int b, Poly& res);
-        void convert(const Poly& a, Poly& res);
+        void convert(const Poly& a, PolyMult& pm_res, Poly& res);
         void insert(GWNum&& a, Poly& res, size_t pos);
         GWNum remove(Poly& a, size_t pos);
 
@@ -63,9 +65,9 @@ namespace arithmetic
         Poly(PolyMult& pm) : _pm(pm), _cache(nullptr), _cache_size(0), _monic(false)
         {
         }
-        Poly(PolyMult& pm, int size, bool monic) : _pm(pm), _poly(size), _cache(nullptr), _cache_size(0), _monic(monic)
+        Poly(PolyMult& pm, int size, bool monic) : _pm(pm), _cache(nullptr), _cache_size(0), _monic(monic)
         {
-            pm.alloc(*this);
+            pm.alloc(*this, size);
         }
         virtual ~Poly()
         {
@@ -136,7 +138,7 @@ namespace arithmetic
         size_t size() const { return _cache != nullptr ? _cache_size : _poly.size(); }
         gwnum* data() { return _cache != nullptr ? _cache : _poly.data(); }
         bool empty() const { return _cache == nullptr && _poly.empty(); }
-        const GWNumWrapper at(size_t pos) const { return GWNumWrapper(pm().gw(), _poly[pos]); }
+        const GWNumWrapper at(size_t pos) { return GWNumWrapper(pm().gw(), data()[pos]); }
         void push_back(GWNum&& a) { pm().insert(std::move(a), *this, size()); }
         GWNum pop_back() { return pm().remove(*this, size() - 1); }
 
@@ -146,5 +148,6 @@ namespace arithmetic
         gwnum* _cache;
         int _cache_size;
         bool _monic;
+        bool _freeable = true;
     };
 }

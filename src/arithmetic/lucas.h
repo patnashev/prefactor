@@ -9,6 +9,8 @@ namespace arithmetic
     class LucasVArithmetic : public DifferentialGroupArithmetic<LucasV>
     {
         friend class LucasV;
+    public:
+        using Element = LucasV;
 
     public:
         LucasVArithmetic() : _gw(nullptr) { }
@@ -33,6 +35,8 @@ namespace arithmetic
     class LucasV : public DifferentialGroupElement<LucasVArithmetic, LucasV>
     {
         friend class LucasVArithmetic;
+    public:
+        using Arithmetic = LucasVArithmetic;
 
     public:
         LucasV(LucasVArithmetic& arithmetic) : DifferentialGroupElement<LucasVArithmetic, LucasV>(arithmetic), _V(arithmetic.gw())

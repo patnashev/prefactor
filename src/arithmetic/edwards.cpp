@@ -143,16 +143,11 @@ namespace arithmetic
     // https://eprint.iacr.org/2021/1061
     void EdwardsArithmetic::add(EdPoint& a, EdPoint& b, EdPoint& res, int options)
     {
+        GWASSERT(&b != &res);
         bool safe11 = mul_safe(gw().gwdata(), 1, 1);
 
         if (!_tmp && (!(options & ED_PROJECTIVE) || &a == &res))
             _tmp.reset(new GWNum(gw()));
-        if (!res.X)
-            res.X.reset(new GWNum(gw()));
-        if (!res.Y)
-            res.Y.reset(new GWNum(gw()));
-        if (!res.T)
-            res.T.reset(new GWNum(gw()));
         if (!a.T)
         {
             if (a.Z)
@@ -167,6 +162,12 @@ namespace arithmetic
             b.T.reset(new GWNum(gw()));
             gw().mul(*b.X, *b.Y, *b.T, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(a.Z || safe11 || (options & ED_PROJECTIVE)));
         }
+        if (!res.X)
+            res.X.reset(new GWNum(gw()));
+        if (!res.Y)
+            res.Y.reset(new GWNum(gw()));
+        if (!res.T)
+            res.T.reset(new GWNum(gw()));
 
         if (a.Z)
         {
@@ -307,7 +308,8 @@ namespace arithmetic
             for (i = 1; i < (1 << (W - 2)); i++)
                 add(*u[i - 1], res, *u[i], GWMUL_STARTNEXTFFT);
         }
-        normalize(u.begin(), u.end(), 0);
+        if (naf_w.size() > 100)
+            normalize(u.begin(), u.end(), 0);
 
         // Signed window
         copy(*u[naf_w.back()/2], res);
@@ -356,7 +358,7 @@ namespace arithmetic
         }
         if (first == end)
             return;
-        swap(*(*first)->T, *(*first)->Z);
+        std::swap((*first)->T, (*first)->Z);
         Iter prev = first;
         for ((it = first)++; it != end; it++)
             if (*it)
@@ -366,11 +368,11 @@ namespace arithmetic
             }
         try
         {
-            (*last)->T->inv();
+            gw().inv(*(*last)->T, *(*last)->T);
         }
         catch (const ArithmeticException&)
         {
-            swap(*(*first)->T, *(*first)->Z);
+            std::swap((*first)->T, (*first)->Z);
             throw;
         }
         for ((it = last)++, prev = last; it != first;)
@@ -380,7 +382,7 @@ namespace arithmetic
             {
                 for ((prev = it)--; !(*prev); prev--);
                 gw().mul(*(*it)->T, *(*prev)->T, *(*prev)->T, GWMUL_STARTNEXTFFT);
-                swap(*(*it)->T, *(*prev)->T);
+                std::swap((*it)->T, (*prev)->T);
                 gw().mul(*(*it)->Z, *(*prev)->T, *(*prev)->T, GWMUL_STARTNEXTFFT);
             }
             if ((*it)->X)

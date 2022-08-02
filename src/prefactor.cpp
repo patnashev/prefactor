@@ -24,6 +24,7 @@
 #include "prob.h"
 #include "params.h"
 #include "poly.h"
+#include "stage2poly.h"
 #ifdef FACTORING
 #include "factoring.h"
 #endif
@@ -447,14 +448,14 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(params_pm1->B1, params_pm1->B2);
+                std::unique_ptr<Stage2> stage2;
                 if (params_pm1->PolyPower == 0)
-                    stage2.stage2_pairing(params_pm1->D, params_pm1->A, params_pm1->L, logging);
+                    stage2.reset(new PP1Stage2(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, logging));
                 else
-                    stage2.stage2_poly(params_pm1->D, params_pm1->L, params_pm1->PolyDegree, params_pm1->PolyPower, params_pm1->PolyThreads);
-                stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), true);
-                stage2.run();
-                success = stage2.success();
+                    stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, params_pm1->PolySmallPower, params_pm1->PolyThreads, polyCheck));
+                dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), true);
+                stage2->run();
+                success = stage2->success();
             }
             logging.progress().next_stage();
             file1.clear();
@@ -486,14 +487,14 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             if (interstate != nullptr)
             {
-                PP1Stage2 stage2(params_pp1->B1, params_pp1->B2);
+                std::unique_ptr<Stage2> stage2;
                 if (params_pp1->PolyPower == 0)
-                    stage2.stage2_pairing(params_pp1->D, params_pp1->A, params_pp1->L, logging);
+                    stage2.reset(new PP1Stage2(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, logging));
                 else
-                    stage2.stage2_poly(params_pp1->D, params_pp1->L, params_pp1->PolyDegree, params_pp1->PolyPower, params_pp1->PolyThreads);
-                stage2.init(&input, &gwstate, &file2, &logging, interstate->V(), false);
-                stage2.run();
-                success = stage2.success();
+                    stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, params_pp1->PolySmallPower, params_pp1->PolyThreads, polyCheck));
+                dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), false);
+                stage2->run();
+                success = stage2->success();
             }
             logging.progress().next_stage();
             file1.clear();
@@ -573,19 +574,19 @@ int main(int argc, char *argv[])
                 }
             }
             logging.progress().next_stage();
-            //for (i = 1; i < polyThreads*params_edecm->PolyDegree*3; i++)
+            //for (i = 0; i < (3 << params_edecm->PolyPower); i++)
             if (interstate != nullptr)
             {
                 //file2.clear();
                 //params_edecm->B2 = params_edecm->B1 + i*params_edecm->D;
-                EdECMStage2 stage2(params_edecm->B1, params_edecm->B2);
+                std::unique_ptr<Stage2> stage2;
                 if (params_edecm->PolyPower == 0)
-                    stage2.stage2_pairing(params_edecm->D, params_edecm->L, params_edecm->LN, logging);
+                    stage2.reset(new EdECMStage2(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, logging));
                 else
-                    stage2.stage2_poly(params_edecm->D, params_edecm->L, params_edecm->LN, params_edecm->PolyDegree, params_edecm->PolyPower, params_edecm->PolyThreads, polyCheck);
-                stage2.init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
-                stage2.run();
-                success = stage2.success();
+                    stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, params_edecm->PolySmallPower, params_edecm->PolyThreads, polyCheck));
+                dynamic_cast<IEdECMStage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
+                stage2->run();
+                success = stage2->success();
             }
             logging.progress().next_stage();
             file1.clear();

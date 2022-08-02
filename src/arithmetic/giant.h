@@ -24,6 +24,8 @@ namespace arithmetic
         virtual void init(uint32_t a, Giant& res);
         virtual void init(const std::string& a, Giant& res) override;
         virtual void init(uint32_t* data, int size, Giant& res);
+        virtual void init(const GWNum& a, Giant& res);
+        virtual void to_GWNum(const Giant& a, GWNum& res);
         virtual int cmp(const Giant& a, const Giant& b) override;
         virtual int cmp(const Giant& a, int32_t b) override;
         virtual void add(Giant& a, Giant& b, Giant& res) override;
@@ -66,6 +68,9 @@ namespace arithmetic
         virtual void alloc(Giant& a) override;
         virtual void alloc(Giant& a, int capacity) override;
         virtual void free(Giant& a) override;
+        virtual void init(const GWNum& a, Giant& res);
+        virtual void to_GWNum(const Giant& a, GWNum& res);
+        virtual void inv(Giant& a, Giant& n, Giant& res) override;
 
         int capacity() const { return _capacity; }
 
@@ -117,11 +122,15 @@ namespace arithmetic
             return *this;
         }
         using FieldElement<GiantsArithmetic, Giant>::operator=;
+        virtual Giant& operator = (const GWNum& a)
+        {
+            arithmetic().init(a, *this);
+            return *this;
+        };
 
         virtual std::string to_string() const override;
         virtual std::string to_res64() const;
-        virtual void to_GWNum(GWNum& a) const;
-        virtual Giant& operator = (const GWNum& a);
+        virtual void to_GWNum(GWNum& res) const { arithmetic().to_GWNum(*this, res); };
 
         uint32_t* data() { return _giant->n; }
         const uint32_t* data() const { return _giant->n; }

@@ -82,9 +82,6 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     if (poly || max_size > 2000)
     {
         find_poly_stage2_optimal_params(max_size, threads);
-        LN = 128;
-        LN = 1024;
-        //LN = PolyDegree;
     }
     else
     {
@@ -129,17 +126,17 @@ void Params::find_poly_stage2_optimal_params(int max_size, int threads)
     L = 1;
     PolyThreads = threads;
     PolyPower = 7;
-    PolyDegree = 1 << PolyPower;
     D = poly_params[PolyPower];
 #ifdef _DEBUG
-    //return;
+    //if (false)
 #endif
-    while (poly_params[PolyPower + 1] && (B2 - B1)/D/PolyDegree > 2*threads && max_size > 2*(PolyPower + 1)*(1 << (PolyPower + 1)) + 2*threads*(1 << (PolyPower + 1)))
+    while (poly_params[PolyPower + 1] && (((B2 - B1)/D) >> (PolyPower + 1)) > 2 && max_size > 9*(1 << (PolyPower + 1)))
     {
         PolyPower++;
-        PolyDegree = 1 << PolyPower;
         D = poly_params[PolyPower];
     }
+    int polyDegree = phi(D)/2;
+    for (PolySmallPower = 0; PolySmallPower < 10 && ((1 << PolyPower) - polyDegree)%(1 << (PolySmallPower + 1)) == 0; PolySmallPower++);
 }
 
 void Params::find_pp1_stage2_optimal_params(int max_size)
@@ -181,7 +178,6 @@ void Params::find_pp1_stage2_optimal_params(int max_size)
     A = precomputed_stage2_params[l*7 + 4];
     L = precomputed_stage2_params[l*7 + 5];
     pairing = precomputed_stage2_params[l*7 + 6]/1000.0;
-    PolyDegree = 0;
     PolyPower = 0;
 }
 
@@ -189,7 +185,7 @@ double Params::stage2_cost()
 {
     if (PolyPower > 0)
     {
-        return PolyPower*PolyPower*(1 << PolyPower) + (B2 - B1)/D*6.0 + (B2 - B1)/D/PolyDegree*(PolyPower*PolyPower*(1 << PolyPower) + 3*PolyPower*(1 << PolyPower));
+        return PolyPower*PolyPower*(1 << PolyPower) + (B2 - B1)/D*6.0 + (((B2 - B1)/D) >> PolyPower)*(PolyPower*PolyPower*(1 << PolyPower) + 3*PolyPower*(1 << PolyPower));
     }
 
     int i, j;

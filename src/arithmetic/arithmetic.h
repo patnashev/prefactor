@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_set>
+#include <mutex>
 
 #include "field.h"
 #include "giant.h"
@@ -16,6 +17,10 @@ namespace arithmetic
         {
             gwinit(&handle);
         }
+        GWState(GWState& state) : giants(&handle)
+        {
+            clone(state);
+        }
         ~GWState()
         {
             done();
@@ -24,6 +29,7 @@ namespace arithmetic
         void setup(int k, int b, int n, int c);
         void setup(const Giant& g);
         void setup(int bitlen);
+        void clone(GWState& state);
         void done();
 
         gwhandle* gwdata() { return &handle; }
@@ -37,6 +43,8 @@ namespace arithmetic
         bool will_error_check = false;
         bool large_pages = false;
         bool force_general_mod = false;
+        bool polymult = false;
+        int spin_threads = 1;
         Giant known_factors;
 
         void copy(const GWState& a)
@@ -48,6 +56,8 @@ namespace arithmetic
             will_error_check = a.will_error_check;
             large_pages = a.large_pages;
             force_general_mod = a.force_general_mod;
+            polymult = a.polymult;
+            spin_threads = a.spin_threads;
             known_factors = a.known_factors;
         }
 
@@ -66,6 +76,8 @@ namespace arithmetic
     class GWArithmetic : public FieldArithmetic<GWNum>
     {
         friend class GWNum;
+    public:
+        using Element = GWNum;
 
     protected:
         GWArithmetic(GWState& state, CarefulGWArithmetic *careful) : _state(state), _careful(careful) { }
@@ -176,11 +188,28 @@ namespace arithmetic
         double _max_roundoff = 0.4;
     };
 
+    class ThreadSafeGWArithmetic : public GWArithmetic
+    {
+    public:
+        ThreadSafeGWArithmetic(GWState& state) : GWArithmetic(state) { }
+        virtual ~ThreadSafeGWArithmetic() { }
+
+        virtual void alloc(GWNum& a) override;
+        virtual void free(GWNum& a) override;
+
+    private:
+        std::mutex _mutex;
+    };
+
+
     class GWNum : public FieldElement<GWArithmetic, GWNum>
     {
         friend class GWArithmetic;
+        friend class ThreadSafeGWArithmetic;
         friend class PolyMult;
         friend class GWNumWrapper;
+    public:
+        using Arithmetic = GWArithmetic;
 
     protected:
         GWNum(GWArithmetic& arithmetic, gwnum a) : FieldElement<GWArithmetic, GWNum>(arithmetic), _gwnum(a) { }
@@ -218,7 +247,7 @@ namespace arithmetic
         virtual std::string to_string() const override;
         GWNum& operator = (const Giant& a)
         {
-            a.to_GWNum(*this);
+            arithmetic().state().giants.to_GWNum(a, *this);
             return *this;
         }
 
@@ -294,8 +323,9 @@ namespace arithmetic
         GWNumWrapper(GWArithmetic& gw, gwnum a) : GWNum(gw, a) { }
         GWNumWrapper(const GWNum& a) : GWNum(a.arithmetic(), a._gwnum) { }
         ~GWNumWrapper() { _gwnum = nullptr; }
-        GWNum& operator = (const GWNum& a) override { _gwnum = a._gwnum; return *this; }
-        GWNum& operator = (GWNum&& a) noexcept override { return *this; }
+        using GWNum::operator=;
+        GWNum& operator = (GWNum&& a) noexcept override { *this = a; return *this; }
+        operator GWNum&&() = delete; // No effect, just a remainder
     };
 }
 

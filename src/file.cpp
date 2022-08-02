@@ -54,7 +54,7 @@ void Writer::write(const char* ptr, int count)
 
 void Writer::write_text(const char* ptr)
 {
-    int count = strlen(ptr);
+    size_t count = strlen(ptr);
     _buffer.insert(_buffer.end(), ptr, ptr + count);
 }
 

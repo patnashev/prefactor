@@ -106,6 +106,57 @@ namespace arithmetic
             res._giant->sign--;
     }
 
+    void GiantsArithmetic::init(const GWNum& a, Giant& res)
+    {
+        int capacity = a.arithmetic().state().giants.capacity();
+        if (res._giant == nullptr || res._capacity < capacity)
+            res.arithmetic().alloc(res, capacity);
+        if (gwtogiant(a.arithmetic().gwdata(), *a, res._giant) < 0)
+            throw InvalidFFTDataException();
+    }
+
+    void GiantsArithmetic::to_GWNum(const Giant& a, GWNum& res)
+    {
+        if (a._giant->sign >= 0)
+            gianttogw(res.arithmetic().gwdata(), a._giant, *res);
+        else
+        {
+            Giant tmp(*this);
+            add((Giant&)a, res.arithmetic().N(), tmp);
+            gianttogw(res.arithmetic().gwdata(), tmp._giant, *res);
+        }
+    }
+
+    std::string Giant::to_string() const
+    {
+        if (_giant == nullptr)
+            return "";
+        std::vector<char> buffer(abs(_giant->sign)*10 + 10);
+        //std::iterator<char> x = buffer.begin();
+        if (_giant->sign ==  0)
+            buffer[0] = '0';
+        else if (_giant->sign >  0)
+            gtoc(_giant, buffer.data(), (int)buffer.size());
+        else
+        {
+            _giant->sign = -_giant->sign;
+            buffer[0] = '-';
+            gtoc(_giant, buffer.data() + 1, (int)buffer.size() - 1);
+            _giant->sign = -_giant->sign;
+        }
+        return std::string(buffer.data());
+    }
+
+    std::string Giant::to_res64() const
+    {
+        std::string res(16, '0');
+        if (size() > 1)
+            snprintf(res.data(), 17, "%08X%08X", data()[1], data()[0]);
+        else if (size() > 0)
+            snprintf(res.data() + 8, 9, "%08X", data()[0]);
+        return res;
+    }
+
     void GiantsArithmetic::add(Giant& a, Giant& b, Giant& res)
     {
         int size = abs(a._giant->sign) + 1;
@@ -323,58 +374,6 @@ namespace arithmetic
         ::power(res._giant, b);
     }
 
-    std::string Giant::to_string() const
-    {
-        if (_giant == nullptr)
-            return "";
-        std::vector<char> buffer(abs(_giant->sign)*10 + 10);
-        //std::iterator<char> x = buffer.begin();
-        if (_giant->sign ==  0)
-            buffer[0] = '0';
-        else if (_giant->sign >  0)
-            gtoc(_giant, buffer.data(), (int)buffer.size());
-        else
-        {
-            _giant->sign = -_giant->sign;
-            buffer[0] = '-';
-            gtoc(_giant, buffer.data() + 1, (int)buffer.size() - 1);
-            _giant->sign = -_giant->sign;
-        }
-        return std::string(buffer.data());
-    }
-
-    std::string Giant::to_res64() const
-    {
-        std::string res(16, '0');
-        if (size() > 1)
-            snprintf(res.data(), 17, "%08X%08X", data()[1], data()[0]);
-        else if (size() > 0)
-            snprintf(res.data() + 8, 9, "%08X", data()[0]);
-        return res;
-    }
-
-    void Giant::to_GWNum(GWNum& a) const
-    {
-        if (_giant->sign >= 0)
-            gianttogw(a.arithmetic().gwdata(), _giant, *a);
-        else
-        {
-            Giant tmp(*this);
-            tmp += a.arithmetic().N();
-            gianttogw(a.arithmetic().gwdata(), tmp._giant, *a);
-        }
-    }
-
-    Giant& Giant::operator = (const GWNum& a)
-    {
-        int capacity = a.arithmetic().state().giants.capacity();
-        if (_giant == nullptr || _capacity < capacity)
-            arithmetic().alloc(*this, capacity);
-        if (gwtogiant(a.arithmetic().gwdata(), *a, _giant) < 0)
-            throw InvalidFFTDataException();
-        return *this;
-    }
-
     extern "C"
     {
         struct mt_state {
@@ -467,5 +466,36 @@ namespace arithmetic
         if (a._giant != nullptr)
             return;
         alloc(a);
+    }
+
+    void GWGiantsArithmetic::init(const GWNum& a, Giant& res)
+    {
+        if (res._giant == nullptr || res._capacity < capacity())
+            res.arithmetic().alloc(res, capacity());
+        if (gwtogiant((gwhandle*)_gwdata, *a, res._giant) < 0)
+            throw InvalidFFTDataException();
+    }
+
+    void GWGiantsArithmetic::to_GWNum(const Giant& a, GWNum& res)
+    {
+        if (a._giant->sign >= 0)
+            gianttogw((gwhandle*)_gwdata, a._giant, *res);
+        else
+        {
+            Giant tmp(*this);
+            add((Giant&)a, res.arithmetic().N(), tmp);
+            gianttogw((gwhandle*)_gwdata, tmp._giant, *res);
+        }
+    }
+
+    void GWGiantsArithmetic::inv(Giant& a, Giant& n, Giant& res)
+    {
+        if (res._giant == nullptr || res._capacity < abs(n._giant->sign))
+            alloc(res, abs(n._giant->sign));
+        if (res._giant != a._giant)
+            copy(a, res);
+        invgi(&((gwhandle*)_gwdata)->gdata, 0, n._giant, res._giant);
+        if (res._giant->sign < 0)
+            throw NoInverseException(res);
     }
 }
