@@ -617,6 +617,13 @@ namespace arithmetic
         res1.pm().alloc(res1, size1);
         res2.pm().alloc(res2, size2);
 
+#ifdef NO_POLYMULT_SEVERAL
+        a._cache = polymult_preprocess(pmdata(), a.data(), sa, 2*half, 2*half, POLYMULT_CIRCULAR | POLYMULT_PRE_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
+        polymult2(pmdata(), a._cache, sa, b.data(), sb, res1.data(), res1.size(), nullptr, (full1 > 2*half ? 2*half : 0), 0, options | POLYMULT_MULHI | (full1 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0) | (pmdata()->num_threads > 1 ? POLYMULT_NO_UNFFT : 0));
+        polymult2(pmdata(), a._cache, sa, c.data(), sc, res2.data(), res2.size(), nullptr, (full2 > 2*half ? 2*half : 0), 0, options | POLYMULT_MULHI | (full2 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (c.monic() ? POLYMULT_INVEC2_MONIC : 0) | (pmdata()->num_threads > 1 ? POLYMULT_NO_UNFFT : 0));
+        gwfree_array(gw().gwdata(), a._cache);
+        a._cache = nullptr;
+#endif
         polymult_arg args[2];
         polymult_arg& arg_b = args[0];
         polymult_arg& arg_c = args[1];
@@ -648,7 +655,6 @@ namespace arithmetic
             else
                 poly_unfft_coefficients(pmdata(), res2.data(), res2.size());
         }
-
 
         res1._monic = a.monic() && b.monic() && full1 < 2*half;
         res2._monic = a.monic() && c.monic() && full2 < 2*half;
@@ -745,16 +751,9 @@ namespace arithmetic
         res2.pm().alloc(res2, size2);
 
 #ifdef NO_POLYMULT_SEVERAL
-        a._cache = polymult_preprocess(pmdata(), a._poly.data(), a._poly.size(), 2*half, 2*half, POLYMULT_CIRCULAR | POLYMULT_PRE_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
-
-        res1._poly.insert(res1._poly.begin(), half, nullptr);
-        polymult(pmdata(), a._cache, sa, b.data(), sb, res1.data(), res1.size(), options | (full1 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        res1._poly.erase(res1._poly.begin(), res1._poly.begin() + half);
-
-        res2._poly.insert(res2._poly.begin(), half, nullptr);
-        polymult(pmdata(), a._cache, sa, c.data(), sc, res2.data(), res2.size(), options | (full2 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (c.monic() ? POLYMULT_INVEC2_MONIC : 0));
-        res2._poly.erase(res2._poly.begin(), res2._poly.begin() + half);
-
+        a._cache = polymult_preprocess(pmdata(), a.data(), sa, 2*half, 2*half, POLYMULT_CIRCULAR | POLYMULT_PRE_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
+        polymult2(pmdata(), a._cache, sa, b.data(), sb, res1.data(), res1.size(), nullptr, (full1 > 2*half ? 2*half : 0), 0, options | POLYMULT_MULHI | (full1 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (b.monic() ? POLYMULT_INVEC2_MONIC : 0) | (pmdata()->num_threads > 1 ? POLYMULT_NO_UNFFT : 0));
+        polymult2(pmdata(), a._cache, sa, c.data(), sc, res2.data(), res2.size(), nullptr, (full2 > 2*half ? 2*half : 0), 0, options | POLYMULT_MULHI | (full2 > 2*half ? POLYMULT_CIRCULAR : 0) | (a.monic() ? POLYMULT_INVEC1_MONIC : 0) | (c.monic() ? POLYMULT_INVEC2_MONIC : 0) | (pmdata()->num_threads > 1 ? POLYMULT_NO_UNFFT : 0));
         gwfree_array(gw().gwdata(), a._cache);
         a._cache = nullptr;
 #else

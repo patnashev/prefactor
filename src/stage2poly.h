@@ -56,14 +56,15 @@ protected:
     };
 
 protected:
-    Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int smallpoly_power, int threads, bool check) : Stage2(B1, B2, D)
+    Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, bool check) : Stage2(B1, B2, D)
     {
         _poly_power = poly_power;
         _poly_mod_degree = phi(D)/2;
         _poly_threads = threads;
         _poly_check = check;
-        _smallpoly_power = smallpoly_power;
-        _tinypoly_power = _smallpoly_power;
+        for (_tinypoly_power = 0; _tinypoly_power < 10 && _tinypoly_power < poly_power - 2 && ((1 << poly_power) - _poly_mod_degree)%(1 << (_tinypoly_power + 1)) == 0; _tinypoly_power++);
+        for (_smallpoly_power = _tinypoly_power; _smallpoly_power < 10 && _smallpoly_power < poly_power - 2 && (threads == 1 || (1 << (poly_power - _smallpoly_power)) > 20*threads); _smallpoly_power++);
+        _poly_optmem = _smallpoly_power < poly_power - 3 ? poly_power - 2 - _smallpoly_power : _poly_optmem;
     }
 
 public:
@@ -83,7 +84,7 @@ protected:
     bool poly_check() { return _poly_check; }
 
 private:
-    void smallpoly_init(int count, gwarray data, int data_level);
+    void smallpoly_init(int degree);
     void smallpoly_init_level(gwarray data, int data_level);
 
 protected:
@@ -157,7 +158,7 @@ public:
     };
 
 public:
-    PP1Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int smallpoly_power, int threads, bool check = false) : Stage2Poly(B1, B2, D, poly_power, smallpoly_power, threads, check)
+    PP1Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, bool check = false) : Stage2Poly(B1, B2, D, poly_power, threads, check)
     {
     }
 
@@ -194,7 +195,7 @@ public:
     };
 
 public:
-    EdECMStage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int smallpoly_power, int threads, bool check = false) : Stage2Poly(B1, B2, D, poly_power, smallpoly_power, threads, check)
+    EdECMStage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, bool check = false) : Stage2Poly(B1, B2, D, poly_power, threads, check)
     {
     }
 

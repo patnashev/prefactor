@@ -119,7 +119,7 @@ void Params::find_poly_stage2_optimal_params(int max_size, int threads)
         /*17  131072*/ 1381380,
         /*18  262144*/ 2852850,
         /*19  524288*/ 5705700,
-        /*20 1048576*/ 11411400,
+        /*20 1048576*/ 11741730,
         0 };
 
     A = 1;
@@ -135,8 +135,6 @@ void Params::find_poly_stage2_optimal_params(int max_size, int threads)
         PolyPower++;
         D = poly_params[PolyPower];
     }
-    int polyDegree = phi(D)/2;
-    for (PolySmallPower = 0; PolySmallPower < 10 && ((1 << PolyPower) - polyDegree)%(1 << (PolySmallPower + 1)) == 0; PolySmallPower++);
 }
 
 void Params::find_pp1_stage2_optimal_params(int max_size)

@@ -514,7 +514,7 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     if (params_edecm.PolyPower == 0)
         stage2.reset(new EdECMStage2(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, _logging));
     else
-        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, params_edecm.PolySmallPower, params_edecm.PolyThreads, check));
+        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, params_edecm.PolyThreads, check));
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, 1 << params_edecm.PolyPower);
 
     SubLogging logging(_logging, _logging.level() + 1);
