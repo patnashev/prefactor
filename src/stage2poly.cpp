@@ -1367,6 +1367,7 @@ void PP1Stage2Poly::setup()
     if (!_Wd)
         _Wd.reset(new LucasV(arithmetic()));
 
+    _workstage = 0;
     _workers.reserve(_poly_threads);
     _workers.emplace_back(new SmallPolyWorker(*this));
     _workers[0]->set_main(true);
@@ -1604,6 +1605,7 @@ void EdECMStage2Poly::setup()
     EdPoint EdWdist(ed);
     int v, count, distance;
 
+    _workstage = 0;
     _workers.reserve(_poly_threads);
     _workers.emplace_back(new SmallPolyWorker(*this));
     _workers[0]->set_main(true);

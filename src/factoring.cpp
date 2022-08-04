@@ -1,4 +1,4 @@
-#define PREFACTOR_FACTORING_VERSION "1.0.0"
+#define PREFACTOR_FACTORING_VERSION "0.10.0"
 
 #include <iostream>
 #include <cmath>
@@ -494,7 +494,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, bool check, File& file_results)
+std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int check, File& file_results)
 {
     int i = 0;
     std::string res64;
@@ -514,7 +514,7 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     if (params_edecm.PolyPower == 0)
         stage2.reset(new EdECMStage2(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, _logging));
     else
-        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, params_edecm.PolyThreads, check));
+        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, params_edecm.PolyThreads, false));
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, 1 << params_edecm.PolyPower);
 
     SubLogging logging(_logging, _logging.level() + 1);
@@ -531,6 +531,8 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     {
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         //double timer = getHighResTimer();
+        if (params_edecm.PolyPower > 0)
+            dynamic_cast<EdECMStage2Poly*>(stage2.get())->set_check(i < check);
         dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
         try
         {
@@ -581,7 +583,7 @@ int factoring_main(int argc, char *argv[])
     uint64_t maxMem = 2048*1048576ULL;
     bool poly = false;
     int polyThreads = 1;
-    bool polyCheck = false;
+    int polyCheck = 0;
     int seed = 0;
     int count = 0;
     std::string filename;
@@ -703,7 +705,12 @@ int factoring_main(int argc, char *argv[])
                     else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
                     {
                         i++;
-                        polyCheck = true;
+                        polyCheck = 1000000;
+                        if (i < argc - 1 && strcmp(argv[i + 1], "one") == 0)
+                        {
+                            i++;
+                            polyCheck = 1;
+                        }
                     }
                     else
                         break;

@@ -1,4 +1,4 @@
-#define PREFACTOR_VERSION "0.9.0"
+#define PREFACTOR_VERSION "0.10.0"
 
 #include <ctype.h>
 #include <string.h>

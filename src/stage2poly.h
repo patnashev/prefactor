@@ -71,6 +71,7 @@ public:
     State* state() { return static_cast<State*>(Task::state()); }
     int D() { return _D; }
     virtual typename Element::Arithmetic& arithmetic() = 0;
+    void set_check(bool value) { _poly_check = value; }
 
 protected:
 
@@ -121,7 +122,7 @@ protected:
     std::vector<std::thread> _threads;
     std::exception_ptr _thread_exception;
     std::vector<std::unique_ptr<SmallPolyWorker>> _workers;
-    int _workstage = 0;
+    int _workstage;
     std::mutex _work_mutex;
     std::condition_variable _workstage_signal;
     std::condition_variable _workqueue_signal;

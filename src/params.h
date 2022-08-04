@@ -32,7 +32,6 @@ public:
     int A;
     int L;
     int PolyPower;
-    int PolySmallPower;
     int PolyThreads;
     double pairing;
 };
