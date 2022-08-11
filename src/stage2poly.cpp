@@ -455,7 +455,7 @@ void Stage2Poly<Element>::setup()
     std::unique_lock<std::mutex> lock(_work_mutex);
     if (i < _D/4)
     {
-        _X1 = &Xn;
+        *_X1 = Xn;
         for (i = 0; i < dist; i++)
             if (precomp[i])
             {
@@ -984,13 +984,14 @@ void Stage2Poly<Element>::release()
         _workstage = 10;
     }
     _workstage_signal.notify_all();
+    _workqueue_signal.notify_all();
     while (!_threads.empty())
     {
         _threads.back().join();
         _threads.pop_back();
     }
-    _workers.clear();
     _workqueue.clear();
+    _workers.clear();
     
     _smallpoly.clear();
     _smallpoly_alloc.clear();
@@ -1105,7 +1106,9 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                     index = _stage2._smallpoly_alloc.size();
                 }
 
-                _stage2._workqueue_signal.wait(lock, [&] {return !_stage2._workqueue.empty(); });
+                _stage2._workqueue_signal.wait(lock, [&] {return (workstage = _stage2._workstage) > 2 || !_stage2._workqueue.empty(); });
+                if (workstage > 2)
+                    break;
                 Xn = std::move(_stage2._workqueue.back().Xn);
                 Xn1 = std::move(_stage2._workqueue.back().Xn1);
                 TXdn = std::move(_stage2._workqueue.back().Xdn);
@@ -1142,14 +1145,14 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                     TXdn1.reset();
 
                 std::unique_lock<std::mutex> lock(_stage2._work_mutex);
-                _stage2._workqueue.emplace_back();
-                _stage2._workqueue.back().Xn = std::move(TXn);
-                _stage2._workqueue.back().Xn1 = std::move(TXn1);
-                _stage2._workqueue.back().Xdn = std::move(TXdn);
-                _stage2._workqueue.back().Xdn1 = std::move(TXdn1);
-                _stage2._workqueue.back().count = distance >= (1 << power) ? (1 << power) : distance;
-                _stage2._workqueue.back().n = n + (1 << power);
-                _stage2._workqueue.back().distance = distance;
+                _stage2._workqueue.emplace_front();
+                _stage2._workqueue.front().Xn = std::move(TXn);
+                _stage2._workqueue.front().Xn1 = std::move(TXn1);
+                _stage2._workqueue.front().Xdn = std::move(TXdn);
+                _stage2._workqueue.front().Xdn1 = std::move(TXdn1);
+                _stage2._workqueue.front().count = distance >= (1 << power) ? (1 << power) : distance;
+                _stage2._workqueue.front().n = n + (1 << power);
+                _stage2._workqueue.front().distance = distance;
                 lock.unlock();
                 _stage2._workqueue_signal.notify_one();
 
@@ -1333,7 +1336,13 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
     {
         if (_main)
             throw;
-        _stage2._thread_exception = std::current_exception();
+        {
+            std::unique_lock<std::mutex> lock(_stage2._work_mutex);
+            _stage2._workstage = 11;
+            _stage2._thread_exception = std::current_exception();
+        }
+        _stage2._workstage_signal.notify_all();
+        _stage2._workqueue_signal.notify_all();
         _stage2._workdone_signal.notify_one();
     }
 }
@@ -1579,6 +1588,18 @@ void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::uniqu
     }
 }
 
+EdY* to_EdY(MontgomeryArithmetic& arithmetic, EdPoint& a)
+{
+    std::unique_ptr<EdY> res(new EdY(arithmetic, a));
+    if (!res->Z)
+    {
+        res->Z.reset(new GWNum(arithmetic.gw()));
+        *res->Z = 1;
+    }
+    arithmetic.optimize(*res);
+    return res.release();
+}
+
 void EdECMStage2Poly::setup()
 {
     if (!_ed_d)
@@ -1683,13 +1704,11 @@ void EdECMStage2Poly::setup()
         EdP = EdW;
         ed.dbl(EdP, EdP1, ed.ED_PROJECTIVE);
     }
-    _workqueue.back().Xn.reset(new EdY(arithmetic(), EdP));
-    arithmetic().optimize(*_workqueue.back().Xn);
+    else
+        EdP1 = EdW;
+    _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
     if (_workqueue.back().count > 1)
-    {
-        _workqueue.back().Xn1.reset(new EdY(arithmetic(), EdP1));
-        arithmetic().optimize(*_workqueue.back().Xn1);
-    }
+        _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
 
     if (_workqueue.back().distance > (1 << _smallpoly_power))
     {
@@ -1701,14 +1720,12 @@ void EdECMStage2Poly::setup()
             ed.dbl(EdWd, EdP1);
         else
             ed.add(EdP, EdWd, EdP1);
-        _workqueue.back().Xdn.reset(new EdY(arithmetic(), EdP1));
-        arithmetic().optimize(*_workqueue.back().Xdn);
+        _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
 
         if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
         {
             ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
-            _workqueue.back().Xdn1.reset(new EdY(arithmetic(), EdP1));
-            arithmetic().optimize(*_workqueue.back().Xdn1);
+            _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
         }
     }
 
@@ -1729,14 +1746,12 @@ void EdECMStage2Poly::setup()
             ed.dbl(EdWdist, EdP);
         else
             ed.add(EdP, EdWdist, EdP);
-        _workqueue.back().Xn.reset(new EdY(arithmetic(), EdP));
-        arithmetic().optimize(*_workqueue.back().Xn);
+        _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
 
         if (_workqueue.back().count > 1)
         {
             ed.add(EdP, EdW, EdP1, ed.ED_PROJECTIVE);
-            _workqueue.back().Xn1.reset(new EdY(arithmetic(), EdP1));
-            arithmetic().optimize(*_workqueue.back().Xn1);
+            _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
         }
 
         if (_workqueue.back().distance > (1 << _smallpoly_power))
@@ -1745,14 +1760,12 @@ void EdECMStage2Poly::setup()
                 ed.dbl(EdWd, EdP1);
             else
                 ed.add(EdP, EdWd, EdP1);
-            _workqueue.back().Xdn.reset(new EdY(arithmetic(), EdP1));
-            arithmetic().optimize(*_workqueue.back().Xdn);
+            _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
             
             if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
             {
                 ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
-                _workqueue.back().Xdn1.reset(new EdY(arithmetic(), EdP1));
-                arithmetic().optimize(*_workqueue.back().Xdn1);
+                _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
             }
         }
     }

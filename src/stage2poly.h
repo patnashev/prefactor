@@ -138,7 +138,7 @@ protected:
         int n;
         int distance;
     };
-    std::vector<WorkItem> _workqueue;
+    std::deque<WorkItem> _workqueue;
     Element* _X1;
     Element* _Xd;
 };

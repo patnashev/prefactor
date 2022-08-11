@@ -524,7 +524,7 @@ int net_main(int argc, char *argv[])
         std::list<NetFile> files;
         try
         {
-            if (net.task()->type == "Fermat" || net.task()->type == "Factoring")
+            if (net.task()->type == "Factoring" || net.task()->type == "Factoring2")
             {
                 Factoring factoring(input, gwstate, logging);
                 NetFile& file_input = files.emplace_back(net, "input", gwstate.fingerprint);
@@ -576,6 +576,7 @@ int net_main(int argc, char *argv[])
                     NetFile& file_checkpoint = files.emplace_back(net, "checkpoint", File::unique_fingerprint(gwstate.fingerprint, std::to_string(factoring.B1()) + "." + std::to_string(B1max)));
                     factoring.read_state(file_checkpoint, net.task()->b1);
                     factoring.stage1(net.task()->b1, B1max, maxMem, file_checkpoint, file_output);
+                    dhash = factoring.verify(true);
                 }
                 else
                 {
@@ -585,13 +586,13 @@ int net_main(int argc, char *argv[])
 
                 if (net.task()->b2 > factoring.B1())
                 {
+                    if (!dhash.empty())
+                        dhash += "-";
                     NetFile& file_results = files.emplace_back(net, "results", 0);
                     logging.progress().add_stage((int)factoring.points().size());
-                    dhash = factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyCheck, file_results);
+                    dhash += factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyCheck, file_results);
                     logging.progress().next_stage();
                 }
-                else
-                    dhash = factoring.verify(true);
             }
             else
             {
