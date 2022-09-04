@@ -821,13 +821,13 @@ namespace arithmetic
 
     void ThreadSafeGWArithmetic::alloc(GWNum& a)
     {
-        std::lock_guard<std::mutex> lock(_mutex);
+        //std::lock_guard<std::mutex> lock(_mutex);
         GWArithmetic::alloc(a);
     }
 
     void ThreadSafeGWArithmetic::free(GWNum& a)
     {
-        std::lock_guard<std::mutex> lock(_mutex);
+        //std::lock_guard<std::mutex> lock(_mutex);
         GWArithmetic::free(a);
     }
 }

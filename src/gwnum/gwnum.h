@@ -657,7 +657,7 @@ unsigned long gwmemused (gwhandle *);
 #define squaremuladd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_sqr_penalty+numadds_to_eb(mma5_sqr_pair(adds1)+mma5_mul_pair(adds3,adds4)+2))
 #define mulsquareadd_safe(h,adds1,adds2,adds3,adds4)	squaremuladd_safe(h,adds3,adds4,adds1,adds2)
 #define squaresquareadd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_sqr_penalty+numadds_to_eb(mma5_sqr_pair(adds1)+mma5_sqr_pair(adds3)+3))
-#define mma5_mul_pair(adds1,adds2)			((adds1) + (adds2) + ((adds1) != 0 && (adds2) != 0) ? 1 : 0)	/* helper macro */
+#define mma5_mul_pair(adds1,adds2)			(((adds1) + (adds2) + ((adds1) != 0 && (adds2) != 0)) ? 1 : 0)	/* helper macro */
 #define mma5_sqr_pair(adds1)				((adds1) * 4)							/* helper macro */
 #define mma5_sqr_penalty				(EB_GWMUL_SAVINGS - EB_FIRST_ADD)
 
@@ -682,8 +682,10 @@ int gwequal (gwhandle *, gwnum, gwnum);
 +---------------------------------------------------------------------*/
 
 /* Experimental routine to clone a gwhandle.  The cloned handle uses less resources than a full gwsetup by sharing many data structures with */
-/* the original handle.  The cloned handle can be used in a limited way in another thread.  Valid operations in the cloned handle are single */
-/* threaded multiplication, addition, subtraction.  Other operations may work as well. */
+/* the original handle.  The cloned handle can be used in a fairly unlimited way in another thread.  Valid operations in the cloned handle are single */
+/* threaded multiplication, addition, subtraction.  Many other operations will work as well. */
+/* NOTE: All memory allocated by gwalloc will be "owned" by the parent gwdata.  These allocated gwnums can be used or freed by the parent gwdata or */
+/* any of the cloned gwdatas. */
 int gwclone (
 	gwhandle *cloned_gwdata,	/* Empty handle to be populated */
 	gwhandle *gwdata);		/* Handle to clone */
@@ -995,14 +997,13 @@ struct gwasm_alt_jmptab {	/* Used when pass 1 and pass 2 code is shared among FF
 /* Structure for maintaining groups of blocks for each pass 1 thread to work on. */
 /* Each thread wants to work on contiguous blocks for independent carry propagation. */
 struct pass1_carry_sections {
-	unsigned int start_block;	/* First block in section */
-	unsigned int last_block;	/* Last block in section */
-	unsigned int next_block;	/* First unassigned/unprocessed block */
+	gwatomic change_in_progress;	/* Lock set to TRUE prior to changing start_block, last_block, next_block, section_state, etc. */
 	int	section_state;		/* Various states in processing this section -- see code */
-	int	can_carry_into_next;	/* Flag indicating it is safe to propagate carries out of */
-					/* the last block in this section into the next block */
-	int	dependent_section;	/* Which section's carry out depends on this section finishing */
-					/* processing of its first block to propagate carries into */
+	unsigned int start_block;	/* First block in section */
+	unsigned int next_block;	/* First unassigned/unprocessed block */
+	unsigned int last_block;	/* Last block in section (actually first block after the section) */
+	int	carry_in_blocks_finished; /* Flag indicating it is safe to propagate carries into the first blocks of this section */
+	int	carry_out_section;	/* Which section might receive the carries out of this section (we'll test that section's carry_in_blocks_finished flag) */
 };
 
 /* The FFT types currently implemented in assembly code */
@@ -1082,8 +1083,10 @@ struct gwhandle_struct {
 	gwnum	GW_RANDOM;		/* A random number used in gwmul3_carefully. */
 	gwnum	GW_RANDOM_SQUARED;	/* Cached square of the random number used in gwmul3_carefully. */
 	gwnum	GW_RANDOM_FFT;		/* Cached FFT of the random number used in gwmul3_carefully. */
-	gwnum	GW_ADDIN;		/* The gwsetaddin value when we need to emulate GWMUL3_ADDINCONST. */
-	gwnum	GW_FFT1;		/* The number 1 FFTed.  Sometimes need by gwmuladd4 and gwmulsub4. */
+	gwnum	GW_FFT1;		/* The number 1 FFTed.  Sometimes need by gwmuladd4, gwmulsub4, and gwunfft. */
+	gwnum	GW_ADDIN;		/* Cached gwsetaddin value when we need to emulate GWMUL_ADDINCONST. */
+	long	emulate_addin_value;	/* When emulating GWMUL_ADDINCONST, this is a copy of the last value sent to gwsetaddin. */
+	double	asm_addin_value;	/* Value to copy to asm_data->ADDIN_VALUE when GWMUL_ADDINCONST is set. */
 	char	FFT1_state;		/* 0 = FFT(1) needed for FMA but not yet allocated, 1 = FFT(1) needed for FMA and allocated, */
 					/* 2 = FFT(1) is not needed for FMA. */
 	char	FFT1_user_allocated;	/* TRUE if FFT(1) was allocated at user's request */
@@ -1120,14 +1123,16 @@ struct gwhandle_struct {
 	void	(*thread_callback)(int, int, void *); /* Auxiliary thread callback routine letting */
 					/* the gwnum library user set auxiliary thread priority and affinity */
 	void	*thread_callback_data;	/* User-supplied data to pass to the auxiliary thread callback routine */
+	gwmutex alloc_lock;		/* Mutex to allow parent and clones to allocate/free gwnums in a thread-safe manner */
 	gwmutex	thread_lock;		/* This mutex limits one thread at a time in critical sections. */
 	gwevent	work_to_do;		/* Event (if not spin waiting) to signal auxiliary threads there is work to do */
-	gwatomic alt_work_to_do;	/* Atomic alternative to work to do mutex when spin waiting */
+	gwatomic alt_work_to_do;	/* Atomic alternative to work_to_do event when spin waiting */
 	gwevent	all_helpers_done;	/* Event (if not spin waiting) to signal main thread that the auxiliary threads are done */
 	gwatomic num_active_helpers;	/* Number of active helpers (awakened from the work_to_do event).  Is also the alternative to all_helpers_done mutex. */
 	short volatile helpers_must_exit; /* Flag set to force all auxiliary threads to terminate */
 	short volatile all_work_assigned; /* Flag indicating all helper thread work has been assigned (some helpers ma still be active) */
 	gwevent can_carry_into;		/* This event signals pass 1 sections that the block they are waiting on to carry into may now be ready. */
+	gwatomic can_carry_into_counter;/* Atomic counter to limit the resets of gwevent can_carry_into */
 	int	pass1_state;		/* Mainly used to keep track of what we are doing in pass 1 of an FFT.  See */
 					/* pass1_get_next_block for details.  Also, 999 means we are in pass 2 of the FFT. */
 	void	*pass1_var_data;	/* pass1 variable sin/cos/premultiplier/fudge/biglit data */
@@ -1142,6 +1147,7 @@ struct gwhandle_struct {
 	unsigned long num_postfft_blocks; /* Number of data blocks that must delay forward fft because POSTFFT is set. */
 	gwthread *thread_ids;		/* Array of auxiliary thread ids */
 	struct pass1_carry_sections *pass1_carry_sections; /* Array of pass1 sections for carry propagation */
+	int	pass1_carry_sections_unallocated; /* Count of auxiliary threads that have not yet been assigned block to work on */
 	void	*multithread_op_data;	/* Data shared amongst add/sub/addsub/smallmul compute threads */
 	uint32_t ASM_TIMERS[32];	/* Internal timers used by me to optimize code */
 	int	bench_pick_nth_fft;	/* DO NOT set this variable.  Internal hack to force the FFT selection code to */
@@ -1151,12 +1157,13 @@ struct gwhandle_struct {
 					/* pick the n-th possible implementation instead of the best one.  The prime95 QA */
 					/* code uses this to compare results from one FFT implementation to the (should */
 					/* be identical) results of another FFT implementation. */
-	int	qa_picked_nth_fft;	/* Internal hack returning which FFT was picked */
+	int	qa_picked_nth_fft;	/* Internal hack returning which FFT implementation was selected */
 	int	careful_count;		/* Count of gwsquare and gwmul3 calls to convert into gwmul3_carefully calls */
 	double	ZPAD_COPY7_ADJUST[7];	/* Adjustments for copying the 7 words around the halfway point of a zero pad FFT. */
 	double	ZPAD_0_6_ADJUST[7];	/* Adjustments for ZPAD0_6 in a r4dwpn FFT */
 	unsigned long wpn_count;	/* Count of r4dwpn pass 1 blocks that use the same ttp/ttmp grp multipliers */
-	gwhandle *clone_of;		/* If this is a cloned gwhandle, this points to the handle that was cloned */
+	gwatomic clone_count;		/* How many times this gwhandle has been cloned */
+	gwhandle *clone_of;		/* If this is a cloned gwhandle, this points to the gwhandle that was cloned */
 	gwhandle *to_radix_gwdata;	/* FFTs used in converting to base b from binary in nonbase2_gianttogw */
 	gwhandle *from_radix_gwdata;	/* FFTs used in converting from base b to binary in nonbase2_gwtogiant */
 };
@@ -1230,8 +1237,10 @@ void specialmodg (gwhandle *, giant);
 void init_FFT1 (gwhandle *);
 
 /* Specialized routines that let the internal giants code share the free memory pool used by gwnums. */
-void gwfree_temporarily (gwhandle *, gwnum);
-void gwrealloc_temporarily (gwhandle *, gwnum);
+// void gwfree_temporarily (gwhandle *, gwnum);		DEPRECATED
+// void gwrealloc_temporarily (gwhandle *, gwnum);	DEPRECATED
+#define gwfree_temporarily(h,g)
+#define gwrealloc_temporarily(h,g)
 
 /* Routines to share the memory of cached free gwnums with giants code. */
 /* Used by prime95 to have the giants GCD code reuse the memory used during P-1 and ECM calculations. */

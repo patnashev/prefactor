@@ -154,11 +154,9 @@ gwarray polymult_preprocess (		// Returns a plug-in replacement for the input po
 	int	outvec_size,		// Size of the output polynomial that will be used in a future polymult call
 	int	options);		// Future polymult call options plus preprocessing options (FFT, compress -- see below)
 
-/* These routines allow multiplying one poly with several other polys.  This yields a small performance gain in that the one poly is read and FFTed just once. */
+/* This routine allows multiplying one poly with several other polys.  This yields a small performance gain in that the one poly is read and FFTed just once. */
 
-typedef struct pmargument_struct polymult_arg;
-
-struct pmargument_struct {	// Each of the several polys need to describe where their input and output coefficients are located
+typedef struct pmargument_struct {	// Each of the several polys need to describe where their input and output coefficients are located
 	gwnum	*invec2;	// Second input poly
 	int	invec2_size;	// Size of the second input polynomial
 	gwnum	*outvec;	// Output poly
@@ -167,7 +165,7 @@ struct pmargument_struct {	// Each of the several polys need to describe where t
 	int	circular_size;	// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
 	int	first_mulmid;	// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
 	int	options;	// Any of the polymult options that are not related to poly #1
-};
+} polymult_arg;
 
 void polymult_several (		// Multiply one poly with several polys	
 	pmhandle *pmdata,	// Handle for polymult library
@@ -177,31 +175,48 @@ void polymult_several (		// Multiply one poly with several polys
 	int	num_other_polys,// Number of other polys to multiply with first input poly
 	int	options);	// Poly #1 options.  Options not associated with poly #1 are applied to all other polys.
 
+/* For optimal multithreading, Prime95 has the main thread and each helper thread calling these routines to construct the first polys longer than length one. */
+
+// Special routine to multiply two monic length-1 polynomials more efficiently than a general polymult call.  
+void polymult2len1 (
+	gwhandle *gwdata,		// Handle for gwnum FFT library - can be a clone.
+	gwnum	poly1,			// Input poly #1's lone coefficient
+	gwnum	poly2,			// Input poly #2's lone coefficient
+	gwnum	outcoeff1,		// Least significant result coefficient
+	gwnum	outcoeff2,		// Most significant result coefficient
+	int	options);		// Set POLYMULT_INVEC1_NEGATE if *ALL* input poly coefficients should be negated
+					// Set POLYMULT_NEXTFFT if output polys are to be FFTed
+// Special routine to multiply three monic length-1 polynomials more efficiently than general polymult calls.
+void polymult3len1 (
+	gwhandle *gwdata,		// Handle for gwnum FFT library - can be a clone.
+	gwnum	poly1,			// Input poly #1's lone coefficient
+	gwnum	poly2,			// Input poly #2's lone coefficient
+	gwnum	poly3,			// Input poly #3's lone coefficient
+	gwnum	outcoeff1,		// Least significant result coefficient
+	gwnum	outcoeff2,		// Middle result coefficient
+	gwnum	outcoeff3,		// Most significant result coefficient
+	int	options);		// Set POLYMULT_INVEC1_NEGATE if *ALL* input poly coefficients should be negated
+					// Set POLYMULT_NEXTFFT if output polys are to be FFTed
+// Special routine to multiply four monic length-1 polynomials more efficiently than general polymult calls.
+void polymult4len1 (
+	gwhandle *gwdata,		// Handle for gwnum FFT library - can be a clone.
+	gwnum	poly1,			// Input poly #1's lone coefficient
+	gwnum	poly2,			// Input poly #2's lone coefficient
+	gwnum	poly3,			// Input poly #3's lone coefficient
+	gwnum	poly4,			// Input poly #4's lone coefficient
+	gwnum	outcoeff1,		// Least significant result coefficient
+	gwnum	outcoeff2,		// Middle result coefficient
+	gwnum	outcoeff3,		// Middle result coefficient
+	gwnum	outcoeff4,		// Most significant result coefficient
+	int	options);		// Set POLYMULT_INVEC1_NEGATE if *ALL* input poly coefficients should be negated
+					// Set POLYMULT_NEXTFFT if output polys are to be FFTed
+
+
 /*------------------------------------------------------------------------------------------------
 |	Easy multithreading using polymult threads.   Complete with example code!!
 |	Study poly_helper_example in polymult.c so you can write your own helper function.
 +------------------------------------------------------------------------------------------------*/
 
-// Example using polymult threads for faster execution of some simple poly utilities.  Study the code in polymult.c.
-void poly_helper_example (int helper_num, gwhandle *gwdata, void *info);
-
-/* Poly_helper_example provides a multithreaded implementation of the following utility routines */
-
-// Copy invec to outvec
-void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size);
-
-// UNFFT and/or FFT all the coefficients in a poly.  Why might one want to do this?  In P-1/ECM Stage 2, we start with a large number of size 1 polys.  We multiply
-// pairs to create size 2 polys.  We multiply pairs again to create size 4 polys, and so on.  Say you are working with small numbers where the gwnum library
-// cannot multithread (or poorly multithreads) gwunfft or gwfft calls.  Say your machine supports 16 threads and polymult is asked to multiply two size 2 polys.
-// If polymult, fires up helper threads to gwfft inputs or gwunfft outputs, there are only 4 coefficients to work on leaving 12 threads sitting idle.  The solution,
-// is to combine the large number size 2 polys into one gigantic poly and use the routines below to gwunfft and/or gwfft all the coefficients in one batch,
-// keeping all 16 threads busy at once.  This is done in conjunction with the POLYMULT_NO_UNFFT polymult option.  Note that using poly_unfft_fft_coefficients
-// in the P-1/ECM scenario is more efficient because the gwunfft followed immediately by gwfft is likely to find the gwnum still in the CPU caches.
-void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
-void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
-void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
-
-	
 /* Underlying routines that allow the users of this library to use the polymult helper threads and locking mechanisms to craft their own multithreaded */
 /* helper routines.  The helper_callback and helper_callback_data fields must be set prior to launching the helpers.  Each helper is given its own clone */
 /* of gwdata to safely call gwnum operations -- cloning is necessary as independent threads cannot use use same gwdata structure. */
@@ -215,6 +230,26 @@ void polymult_wait_on_helpers (
 	pmhandle *pmdata);		// Handle for polymult library
 
 
+// Example using polymult threads for faster execution of some simple poly utilities.  Study the code in polymult.c.
+void poly_helper_example (int helper_num, gwhandle *gwdata, void *info);
+
+/* Poly_helper_example provides a multithreaded implementation of the following utility routines */
+
+// Copy invec to outvec
+void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size);
+
+// UNFFT and/or FFT all the coefficients in a poly.  Why might one want to do this?  In P-1/ECM Stage 2, we start with a large number of size 1 polys.  We multiply
+// pairs to create size 2 polys.  We multiply pairs again to create size 4 polys, and so on.  Say you are working with small numbers where the gwnum library
+// cannot multithread (or poorly multithreads) gwunfft or gwfft calls.  Say your machine supports 16 threads and polymult is asked to multiply two size 2 polys.
+// If polymult, fires up helper threads to gwfft inputs or gwunfft outputs, there are only 4 coefficients to work on leaving 12 threads sitting idle.  The solution,
+// is to combine the large number of size 2 polys into one gigantic poly and use the routines below to gwunfft and/or gwfft all the coefficients in one batch,
+// keeping all 16 threads busy at once.  This is done in conjunction with the POLYMULT_NO_UNFFT polymult option.  Note that using poly_unfft_fft_coefficients
+// in the P-1/ECM scenario is more efficient because gwunfft followed immediately by gwfft is likely to find the gwnum still in the CPU caches.
+void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+
+	
 /*-----------------------------------------------------------------------------
 |	Internal polymult library data structures
 +----------------------------------------------------------------------------*/
@@ -287,7 +322,7 @@ typedef struct {
 } preprocessed_poly_header;
 
 // Internal description of the plan to multiply two polys
-typedef struct polyplan {
+struct polyplan {
 	bool	emulate_circular;	// Emulating circular_size is required
 	bool	strip_monic_from_invec1;// True if ones are stripped from monic invec1 requiring (99% of the time) invec2 to be added in during post processing
 	bool	strip_monic_from_invec2;// True if ones are stripped from monic invec2 requiring (99% of the time) invec1 to be added in during post processing
@@ -308,7 +343,7 @@ typedef struct polyplan {
 	int	subout;			// Outvec location where 1*1 value may need to be subtracted at the very end of the polymult process
 	int	adjusted_shift;		// Number of coefficients to shift left the initial partial poly multiplication to reach true_outvec_size
 	int	adjusted_pad;		// Number of coefficients to pad on the left of the initial partial poly multiplication to reach true_outvec_size
-} polymult_plan;
+};
 
 #ifdef __cplusplus
 }
