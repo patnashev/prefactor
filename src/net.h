@@ -36,6 +36,7 @@ struct PFTask {
 
     std::string fft_desc;
     int fft_len;
+    int W, D, degree;
     double progress;
     double time_op;
     std::string factor;
@@ -104,6 +105,8 @@ public:
     virtual void report(const std::string& message, int level) override;
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override;
     virtual void report_progress() override;
+    virtual void report_param(const std::string& name, int value) override;
+    virtual void report_param(const std::string& name, const std::string& value) override;
     void update_progress();
 
 private:

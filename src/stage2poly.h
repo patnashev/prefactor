@@ -56,15 +56,17 @@ protected:
     };
 
 protected:
-    Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, bool check) : Stage2(B1, B2, D)
+    Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, int mem_model, bool check) : Stage2(B1, B2, D)
     {
         _poly_power = poly_power;
         _poly_mod_degree = phi(D)/2;
         _poly_threads = threads;
+        _mem_model = mem_model;
         _poly_check = check;
         for (_tinypoly_power = 0; _tinypoly_power < 10 && _tinypoly_power < poly_power - 2 && ((1 << poly_power) - _poly_mod_degree)%(1 << (_tinypoly_power + 1)) == 0; _tinypoly_power++);
         for (_smallpoly_power = _tinypoly_power; _smallpoly_power < 10 && _smallpoly_power < poly_power - 2 && (threads == 1 || (1 << (poly_power - _smallpoly_power)) > 20*threads); _smallpoly_power++);
-        _poly_optmem = _smallpoly_power < poly_power - 3 ? poly_power - 2 - _smallpoly_power : _poly_optmem;
+        _poly_optmem = mem_model > 0 ? 1 : _smallpoly_power < poly_power - 3 ? poly_power - 2 - _smallpoly_power : _poly_optmem;
+        _poly_optmem_small = mem_model > 1 ? 1 : _poly_optmem_small;
     }
 
 public:
@@ -99,6 +101,7 @@ protected:
     int _poly_optmem = 10;
     int _poly_optmem_small = 10;
     int _poly_threads = 1;
+    int _mem_model = 0;
     bool _poly_check = false;
     int _poly_check_index;
 
@@ -159,7 +162,7 @@ public:
     };
 
 public:
-    PP1Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, bool check = false) : Stage2Poly(B1, B2, D, poly_power, threads, check)
+    PP1Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, int mem_model, bool check = false) : Stage2Poly(B1, B2, D, poly_power, threads, mem_model, check)
     {
     }
 
@@ -196,7 +199,7 @@ public:
     };
 
 public:
-    EdECMStage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, bool check = false) : Stage2Poly(B1, B2, D, poly_power, threads, check)
+    EdECMStage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, int mem_model, bool check = false) : Stage2Poly(B1, B2, D, poly_power, threads, mem_model, check)
     {
     }
 

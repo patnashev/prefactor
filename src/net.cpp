@@ -62,6 +62,24 @@ void NetLogging::report_progress()
     update_progress();
 }
 
+void NetLogging::report_param(const std::string& name, int value)
+{
+    if (name == "fft_len")
+        _net.task()->fft_len = value;
+    if (name == "W")
+        _net.task()->W = value;
+    if (name == "D")
+        _net.task()->D = value;
+    if (name == "degree")
+        _net.task()->degree = value;
+}
+
+void NetLogging::report_param(const std::string& name, const std::string& value)
+{
+    if (name == "fft_desc")
+        _net.task()->fft_desc = value;
+}
+
 void NetLogging::update_progress()
 {
     _net.task()->progress = progress().progress_total();
@@ -255,6 +273,9 @@ void NetContext::upload(NetFile* file)
                     .Argument("uptime", uptime())
                     .Argument("fft_desc", _task->fft_desc)
                     .Argument("fft_len", _task->fft_len)
+                    .Argument("W", _task->W)
+                    .Argument("D", _task->D)
+                    .Argument("degree", _task->degree)
                     .Argument("progress", std::to_string(_task->progress))
                     .Argument("time", std::to_string(_task->time))
                     .Argument("time_op", std::to_string(_task->time_op))
@@ -293,29 +314,6 @@ void NetContext::done()
 }
 
 
-/*
-extern "C" void net_report_init(const char *fft_desc, int fft_len, nethandle net)
-{
-	if (net != NULL)
-	{
-		NetContext *ctx = (NetContext*)net;
-		ctx->task->fft_desc = fft_desc;
-		ctx->task->fft_len = fft_len;
-        return;
-	}
-}
-
-extern "C" void net_report_progress(int progress, int timer, nethandle net)
-{
-    if (net != NULL)
-    {
-        NetContext *ctx = (NetContext*)net;
-        ctx->task->progress = progress;
-        ctx->task->timer = timer;
-        return;
-    }
-}
-*/
 int net_main(int argc, char *argv[])
 {
     int i;
@@ -326,6 +324,7 @@ int net_main(int argc, char *argv[])
     int net_log_level = Logging::LEVEL_WARNING;
     uint64_t maxMem = 2048*1048576ULL;
     int polyThreads = 1;
+    int polyMemModel = 0;
     int disk_write_time = Task::DISK_WRITE_TIME;
 
     for (i = 1; i < argc; i++)
@@ -374,16 +373,33 @@ int net_main(int argc, char *argv[])
 
             if (strcmp(argv[i], "-poly") == 0)
             {
-                if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
-                {
-                    i += 2;
-                    polyThreads = atoi(argv[i]);
-                }
-                if (i < argc - 1 && argv[i + 1][0] == 't')
-                {
-                    i++;
-                    polyThreads = atoi(argv[i] + 1);
-                }
+                while (true)
+                    if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
+                    {
+                        i += 2;
+                        polyThreads = atoi(argv[i]);
+                    }
+                    else if (i < argc - 1 && argv[i + 1][0] == 't')
+                    {
+                        i++;
+                        polyThreads = atoi(argv[i] + 1);
+                    }
+                    else if (i < argc - 2 && strcmp(argv[i + 1], "mem") == 0)
+                    {
+                        i += 2;
+                        if (strcmp(argv[i], "lowest") == 0)
+                            polyMemModel = -2;
+                        if (strcmp(argv[i], "low") == 0)
+                            polyMemModel = -1;
+                        if (strcmp(argv[i], "normal") == 0)
+                            polyMemModel = 0;
+                        if (strcmp(argv[i], "high") == 0)
+                            polyMemModel = 1;
+                        if (strcmp(argv[i], "highest") == 0)
+                            polyMemModel = 2;
+                    }
+                    else
+                        break;
             }
             else if (strcmp(argv[i], "-time") == 0)
             {
@@ -501,6 +517,7 @@ int net_main(int argc, char *argv[])
         logging.info("Using %s.\n", gwstate.fft_description.data());
         net.task()->fft_desc = gwstate.fft_description;
         net.task()->fft_len = gwstate.fft_length;
+        net.task()->W = net.task()->D = net.task()->degree = 0;
         int maxSize = (int)(maxMem/(gwnum_size(gwstate.gwdata())));
 
         logging.set_prefix(net.task_id() + ", ");
@@ -590,7 +607,7 @@ int net_main(int argc, char *argv[])
                         dhash += "-";
                     NetFile& file_results = files.emplace_back(net, "results", 0);
                     logging.progress().add_stage((int)factoring.points().size());
-                    dhash += factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyCheck, file_results);
+                    dhash += factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyMemModel, polyCheck, file_results);
                     logging.progress().next_stage();
                 }
             }
@@ -601,7 +618,7 @@ int net_main(int argc, char *argv[])
                 if (net.task()->type == "P-1")
                 {
                     std::unique_ptr<PM1Params> params_pm1;
-                    params_pm1.reset(new PM1Params(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads));
+                    params_pm1.reset(new PM1Params(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads, polyMemModel));
                     logging.progress().add_stage(params_pm1->stage1_cost());
                     logging.progress().add_stage(params_pm1->stage2_cost());
 
@@ -629,7 +646,7 @@ int net_main(int argc, char *argv[])
                         if (params_pm1->PolyPower == 0)
                             stage2.reset(new PP1Stage2(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, logging));
                         else
-                            stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, params_pm1->PolyThreads, polyCheck > 0));
+                            stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, polyThreads, polyMemModel, polyCheck > 0));
                         dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                         stage2->run();
                     }
@@ -640,7 +657,7 @@ int net_main(int argc, char *argv[])
                     if (net.task()->seed.empty())
                         net.task()->seed = "2/7";
                     std::unique_ptr<PP1Params> params_pp1;
-                    params_pp1.reset(new PP1Params(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads));
+                    params_pp1.reset(new PP1Params(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads, polyMemModel));
                     logging.progress().add_stage(params_pp1->stage1_cost());
                     logging.progress().add_stage(params_pp1->stage2_cost());
 
@@ -667,7 +684,7 @@ int net_main(int argc, char *argv[])
                         if (params_pp1->PolyPower == 0)
                             stage2.reset(new PP1Stage2(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, logging));
                         else
-                            stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, params_pp1->PolyThreads, polyCheck > 0));
+                            stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, polyThreads, polyMemModel, polyCheck > 0));
                         dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                         stage2->run();
                     }
@@ -722,9 +739,12 @@ int net_main(int argc, char *argv[])
                     }
 
                     std::unique_ptr<EdECMParams> params_edecm;
-                    params_edecm.reset(new EdECMParams(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads));
+                    params_edecm.reset(new EdECMParams(net.task()->b1, net.task()->b2, maxSize, poly, polyThreads, polyMemModel));
                     logging.progress().add_stage(params_edecm->stage1_cost());
                     logging.progress().add_stage(params_edecm->stage2_cost());
+                    net.task()->W = params_edecm->W;
+                    net.task()->D = params_edecm->D;
+                    net.task()->degree = 1 << params_edecm->PolyPower;
 
                     uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, jinvariant + "." + std::to_string(params_edecm->B1));
                     NetFile& file1 = files.emplace_back(net, "checkpoint.ed1", File::unique_fingerprint(fingerprint, std::to_string(params_edecm->W)));
@@ -749,7 +769,7 @@ int net_main(int argc, char *argv[])
                         if (params_edecm->PolyPower == 0)
                             stage2.reset(new EdECMStage2(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, logging));
                         else
-                            stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, params_edecm->PolyThreads, polyCheck > 0));
+                            stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, polyThreads, polyMemModel, polyCheck > 0));
                         dynamic_cast<IEdECMStage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                         stage2->run();
                     }

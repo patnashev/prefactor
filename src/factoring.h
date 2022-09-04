@@ -41,7 +41,7 @@ public:
     bool merge(Factoring& other);
     void copy(Factoring& result);
     void stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& file_state, File& file_result);
-    std::string stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int check, File& file_results);
+    std::string stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int mem_model, int check, File& file_results);
 
     std::vector<Curve>& points() { return _points; }
     uint64_t B1() { return _B1; }

@@ -33,7 +33,7 @@ namespace arithmetic
         void mul_twohalf(Poly& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
         void mul_twohalf(Poly&& a, Poly& b, Poly& c, Poly& res1, Poly& res2, int half, int options);
         void fma_range(Poly& a, Poly& b, Poly& fma, Poly& res, int offset, int count, int options);
-        void preprocess(Poly& a, Poly& res, int size);
+        void preprocess(Poly& a, Poly& res, int size, int options);
         void preprocess_and_mul(Poly& a, Poly& b, Poly& res, int size, int options);
         void reciprocal(Poly& a, Poly& res, int options);
         void shiftleft(Poly& a, int b, Poly& res);

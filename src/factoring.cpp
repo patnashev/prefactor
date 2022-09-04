@@ -425,6 +425,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         _logging.progress().next_stage();
     if (_points.size() > 1)
     {
+        _logging.report_param("W", stage1.W());
         _logging.info("%d bits, W = %d\n", stage1.exp_len(), stage1.W());
         _logging.progress().update(0, 0);
         sub_logging.progress().add_stage(stage1.exp_len());
@@ -494,33 +495,31 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int check, File& file_results)
+std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int mem_model, int check, File& file_results)
 {
     int i = 0;
     std::string res64;
+    std::string prefix = _logging.prefix();
+
     std::unique_ptr<TextReader> reader(file_results.get_textreader());
     while (reader->read_textline(res64))
         i++;
     std::unique_ptr<Writer> results(new Writer(std::move(file_results.buffer())));
 
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
-    EdECMParams params_edecm(_B1, B2, maxSize, poly, threads);
-    if (params_edecm.PolyPower > 0 && _gwstate.max_polymult_output() < 2*(1 << params_edecm.PolyPower))
-    {
-        _logging.error("FFT size too small for polynomial stage 2. Set -fft+1.\n");
-        return "";
-    }
+    EdECMParams params_edecm(_B1, B2, maxSize, poly, threads, mem_model);
     std::unique_ptr<Stage2> stage2;
     if (params_edecm.PolyPower == 0)
         stage2.reset(new EdECMStage2(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, _logging));
     else
-        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, params_edecm.PolyThreads, false));
+        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, threads, mem_model, false));
+    _logging.report_param("D", params_edecm.D);
+    _logging.report_param("degree", 1 << params_edecm.PolyPower);
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, 1 << params_edecm.PolyPower);
 
     SubLogging logging(_logging, _logging.level() + 1);
     logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
     _logging.progress().update(i/(double)_points.size(), i);
-    std::string prefix = _logging.prefix();
 
     compute_d(true);
     time_t last_write = time(NULL);
@@ -530,7 +529,6 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     while (i < _points.size())
     {
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
-        //double timer = getHighResTimer();
         if (params_edecm.PolyPower > 0)
             dynamic_cast<EdECMStage2Poly*>(stage2.get())->set_check(i < check);
         dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
@@ -543,10 +541,8 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
             file_results.commit_writer(*results);
             throw;
         }
-        //if (stage2.success())
-        //    _logging.warning("curve #%d found the factor.\n", _seed + i);
-        //timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-        //_logging.info("%.1f%% done, %.3f ms per kilobit.\n", i/10.24, 1000000*timer/len);
+        if (stage2->success())
+            _logging.warning("factor found in stage2.\n");
         _logging.set_prefix(prefix);
 
         results->write_textline(stage2->res64());
@@ -583,6 +579,7 @@ int factoring_main(int argc, char *argv[])
     uint64_t maxMem = 2048*1048576ULL;
     bool poly = false;
     int polyThreads = 1;
+    int polyMemModel = 0;
     int polyCheck = 0;
     int seed = 0;
     int count = 0;
@@ -701,6 +698,20 @@ int factoring_main(int argc, char *argv[])
                     {
                         i++;
                         polyThreads = atoi(argv[i] + 1);
+                    }
+                    else if (i < argc - 2 && strcmp(argv[i + 1], "mem") == 0)
+                    {
+                        i += 2;
+                        if (strcmp(argv[i], "lowest") == 0)
+                            polyMemModel = -2;
+                        if (strcmp(argv[i], "low") == 0)
+                            polyMemModel = -1;
+                        if (strcmp(argv[i], "normal") == 0)
+                            polyMemModel = 0;
+                        if (strcmp(argv[i], "high") == 0)
+                            polyMemModel = 1;
+                        if (strcmp(argv[i], "highest") == 0)
+                            polyMemModel = 2;
                     }
                     else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
                     {
@@ -932,7 +943,7 @@ int factoring_main(int argc, char *argv[])
             File file_state(filename_state, 0);
             file_state.hash = false;
             logging.progress().add_stage((int)factoring.points().size());
-            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, polyCheck, file_state);
+            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, polyMemModel, polyCheck, file_state);
             logging.progress().next_stage();
             file_state.clear();
             logging.info("RES64 hash: %s\n", reshash.data());

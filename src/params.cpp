@@ -26,10 +26,10 @@ std::string Params::unique_id()
     return std::to_string(B1) + "." + std::to_string(B2);
 }
 
-PM1Params::PM1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads) : Params(B1_, B2_)
+PM1Params::PM1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads, int mem_model) : Params(B1_, B2_)
 {
     if (poly || max_size > 2000)
-        find_poly_stage2_optimal_params(max_size, threads);
+        find_poly_stage2_optimal_params(max_size, threads, mem_model);
     else
         find_pp1_stage2_optimal_params(max_size);
 }
@@ -47,10 +47,10 @@ PM1Params::PM1Params(int max_size, ProbSmooth& prob, double log_sieving_depth, d
     find_pp1_stage2_optimal_params(max_size);
 }
 
-PP1Params::PP1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads) : Params(B1_, B2_)
+PP1Params::PP1Params(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads, int mem_model) : Params(B1_, B2_)
 {
     if (poly || max_size > 2000)
-        find_poly_stage2_optimal_params(max_size, threads);
+        find_poly_stage2_optimal_params(max_size, threads, mem_model);
     else
         find_pp1_stage2_optimal_params(max_size);
 }
@@ -73,7 +73,7 @@ double PP1Params::stage1_cost()
     return (int)(B1/0.69*1.5);
 }
 
-EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads) : Params(B1_, B2_)
+EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, int threads, int mem_model) : Params(B1_, B2_)
 {
     int k;
     for (k = 2; k < 16 && 3 + 3*(1 << (k - 1)) <= max_size && (15 << (k - 2)) + B1/0.69*(7 + 7/(k + 1.0)) > (15 << (k - 1)) + B1/0.69*(7 + 7/(k + 2.0)); k++);
@@ -81,7 +81,7 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
     
     if (poly || max_size > 2000)
     {
-        find_poly_stage2_optimal_params(max_size, threads);
+        find_poly_stage2_optimal_params(max_size, threads, mem_model);
     }
     else
     {
@@ -103,7 +103,7 @@ int EdECMParams::stage1_size()
     return 3 + 3*(1 << (W - 2));
 }
 
-void Params::find_poly_stage2_optimal_params(int max_size, int threads)
+void Params::find_poly_stage2_optimal_params(int max_size, int threads, int mem_model)
 {
     static int poly_params[] = { 0, 0, 0, 0, 0, 0, 0, 
         /* 7     128*/ 1050,
@@ -128,17 +128,17 @@ void Params::find_poly_stage2_optimal_params(int max_size, int threads)
 
     A = 1;
     L = 1;
-    PolyThreads = threads;
     PolyPower = 7;
     D = poly_params[PolyPower];
 #ifdef _DEBUG
     //if (false)
 #endif
-    while (poly_params[PolyPower + 1] && (((B2 - B1)/D) >> (PolyPower + 1)) > 2 && max_size > 9*(1 << (PolyPower + 1)))
+    while (poly_params[PolyPower + 1] && (((B2 - B1)/D) >> (PolyPower + 1)) > 2 && max_size > (mem_model < -1 ? 5 : mem_model < 0 ? 7 : 9)*(1 << (PolyPower + 1)))
     {
         PolyPower++;
         D = poly_params[PolyPower];
     }
+    PolyMemModel = mem_model;
 }
 
 void Params::find_pp1_stage2_optimal_params(int max_size)
@@ -285,7 +285,7 @@ int Params::stage2_size()
 {
     if (PolyPower > 0)
     {
-        return 2*PolyPower*(1 << PolyPower) + PolyThreads*2*(1 << PolyPower);
+        return (PolyMemModel < -1 ? 5 : PolyMemModel < 0 ? 7 : 9)*(1 << PolyPower);
     }
 
     int i;
@@ -434,7 +434,7 @@ double EdECMParams::stage2_cost()
 int EdECMParams::stage2_size()
 {
     if (PolyPower > 0)
-        return Params::stage2_size() + PolyThreads*LN*3;
+        return Params::stage2_size();
 
     int i, j;
     int size = 0;

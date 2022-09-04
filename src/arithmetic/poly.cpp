@@ -374,11 +374,11 @@ namespace arithmetic
         }
     }
 
-    void PolyMult::preprocess(Poly& a, Poly& res, int size)
+    void PolyMult::preprocess(Poly& a, Poly& res, int size, int options)
     {
         if (a.size() > 1 && a._cache == nullptr)
         {
-            res._cache = polymult_preprocess(pmdata(), a._poly.data(), a._poly.size(), size, size, POLYMULT_CIRCULAR | POLYMULT_PRE_FFT | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
+            res._cache = polymult_preprocess(pmdata(), a._poly.data(), a._poly.size(), size, size, options | POLYMULT_CIRCULAR | (a.monic() ? POLYMULT_INVEC1_MONIC : 0));
             res._cache_size = a._poly.size();
             if (res._freeable)
                 for (auto it = res._poly.begin(); it != res._poly.end(); it++)

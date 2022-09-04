@@ -72,6 +72,8 @@ namespace arithmetic
         }
         else
             res.Z.reset();
+        res.ZpY.reset();
+        res.ZmY.reset();
     }
 
     int MontgomeryArithmetic::cmp(const EdY& a, const EdY& b)
@@ -102,6 +104,8 @@ namespace arithmetic
             return;
         }
         optimize(a_minus_b);
+        bool normalized_a = !a.Z;
+        bool normalized_b = !b.Z;
         if (!res.Y)
             res.Y.reset(new GWNum(gw()));
         if (!res.Z)
@@ -111,16 +115,16 @@ namespace arithmetic
         if (!res.ZmY)
             res.ZmY.reset(new GWNum(gw()));
         std::unique_ptr<GWNum> tmp;
-        if (&a_minus_b == &res || (b.Z && (&b == &res)))
+        if (&a_minus_b == &res || (!normalized_b && (&b == &res)))
             tmp.reset(new GWNum(gw()));
 
-        if (b.Z && (&b == &res))
+        if (!normalized_b && (&b == &res))
             std::swap(tmp, res.Z);
-        if (a.Z)
+        if (!normalized_a)
             gw().mul(*a.Z, *b.Y, *res.Z, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1));
         else
             gw().copy(*b.Y, *res.Z);
-        if (b.Z)
+        if (!normalized_b)
             gw().mul(*a.Y, (&b == &res) ? *tmp : *b.Z, *res.Y, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe1));
         else if (&a != &res)
             gw().copy(*a.Y, *res.Y);
@@ -128,12 +132,12 @@ namespace arithmetic
         gw().square(*res.Z, *res.Z, GWMUL_STARTNEXTFFT);
         gw().square(*res.Y, *res.Y, GWMUL_STARTNEXTFFT);
         gw().mulmuladd(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, (&a_minus_b == &res) ? *tmp : *res.ZpY, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT_IF(safe11));
-        gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && ((a.Z && b.Z) || safe1)));
+        gw().mulmulsub(*a_minus_b.ZmY, *res.Z, *a_minus_b.ZpY, *res.Y, *res.ZmY, GWMUL_STARTNEXTFFT_IF(safe11 && ((!normalized_a && !normalized_b) || safe1)));
         if (&a_minus_b == &res)
             std::swap(res.ZpY, tmp);
         if (safe11)
             gw().fft(*res.ZpY, *res.ZpY);
-        if (safe11 && ((a.Z && b.Z) || safe1))
+        if (safe11 && ((!normalized_a && !normalized_b) || safe1))
             gw().fft(*res.ZmY, *res.ZmY);
         gw().copy(*res.ZpY, *res.Z);
         gw().copy(*res.ZmY, *res.Y);

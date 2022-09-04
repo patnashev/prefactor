@@ -59,6 +59,8 @@ public:
     virtual void report_progress();
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f);
     virtual void report_result(const std::string& message);
+    virtual void report_param(const std::string& name, int value) { }
+    virtual void report_param(const std::string& name, const std::string& value) { }
 
     int level() { return _level; }
     Progress& progress() { return _progress; }
@@ -80,6 +82,8 @@ public:
     virtual void report(const std::string& message, int level) override { _parent.report(message, level); }
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override { _parent.report_factor(input, f); }
     virtual void report_result(const std::string& message) override { }
+    virtual void report_param(const std::string& name, int value) override { _parent.report_param(name, value); }
+    virtual void report_param(const std::string& name, const std::string& value) override { _parent.report_param(name, value); }
 
 private:
     Logging& _parent;

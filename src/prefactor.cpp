@@ -56,6 +56,7 @@ int main(int argc, char *argv[])
     int edecm = 0;
     bool poly = false;
     int polyThreads = 1;
+    int polyMemModel = 0;
     bool polyCheck = false;
     double sievingDepth = 0;
     uint64_t maxMem = 2048*1048576ULL;
@@ -217,6 +218,20 @@ int main(int argc, char *argv[])
                         i++;
                         polyThreads = atoi(argv[i] + 1);
                     }
+                    else if (i < argc - 2 && strcmp(argv[i + 1], "mem") == 0)
+                    {
+                        i += 2;
+                        if (strcmp(argv[i], "lowest") == 0)
+                            polyMemModel = -2;
+                        if (strcmp(argv[i], "low") == 0)
+                            polyMemModel = -1;
+                        if (strcmp(argv[i], "normal") == 0)
+                            polyMemModel = 0;
+                        if (strcmp(argv[i], "high") == 0)
+                            polyMemModel = 1;
+                        if (strcmp(argv[i], "highest") == 0)
+                            polyMemModel = 2;
+                    }
                     else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
                     {
                         i++;
@@ -373,11 +388,11 @@ int main(int argc, char *argv[])
         if (B2 < B1)
             B2 = B1;
         if (minus1)
-            params_pm1.reset(new PM1Params(B1, B2, maxSize, poly, polyThreads));
+            params_pm1.reset(new PM1Params(B1, B2, maxSize, poly, polyThreads, polyMemModel));
         if (plus1)
-            params_pp1.reset(new PP1Params(B1, B2, maxSize, poly, polyThreads));
+            params_pp1.reset(new PP1Params(B1, B2, maxSize, poly, polyThreads, polyMemModel));
         if (edecm)
-            params_edecm.reset(new EdECMParams(B1, B2, maxSize, poly, polyThreads));
+            params_edecm.reset(new EdECMParams(B1, B2, maxSize, poly, polyThreads, polyMemModel));
     }
 
     int size = 0;
@@ -452,7 +467,7 @@ int main(int argc, char *argv[])
                 if (params_pm1->PolyPower == 0)
                     stage2.reset(new PP1Stage2(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, logging));
                 else
-                    stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, params_pm1->PolyThreads, polyCheck));
+                    stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, polyThreads, polyMemModel, polyCheck));
                 dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                 stage2->run();
                 success = stage2->success();
@@ -491,7 +506,7 @@ int main(int argc, char *argv[])
                 if (params_pp1->PolyPower == 0)
                     stage2.reset(new PP1Stage2(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, logging));
                 else
-                    stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, params_pp1->PolyThreads, polyCheck));
+                    stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, polyThreads, polyMemModel, polyCheck));
                 dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                 stage2->run();
                 success = stage2->success();
@@ -583,7 +598,7 @@ int main(int argc, char *argv[])
                 if (params_edecm->PolyPower == 0)
                     stage2.reset(new EdECMStage2(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, logging));
                 else
-                    stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, params_edecm->PolyThreads, polyCheck));
+                    stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, polyThreads, polyMemModel, polyCheck));
                 dynamic_cast<IEdECMStage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                 stage2->run();
                 success = stage2->success();
