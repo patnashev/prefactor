@@ -9,7 +9,6 @@
 #include "factoring.h"
 #include "exception.h"
 #include "task.h"
-#include "primelist.h"
 #include "params.h"
 #include "stage1.h"
 #include "stage2.h"

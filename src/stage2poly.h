@@ -59,7 +59,7 @@ protected:
     Stage2Poly(uint64_t B1, uint64_t B2, int D, int poly_power, int threads, int mem_model, bool check) : Stage2(B1, B2, D)
     {
         _poly_power = poly_power;
-        _poly_mod_degree = phi(D)/2;
+        _poly_mod_degree = arithmetic::phi(D)/2;
         _poly_threads = threads;
         _mem_model = mem_model;
         _poly_check = check;

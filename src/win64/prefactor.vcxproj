@@ -13,6 +13,7 @@
   <ItemGroup>
     <ClCompile Include="..\arithmetic\arithmetic.cpp" />
     <ClCompile Include="..\arithmetic\edwards.cpp" />
+    <ClCompile Include="..\arithmetic\integer.cpp" />
     <ClCompile Include="..\arithmetic\giant.cpp" />
     <ClCompile Include="..\arithmetic\group.cpp" />
     <ClCompile Include="..\arithmetic\lucas.cpp" />
@@ -25,7 +26,6 @@
     <ClCompile Include="..\md5.c" />
     <ClCompile Include="..\params.cpp" />
     <ClCompile Include="..\prefactor.cpp" />
-    <ClCompile Include="..\primelist.cpp" />
     <ClCompile Include="..\prob.cpp" />
     <ClCompile Include="..\stage1.cpp" />
     <ClCompile Include="..\stage2.cpp" />
@@ -36,6 +36,7 @@
     <ClInclude Include="..\arithmetic\arithmetic.h" />
     <ClInclude Include="..\arithmetic\edwards.h" />
     <ClInclude Include="..\arithmetic\exception.h" />
+    <ClInclude Include="..\arithmetic\integer.h" />
     <ClInclude Include="..\arithmetic\field.h" />
     <ClInclude Include="..\arithmetic\giant.h" />
     <ClInclude Include="..\arithmetic\group.h" />
@@ -48,7 +49,6 @@
     <ClInclude Include="..\logging.h" />
     <ClInclude Include="..\md5.h" />
     <ClInclude Include="..\params.h" />
-    <ClInclude Include="..\primelist.h" />
     <ClInclude Include="..\prob.h" />
     <ClInclude Include="..\stage1.h" />
     <ClInclude Include="..\stage2.h" />

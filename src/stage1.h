@@ -5,7 +5,7 @@
 #include "lucas.h"
 #include "montgomery.h"
 #include "edwards.h"
-#include "primelist.h"
+#include "integer.h"
 #include "inputnum.h"
 #include "task.h"
 #include "file.h"
@@ -105,7 +105,7 @@ protected:
     void execute() override;
 
 protected:
-    PrimeList _primes;
+    arithmetic::PrimeList _primes;
 
 private:
     std::string _sP;

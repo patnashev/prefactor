@@ -1,7 +1,7 @@
 #include <string.h>
 #include "params.h"
 #include "math.h"
-#include "primelist.h"
+#include "integer.h"
 
 namespace arithmetic
 {

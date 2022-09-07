@@ -189,7 +189,6 @@ namespace arithmetic
         Arithmetic& _arithmetic;
     };
 
-    int gcd(int a, int b);
     int get_DAC_S_d(int e, int start, int end, int *maxlen);
     extern const size_t precomputed_DAC_S_d_len;
     extern const int precomputed_DAC_S_d[];

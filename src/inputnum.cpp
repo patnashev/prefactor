@@ -6,6 +6,7 @@
 #include "inputnum.h"
 #include "file.h"
 #include "edwards.h"
+#include "integer.h"
 
 using namespace arithmetic;
 

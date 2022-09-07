@@ -16,7 +16,6 @@
 #include "arithmetic.h"
 #include "exception.h"
 #include "inputnum.h"
-#include "primelist.h"
 #include "stage1.h"
 #include "stage2.h"
 #include "file.h"

@@ -6,7 +6,7 @@
 #include "lucas.h"
 #include "montgomery.h"
 #include "edwards.h"
-#include "primelist.h"
+#include "integer.h"
 #include "inputnum.h"
 #include "task.h"
 #include "file.h"
@@ -78,12 +78,12 @@ protected:
     {
         _A = A;
         _L = L;
-        PrimeList primes((int)_B2 + 100);
+        arithmetic::PrimeList primes((int)_B2 + 100);
         _pairing = get_pairing(logging, primes, (int)_B1, (int)_B2, D, A, L, true);
     }
 
 public:
-    static Pairing get_pairing(Logging& logging, PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances);
+    static Pairing get_pairing(Logging& logging, arithmetic::PrimeList& primes, int B1, int B2, int D, int A, int L, bool with_distances);
 
     State* state() { return static_cast<State*>(Task::state()); }
 
