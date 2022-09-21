@@ -416,7 +416,6 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     stage1.set_no_check_success();
 
     std::string prefix = _logging.prefix();
-    Logging* logging = &_logging;
     SubLogging sub_logging(_logging, _logging.level() + 1);
     for (i = 0; i < _points.size(); i++)
         _logging.progress().add_stage(stage1.exp_len());
@@ -428,7 +427,6 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         _logging.info("%d bits, W = %d\n", stage1.exp_len(), stage1.W());
         _logging.progress().update(0, 0);
         sub_logging.progress().add_stage(stage1.exp_len());
-        logging = &sub_logging;
     }
 
     compute_d(true);
@@ -445,7 +443,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         if (_points.size() > 1)
             _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         File* file_stage1 = file_state.add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, unique_id + std::to_string(i)));
-        stage1.init(&_input, &_gwstate, file_stage1, logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
+        stage1.init(&_input, &_gwstate, file_stage1, _points.size() > 1 ? &sub_logging : &_logging, &_points[i].X, &_points[i].Y, &_points[i].Z, &_points[i].T, &_points[i].D);
         if (_points.size() == 1)
             _logging.set_prefix(prefix);
         if (stage1.state() != nullptr)
@@ -457,7 +455,10 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         catch (const TaskAbortException&)
         {
             if (last_write_count < _state.size())
+            {
+                _logging.progress_save();
                 write_file(file_state, 1, B1next, _state);
+            }
             throw;
         }
         file_stage1->clear();
@@ -480,6 +481,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
 
         if (time(NULL) - last_write > Task::DISK_WRITE_TIME && _state.size() < _points.size())
         {
+            _logging.progress_save();
             write_file(file_state, 1, B1next, _state);
             last_write = time(NULL);
             last_write_count = (int)_state.size();
@@ -489,6 +491,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         _logging.report_progress();
 
     normalize(_state);
+    _logging.progress_save();
     write_file(file_result, 0, B1next, _state);
     _B1 = B1next;
     _points = std::move(_state);
@@ -537,11 +540,12 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
         }
         catch (const TaskAbortException&)
         {
+            _logging.progress_save();
             file_results.commit_writer(*results);
             throw;
         }
         if (stage2->success())
-            _logging.warning("factor found in stage2.\n");
+            _logging.warning("factor found in stage2, curve #%d.\n", _seed + i);
         _logging.set_prefix(prefix);
 
         results->write_textline(stage2->res64());
@@ -556,6 +560,8 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
 
         if (time(NULL) - last_write > Task::DISK_WRITE_TIME || i == _points.size())
         {
+            _logging.progress().update(i/(double)_points.size(), i);
+            _logging.progress_save();
             std::unique_ptr<Writer> writer(file_results.get_writer());
             writer->write(results->buffer().data(), (int)results->buffer().size());
             file_results.commit_writer(*writer);
@@ -671,6 +677,11 @@ int factoring_main(int argc, char *argv[])
             {
                 i++;
                 maxMem = InputNum::parse_numeral(argv[i]);
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-L3") == 0)
+            {
+                i++;
+                PolyMult::L3_CACHE_MB = atoi(argv[i]);
             }
             else if (strncmp(argv[i], "-fft", 4) == 0 && ((!argv[i][4] && i < argc - 1) || argv[i][4] == '+'))
             {
@@ -809,6 +820,8 @@ int factoring_main(int argc, char *argv[])
             else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
             {
                 i++;
+                if (strcmp(argv[i], "debug_internal") == 0)
+                    log_level = Logging::LEVEL_DEBUG - 1;
                 if (strcmp(argv[i], "debug") == 0)
                     log_level = Logging::LEVEL_DEBUG;
                 if (strcmp(argv[i], "info") == 0)

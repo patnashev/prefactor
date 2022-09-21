@@ -56,12 +56,6 @@ void NetLogging::report_factor(InputNum& input, const Giant& f)
     _net.task()->factor += f.to_string();
 }
 
-void NetLogging::report_progress()
-{
-    Logging::report_progress();
-    update_progress();
-}
-
 void NetLogging::report_param(const std::string& name, int value)
 {
     if (name == "fft_len")
@@ -80,7 +74,7 @@ void NetLogging::report_param(const std::string& name, const std::string& value)
         _net.task()->fft_desc = value;
 }
 
-void NetLogging::update_progress()
+void NetLogging::progress_save()
 {
     _net.task()->progress = progress().progress_total();
     _net.task()->time = progress().time_total();
@@ -105,7 +99,6 @@ File* NetFile::add_child(const std::string& name, uint32_t fingerprint)
 
 Writer* NetFile::get_writer()
 {
-    _net_ctx.logging().update_progress();
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
     _net_ctx.upload_cancel(this);
     if (_uploading)
@@ -371,7 +364,12 @@ int net_main(int argc, char *argv[])
                 continue;
             }
 
-            if (strcmp(argv[i], "-poly") == 0)
+            if (i < argc - 1 && strcmp(argv[i], "-L3") == 0)
+            {
+                i++;
+                PolyMult::L3_CACHE_MB = atoi(argv[i]);
+            }
+            else if (strcmp(argv[i], "-poly") == 0)
             {
                 while (true)
                     if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)

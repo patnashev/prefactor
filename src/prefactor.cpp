@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
     bool poly = false;
     int polyThreads = 1;
     int polyMemModel = 0;
-    bool polyCheck = false;
+    bool polyCheck = true;
     double sievingDepth = 0;
     uint64_t maxMem = 2048*1048576ULL;
     std::unique_ptr<PM1Params> params_pm1;
@@ -148,6 +148,11 @@ int main(int argc, char *argv[])
             {
                 i++;
                 maxMem = InputNum::parse_numeral(argv[i]);
+            }
+            else if (i < argc - 1 && strcmp(argv[i], "-L3") == 0)
+            {
+                i++;
+                PolyMult::L3_CACHE_MB = atoi(argv[i]);
             }
             else if (strncmp(argv[i], "-fft", 4) == 0 && ((!argv[i][4] && i < argc - 1) || argv[i][4] == '+'))
             {
@@ -314,7 +319,6 @@ int main(int argc, char *argv[])
         minus1 = 1;
 
     Logging logging(log_level);
-    logging.progress().time_init(0);
     input.setup(gwstate);
     logging.info("Using %s.\n", gwstate.fft_description.data());
 
@@ -439,6 +443,10 @@ int main(int argc, char *argv[])
 
     try
     {
+        File file_progress(std::to_string(gwstate.fingerprint), gwstate.fingerprint);
+        file_progress.hash = false;
+        logging.progress_file(&file_progress);
+
         if (params_pm1 && !success)
         {
             uint32_t fingerprint = File::unique_fingerprint(gwstate.fingerprint, std::to_string(params_pm1->B1));
@@ -609,9 +617,10 @@ int main(int argc, char *argv[])
         }
         if (!success)
         {
-            logging.info("%s, no factors found.\n", input.input_text().data(), logging.progress().time_total());
-            logging.result("%s, no factors found, time: %.1f s.\n", input.input_text().data(), logging.progress().time_total());
+            logging.result(false, "%s no factors found.\n", input.display_text().data());
+            logging.result_save(input.input_text() + " no factors found, time: " + std::to_string((int)logging.progress().time_total()) + " s.\n");
         }
+        file_progress.clear();
     }
     catch (const TaskAbortException&)
     {

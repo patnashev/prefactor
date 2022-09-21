@@ -104,10 +104,9 @@ public:
 
     virtual void report(const std::string& message, int level) override;
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override;
-    virtual void report_progress() override;
     virtual void report_param(const std::string& name, int value) override;
     virtual void report_param(const std::string& name, const std::string& value) override;
-    void update_progress();
+    virtual void progress_save() override;
 
 private:
     int _net_level;

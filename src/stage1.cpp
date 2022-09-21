@@ -27,18 +27,18 @@ void Stage1::done(const arithmetic::Giant& factor)
     _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
     if (factor == 0 || factor == *_gwstate->N)
     {
-        _logging->warning("all divisors less than B1.\n");
-        _logging->result("all divisors less than B1, time: %.1f s.\n", _logging->progress().time_total());
         _success = true;
+        _logging->result(_success, "all divisors less than B1.\n");
+        _logging->result_save("all divisors of " + _input->input_text()  + " are less than B1.\n");
     }
     else if (factor != 1)
     {
-        _logging->report_factor(*_input, factor);
         _success = true;
+        _logging->report_factor(*_input, factor);
     }
     else
     {
-        //_logging->info("No factors found.\n");
+        //_logging->result(_success, "no factors found.\n");
     }
     _logging->set_prefix("");
 }
@@ -53,6 +53,8 @@ void Stage1::reinit_gwstate()
     _logging->set_prefix("");
     _logging->error("Restarting using %s\n", _gwstate->fft_description.data());
     _logging->set_prefix(prefix);
+    _logging->report_param("fft_desc", _gwstate->fft_description);
+    _logging->report_param("fft_len", _gwstate->fft_length);
     _error_check = gwnear_fft_limit(_gwstate->gwdata(), 1) == TRUE;
 }
 
