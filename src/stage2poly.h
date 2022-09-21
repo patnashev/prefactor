@@ -33,7 +33,7 @@ protected:
         virtual ~SmallPolyWorker();
 
         void run();
-        virtual void elements_to_gwnums(std::vector<std::unique_ptr<Element>>& elements, gwnum* data) = 0;
+        virtual void elements_to_gwnums(std::vector<std::unique_ptr<Element>>& elements, int count, gwnum* data) = 0;
 
         virtual typename Element::Arithmetic& arithmetic() = 0;
         arithmetic::GWArithmetic& gw() { return _gw; }
@@ -154,7 +154,7 @@ public:
     public:
         SmallPolyWorker(PP1Stage2Poly& stage2) : Stage2Poly<arithmetic::LucasV>::SmallPolyWorker(stage2), _lucas(_gw) { }
 
-        virtual void elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, gwnum* data) override;
+        virtual void elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, int count, gwnum* data) override;
         virtual arithmetic::LucasVArithmetic& arithmetic() override { return _lucas; }
 
     protected:
@@ -191,7 +191,7 @@ public:
     public:
         SmallPolyWorker(EdECMStage2Poly& stage2) : Stage2Poly<arithmetic::EdY>::SmallPolyWorker(stage2), _montgomery(_gw, *stage2._ed_d) { }
 
-        virtual void elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::EdY>>& elements, gwnum* data) override;
+        virtual void elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::EdY>>& elements, int count, gwnum* data) override;
         virtual arithmetic::MontgomeryArithmetic& arithmetic() override { return _montgomery; }
 
     protected:

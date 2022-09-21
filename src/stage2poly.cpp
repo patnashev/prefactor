@@ -536,6 +536,7 @@ void Stage2Poly<Element>::setup()
     if (_thread_exception)
         std::rethrow_exception(_thread_exception);
     GWASSERT(_workqueue.empty());
+    _logging->debug("all threads done.\n");
 
     _smallpoly_mod = std::move(_smallpoly);
     for (k = 0; k < _smallpoly_mod.size(); k++)
@@ -561,7 +562,7 @@ void Stage2Poly<Element>::setup()
             arithmetic().mul(X1, i, *elements.emplace_back(new Element(arithmetic())));
     GWASSERT(elements.size() == _poly_mod_degree);
     Poly poly(_poly_mult[0], _poly_mod_degree, false);
-    _workers[0]->elements_to_gwnums(elements, poly.data());
+    _workers[0]->elements_to_gwnums(elements, elements.size(), poly.data());
     elements.clear();
 
     for (i = 0; i < _poly_mod_degree; i++)
@@ -592,7 +593,7 @@ void Stage2Poly<Element>::setup()
         swap(Xn1, *elements.back());
     }
     Poly poly_roots(_poly_mult[0], elements.size(), false);
-    _workers[0]->elements_to_gwnums(elements, poly_roots.data());
+    _workers[0]->elements_to_gwnums(elements, elements.size(), poly_roots.data());
     elements.clear();
 
     _gwarrays_tmp[0] = gwalloc_array(gw().gwdata(), 1 << poly_power());
@@ -610,7 +611,7 @@ void Stage2Poly<Element>::setup()
     }
 #endif
 
-    _logging->info("calculating reciprocal...\n");
+    _logging->debug("calculating reciprocal...\n");
     PolyMult& pm = _poly_mult[poly_power()];
     Poly& modulus = _poly_mod[poly_power()][0];
     Poly reciprocal(pm);
@@ -621,7 +622,7 @@ void Stage2Poly<Element>::setup()
     if (reciprocal.degree() < degree)
         reciprocal <<= degree - reciprocal.degree();
 
-    _logging->info("preprocessing...\n");
+    _logging->debug("preprocessing...\n");
     _modulus.reset(new Poly(pm));
     _reciprocal.reset(new Poly(pm));
     pm.preprocess(modulus, *_modulus, 1 << (poly_power() + 1), _mem_model >= 0 ? POLYMULT_PRE_FFT : 0);
@@ -744,6 +745,7 @@ void Stage2Poly<Element>::execute()
         lock.unlock();
         if (_thread_exception)
             std::rethrow_exception(_thread_exception);
+        _logging->debug("all threads done.\n");
 
         poly_prod[_smallpoly_power].resize(_smallpoly.size(), Poly(_poly_mult[_smallpoly_power]));
         for (i = 0; i < _smallpoly.size(); i++)
@@ -845,6 +847,7 @@ void Stage2Poly<Element>::execute()
 
             count_merges++;
             timer_merges += (getHighResTimer() - timer)/getHighResTimerFrequency();
+            _logging->debug("merged.\n");
         }
     }
     poly_prod.clear();
@@ -933,6 +936,7 @@ void Stage2Poly<Element>::execute()
         lock.unlock();
         if (_thread_exception)
             std::rethrow_exception(_thread_exception);
+        _logging->debug("all threads done.\n");
 
         _smallpoly_mod = std::move(_smallpoly);
         for (k = 0; k < _smallpoly_mod.size(); k++)
@@ -1015,6 +1019,7 @@ void Stage2Poly<Element>::execute()
         lock.unlock();
         if (_thread_exception)
             std::rethrow_exception(_thread_exception);
+        _logging->debug("all threads done.\n");
     }
 
     if (_gwarrays_tmp[0] != nullptr)
@@ -1123,6 +1128,7 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
     int degree, index;
     std::vector<std::unique_ptr<Element>> elements;
     elements.reserve((size_t)1 << power);
+    int elements_count = 0;
     std::vector<std::vector<Poly>> poly_tree;
     std::vector<Poly> poly_rem;
     poly_rem.reserve((size_t)1 << (power - tiny_power));
@@ -1227,89 +1233,72 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
             if (workstage == 2 && _stage2.poly_check() && !check_root)
                 check_root.reset(new GWNumWrapper(_stage2._smallpoly_mod[_stage2._poly_check_index >> power][0][(_stage2._poly_check_index & ((1 << power) - 1)) >> tiny_power].at(_stage2._poly_check_index & ((1 << tiny_power) - 1))));
             
-            while (count > 0)
+            while (elements_count < degree && count > 0)
             {
-                while (elements.size() < degree && count > 0)
+                if (elements_count >= elements.size())
+                    elements.emplace_back(new Element(arithmetic()));
+                std::unique_ptr<Element>& Xtmp = elements[elements_count];
+                if (count > 2)
                 {
-                    std::unique_ptr<Element> Xtmp;
-                    if (count > 2)
-                    {
-                        Xtmp.reset(new Element(arithmetic()));
-                        if (n > 0)
-                            arithmetic().add(*_stage2._X1, *Xn1, *Xn, *Xtmp);
-                        else
-                            arithmetic().dbl(*Xn1, *Xtmp);
-                    }
-                    std::swap(Xn, Xn1);
-                    std::swap(Xn1, Xtmp);
-                    if (workstage > 1 || gcd(_stage2.D(), n) == 1)
-                        elements.push_back(std::move(Xtmp));
-                    count--;
-                    n += distance;
+                    if (n > 0)
+                        arithmetic().add(*_stage2._X1, *Xn1, *Xn, *Xtmp);
+                    else
+                        arithmetic().dbl(*Xn1, *Xtmp);
                 }
-                
-                if (elements.size() == degree || workstage == 2)
-                {
-                    if (poly_tree[0][0].empty())
-                    {
-                        if (gwarrays[0] == nullptr)
-                            gwarrays[0] = gwalloc_array(_poly_mult[0].gw().gwdata(), 1 << power);
-                        for (k = 0; k < poly_tree[0].size(); k++)
-                            _poly_mult[0].init(gwarrays[0] + (k << tiny_power), (size_t)1 << tiny_power, false, true, poly_tree[0][k]);
-                    }
-                    if (elements.size() < degree)
-                    {
-                        for (j = 0; j <= tiny_power; j++)
-                        {
-                            poly_tree[j].erase(poly_tree[j].begin() + ((elements.size() + ((size_t)1 << tiny_power) - 1) >> tiny_power), poly_tree[j].end());
-                            if ((elements.size() >> tiny_power) < poly_tree[j].size() && !poly_tree[j][elements.size() >> tiny_power].empty())
-                                _poly_mult[j].alloc(poly_tree[j][elements.size() >> tiny_power], elements.size() & ((1 << tiny_power) - 1));
-                        }
-                    }
-                    std::vector<gwnum> roots(elements.size());
-                    for (i = 0; i < roots.size(); i++)
-                        roots[i] = poly_tree[0][i >> tiny_power].data()[i & ((1 << tiny_power) - 1)];
-                    elements_to_gwnums(elements, roots.data());
-                    elements.clear();
-
-                    if (tiny_power > 0)
-                        for (k = 0; k < poly_tree[0].size(); k++)
-                            build_tree_tinypoly(poly_tree, k, tiny_power, _poly_mult, 0, [&](int j) { return workstage == 1 && (j - 1)%_stage2._poly_optmem_small == 0; }, gwarrays, 1 << power, gwarrays_tmp, check_root ? check_root.get() : nullptr, check_root ? _check.get() : nullptr);
-                    if (tiny_power < power)
-                        build_tree(poly_tree, _poly_mult, tiny_power, false, [&](int j) { return workstage == 1 && (j - 1)%_stage2._poly_optmem_small == 0; }, gwarrays, 1 << power, gwarrays_tmp);
-                    workitem_done = true;
-                    
-                    if (count > 0)
-                    {
-                        std::unique_lock<std::mutex> lock(_stage2._work_mutex);
-                        _stage2._smallpoly[index] = std::move(poly_tree);
-                        _stage2._smallpoly_count--;
-                        workitem_done = false;
-                        if (!_stage2._smallpoly_alloc.empty())
-                        {
-                            poly_tree = std::move(_stage2._smallpoly_alloc.back());
-                            _stage2._smallpoly_alloc.pop_back();
-                            degree = poly_tree[0].size() << tiny_power;
-                            index = _stage2._smallpoly_alloc.size();
-                        }
-                        else
-                        {
-                            _stage2._workqueue.emplace_back();
-                            _stage2._workqueue.back().Xn = std::move(Xn);
-                            _stage2._workqueue.back().Xn1 = std::move(Xn1);
-                            _stage2._workqueue.back().count = count;
-                            _stage2._workqueue.back().n = n;
-                            _stage2._workqueue.back().distance = distance;
-                            lock.unlock();
-                            _stage2._workqueue_signal.notify_one();
-                            count = 0;
-                        }
-                    }
-                }
+                std::swap(Xn, Xn1);
+                std::swap(Xn1, Xtmp);
+                if (workstage > 1 || gcd(_stage2.D(), n) == 1)
+                    elements_count++;
+                count--;
+                n += distance;
             }
-            GWASSERT(!Xn);
-            GWASSERT(!Xn1);
+            if (count > 0)
+            {
+                std::unique_lock<std::mutex> lock(_stage2._work_mutex);
+                _stage2._workqueue.emplace_back();
+                _stage2._workqueue.back().Xn = std::move(Xn);
+                _stage2._workqueue.back().Xn1 = std::move(Xn1);
+                _stage2._workqueue.back().count = count;
+                _stage2._workqueue.back().n = n;
+                _stage2._workqueue.back().distance = distance;
+                lock.unlock();
+                _stage2._workqueue_signal.notify_one();
+                count = 0;
+            }
+
+            if (elements_count == degree || workstage == 2)
+            {
+                if (poly_tree[0][0].empty())
+                {
+                    if (gwarrays[0] == nullptr)
+                        gwarrays[0] = gwalloc_array(_poly_mult[0].gw().gwdata(), 1 << power);
+                    for (k = 0; k < poly_tree[0].size(); k++)
+                        _poly_mult[0].init(gwarrays[0] + (k << tiny_power), (size_t)1 << tiny_power, false, true, poly_tree[0][k]);
+                }
+                if (elements_count < degree)
+                {
+                    for (j = 0; j <= tiny_power; j++)
+                    {
+                        poly_tree[j].erase(poly_tree[j].begin() + ((elements_count + ((size_t)1 << tiny_power) - 1) >> tiny_power), poly_tree[j].end());
+                        if ((elements_count >> tiny_power) < poly_tree[j].size() && !poly_tree[j][elements_count >> tiny_power].empty())
+                            _poly_mult[j].alloc(poly_tree[j][elements_count >> tiny_power], elements_count & ((1 << tiny_power) - 1));
+                    }
+                }
+                std::vector<gwnum> roots(elements_count);
+                for (i = 0; i < roots.size(); i++)
+                    roots[i] = poly_tree[0][i >> tiny_power].data()[i & ((1 << tiny_power) - 1)];
+                elements_to_gwnums(elements, elements_count, roots.data());
+                elements_count = 0;
+
+                if (tiny_power > 0)
+                    for (k = 0; k < poly_tree[0].size(); k++)
+                        build_tree_tinypoly(poly_tree, k, tiny_power, _poly_mult, 0, [&](int j) { return workstage == 1 && (j - 1)%_stage2._poly_optmem_small == 0; }, gwarrays, 1 << power, gwarrays_tmp, check_root ? check_root.get() : nullptr, check_root ? _check.get() : nullptr);
+                if (tiny_power < power)
+                    build_tree(poly_tree, _poly_mult, tiny_power, false, [&](int j) { return workstage == 1 && (j - 1)%_stage2._poly_optmem_small == 0; }, gwarrays, 1 << power, gwarrays_tmp);
+                workitem_done = true;
+            }
         }
+        elements.clear();
 
         workitem_done = false;
         while (workstage == 3)
@@ -1459,9 +1448,9 @@ void PP1Stage2Poly::init(InputNum* input, GWState* gwstate, File* file, Logging*
 
 template void Stage2Poly<LucasV>::done(const arithmetic::Giant& factor);
 
-void PP1Stage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, gwnum* data)
+void PP1Stage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, int count, gwnum* data)
 {
-    for (int i = 0; i < elements.size(); i++)
+    for (int i = 0; i < count; i++)
         gw().unfft(elements[i]->V(), (GWNum&)GWNumWrapper(gw(), data[i]));
 }
 
@@ -1487,7 +1476,7 @@ void PP1Stage2Poly::setup()
         _threads.emplace_back(&SmallPolyWorker::run, _workers.back().get());
     }
 
-    _gwstate->gwdata()->gwnum_max_free_count = _poly_threads*((1 << _smallpoly_power) + 4) + 16;
+    _gwstate->gwdata()->gwnum_max_free_count = ((1 << _smallpoly_power) + 4) + 16;
 
     if (!_modulus)
     {
@@ -1626,68 +1615,41 @@ void EdECMStage2Poly::init(InputNum* input, GWState* gwstate, File* file, Loggin
 
 template void Stage2Poly<EdY>::done(const arithmetic::Giant& factor);
 
-void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::EdY>>& elements, gwnum* data)
+void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::EdY>>& elements, int count, gwnum* data)
 {
-    using Iter = typename std::remove_reference<decltype(elements)>::type::iterator;
-    Iter begin = elements.begin();
-    Iter end = elements.end();
-    Iter it;
-    Iter first = end;
-    Iter last = end;
-    for (it = begin; it != end; it++)
+    int i;
+    for (i = 0; i < count; i++)
     {
-        if (!(*it))
-            continue;
-        if (first == end)
-            first = it;
-        last = it;
-        if (!(*it)->Z)
+        if (!elements[i]->Z)
         {
-            (*it)->Z.reset(new GWNum(gw()));
-            *(*it)->Z = 1;
+            elements[i]->Z.reset(new GWNum(gw()));
+            *elements[i]->Z = 1;
         }
-        if (!(*it)->ZpY)
-            (*it)->ZpY.reset(new GWNum(gw()));
-        (*it)->ZmY.reset();
+        if (!elements[i]->ZpY)
+            elements[i]->ZpY.reset(new GWNum(gw()));
     }
-    if (first == end)
-        return;
-    std::swap((*first)->ZpY, (*first)->Z);
-    Iter prev = first;
-    for ((it = first)++; it != end; it++)
-        if (*it)
-        {
-            gw().mul(*(*prev)->ZpY, *(*it)->Z, *(*it)->ZpY, it != last ? GWMUL_STARTNEXTFFT : 0);
-            prev = it;
-        }
+    std::swap(elements[0]->ZpY, elements[0]->Z);
+    for (i = 1; i < count; i++)
+        gw().mul(*elements[i - 1]->ZpY, *elements[i]->Z, *elements[i]->ZpY, GWMUL_STARTNEXTFFT_IF(i + 1 < count));
     try
     {
-        //GWNum tmp(gw());
-        //tmp = *(*last)->ZpY;
-        gw().inv(*(*last)->ZpY, *(*last)->ZpY);
-        //gw().mul(tmp, *(*last)->ZpY, tmp);
-        //GWASSERT(tmp == 1);
+        gw().inv(*elements[count - 1]->ZpY, *elements[count - 1]->ZpY);
     }
     catch (const ArithmeticException&)
     {
-        std::swap((*first)->ZpY, (*first)->Z);
+        std::swap(elements[0]->ZpY, elements[0]->Z);
         throw;
     }
-    size_t i = 0;
-    for ((it = last)++, prev = last; it != first;)
+    for (i = count - 1; i >= 0; i--)
     {
-        it = prev;
-        if (it != first)
+        if (i > 0)
         {
-            for ((prev = it)--; !(*prev); prev--);
-            gw().mul(*(*it)->ZpY, *(*prev)->ZpY, *(*prev)->ZpY, GWMUL_STARTNEXTFFT);
-            std::swap((*it)->ZpY, (*prev)->ZpY);
-            gw().mul(*(*it)->Z, *(*prev)->ZpY, *(*prev)->ZpY, GWMUL_STARTNEXTFFT);
+            gw().mul(*elements[i]->ZpY, *elements[i - 1]->ZpY, *elements[i - 1]->ZpY, GWMUL_STARTNEXTFFT);
+            std::swap(elements[i]->ZpY, elements[i - 1]->ZpY);
+            gw().mul(*elements[i]->Z, *elements[i - 1]->ZpY, *elements[i - 1]->ZpY, GWMUL_STARTNEXTFFT);
         }
-        if ((*it)->Y)
-            gw().mul(*(*it)->ZpY, *(*it)->Y, (GWNum&)GWNumWrapper(gw(), data[i++]), 0);
-        (*it)->Z.reset();
-        (*it)->ZpY.reset();
+        if (elements[i]->Y)
+            gw().mul(*elements[i]->ZpY, *elements[i]->Y, (GWNum&)GWNumWrapper(gw(), data[i]), 0);
     }
 }
 
@@ -1740,7 +1702,7 @@ void EdECMStage2Poly::setup()
         _threads.emplace_back(&SmallPolyWorker::run, _workers.back().get());
     }
 
-    _gwstate->gwdata()->gwnum_max_free_count = _poly_threads*(4*(1 << _smallpoly_power) + 4*4) + 16;
+    _gwstate->gwdata()->gwnum_max_free_count = 4*((1 << _smallpoly_power) + 4) + 16;
 
     try
     {
