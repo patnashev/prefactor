@@ -12,10 +12,10 @@
 #include "file.h"
 #include "logging.h"
 
-class Stage2 : public Task
+class Stage2 : public InputTask
 {
 protected:
-    Stage2(uint64_t B1, uint64_t B2, int D) : Task(true), _B1(B1), _B2(B2), _D(D) { }
+    Stage2(uint64_t B1, uint64_t B2, int D) : _B1(B1), _B2(B2), _D(D) { }
 
 public:
     bool success() { return _success; }
@@ -23,7 +23,6 @@ public:
 
 protected:
     virtual void init(InputNum* input, arithmetic::GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations);
-    void reinit_gwstate() override;
     virtual void done(const arithmetic::Giant& factor);
 
 protected:
@@ -31,7 +30,6 @@ protected:
     uint64_t _B2;
     int _D;
 
-    InputNum* _input = nullptr;
     double _timer = 0;
     int _transforms = 0;
     bool _success = false;

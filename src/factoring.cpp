@@ -544,8 +544,6 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
             file_results.commit_writer(*results);
             throw;
         }
-        if (stage2->success())
-            _logging.warning("factor found in stage2, curve #%d.\n", _seed + i);
         _logging.set_prefix(prefix);
 
         results->write_textline(stage2->res64());

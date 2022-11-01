@@ -10,12 +10,12 @@
 #include "task.h"
 #include "file.h"
 
-class Stage1 : public Task
+class Stage1 : public InputTask
 {
 public:
 
 public:
-    Stage1(uint64_t B1) : Task(true), _B1(B1)
+    Stage1(uint64_t B1) : _B1(B1)
     {
     }
 
@@ -38,7 +38,6 @@ protected:
     int _squarings = 0;
     int _exp_len = 0;
 
-    InputNum* _input = nullptr;
     double _timer = 0;
     int _transforms = 0;
     bool _success = false;

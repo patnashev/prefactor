@@ -40,7 +40,7 @@ void Stage2Poly<Element>::init(InputNum* input, GWState* gwstate, File* file, Ta
         gwstate->done();
         input->setup(*gwstate);
     }
-    if (gwstate->max_polymult_output() < 2*(1 << poly_power()))
+    if (PolyMult::max_polymult_output(*gwstate) < 2*(1 << poly_power()))
     {
         gwstate->done();
         gwstate->next_fft_count++;
@@ -57,7 +57,7 @@ void Stage2Poly<Element>::init(InputNum* input, GWState* gwstate, File* file, Ta
     GWState* cur = gwstate;
     for (int i = 1; i <= poly_power(); i++)
     {
-        if (2*(1 << i) > cur->max_polymult_output() || i == DEBUG_STAGE2POLY_CONVERT)
+        if (2*(1 << i) > PolyMult::max_polymult_output(*cur) || i == DEBUG_STAGE2POLY_CONVERT)
         {
             _poly_gwstate.emplace_back();
             _poly_gwstate.back().copy(*cur);
@@ -202,6 +202,7 @@ void build_tree_tinypoly(std::vector<std::vector<Poly>>& tree, int k, int tiny_p
         Poly& cur = tree[j - 1][k];
         Poly& next = tree[j][k];
         Poly tmp(pm);
+        void* plan = NULL;
 
         if ((convert || preserve) && next.empty())
         {
@@ -267,8 +268,14 @@ void build_tree_tinypoly(std::vector<std::vector<Poly>>& tree, int k, int tiny_p
                 }
             }
             else
-                polymult(pm.pmdata(), cur.data() + offset, degree, cur.data() + offset + degree, sb, res.data() + offset, degree + sb, options | POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC);
+            {
+                polymult(pm.pmdata(), cur.data() + offset, degree, cur.data() + offset + degree, sb, res.data() + offset, degree + sb, options | POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC | (sb == degree ? POLYMULT_SAVE_PLAN : 0) | (sb == degree && offset > 0 ? POLYMULT_USE_PLAN : 0));
+                if (sb == degree)
+                    plan = pm.pmdata()->plan;
+            }
         }
+        if (plan)
+            free(plan);
         if (convert)
             pm.convert(res, pm_next, next);
         if (!preserve)
@@ -347,6 +354,7 @@ void rem_tree_tinypoly(std::vector<Poly>& poly_rem, int k, std::vector<std::vect
         bool convert = &pm.gw() != &pm_prev.gw();
         int options = !convert ? POLYMULT_NEXTFFT : 0;
         Poly rem_prev(pm_prev);
+        void* plan = NULL;
 
         if (convert)
         {
@@ -395,7 +403,8 @@ void rem_tree_tinypoly(std::vector<Poly>& poly_rem, int k, std::vector<std::vect
                 arg_c.circular_size = (size > degree ? 2*degree : 0);
                 arg_c.first_mulmid = 0;
                 arg_c.options = (size > degree ? POLYMULT_CIRCULAR : 0) | POLYMULT_INVEC2_MONIC;
-                polymult_several(pm.pmdata(), rem.data() + offset, size < 2*degree ? size : 2*degree, args, 2, options | POLYMULT_MULHI | (size < 2*degree ? POLYMULT_INVEC1_MONIC : 0));
+                polymult_several(pm.pmdata(), rem.data() + offset, size < 2*degree ? size : 2*degree, args, 2, options | POLYMULT_MULHI | (size < 2*degree ? POLYMULT_INVEC1_MONIC : 0) | POLYMULT_SAVE_PLAN | (offset > 0 ? POLYMULT_USE_PLAN : 0));
+                plan = pm.pmdata()->plan;
             }
             if (convert)
             {
@@ -405,6 +414,8 @@ void rem_tree_tinypoly(std::vector<Poly>& poly_rem, int k, std::vector<std::vect
                     gwconvert(pm.gw().gwdata(), pm_prev.gw().gwdata(), rem.data()[offset + degree + i], rem_prev.data()[offset + degree + i]);
             }
         }
+        if (plan)
+            free(plan);
         if (convert)
             rem = std::move(rem_prev);
     }

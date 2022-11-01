@@ -41,9 +41,10 @@ void NetLogging::LoggingNetFile::on_upload()
 void NetLogging::report(const std::string& message, int level)
 {
     Logging::report(message, level);
-    if (_net_level > level)
-        return;
-    _file.write_text(message);
+    if (level >= _net_level && level != LEVEL_RESULT)
+        _file.write_text(message);
+    if (level == LEVEL_RESULT)
+        _file_factors.write_text(_prefix + message);
 }
 
 void NetLogging::report_factor(InputNum& input, const Giant& f)
@@ -89,6 +90,11 @@ void NetFile::on_upload()
 void NetFile::on_uploaded()
 {
     _uploading = false;
+    if (_free_buffer)
+    {
+        _free_buffer = false;
+        std::vector<char>().swap(_buffer);
+    }
 }
 
 File* NetFile::add_child(const std::string& name, uint32_t fingerprint)
@@ -100,6 +106,7 @@ File* NetFile::add_child(const std::string& name, uint32_t fingerprint)
 Writer* NetFile::get_writer()
 {
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
+    _free_buffer = false;
     _net_ctx.upload_cancel(this);
     if (_uploading)
     {
@@ -113,6 +120,11 @@ Writer* NetFile::get_writer()
 
 void NetFile::read_buffer()
 {
+    if (_free_buffer)
+    {
+        std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
+        _free_buffer = false;
+    }
     if (!_buffer.empty())
         return;
 
@@ -179,6 +191,7 @@ void NetFile::read_buffer()
 void NetFile::commit_writer(Writer& writer)
 {
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
+    _free_buffer = false;
     if (_uploading)
     {
         _buffer.swap(_net_ctx.buffer());
@@ -190,7 +203,24 @@ void NetFile::commit_writer(Writer& writer)
     _net_ctx.upload(this);
 }
 
-void NetFile::clear()
+void NetFile::free_buffer()
+{
+    std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
+    if (_net_ctx.upload_queued(this))
+    {
+        _free_buffer = true;
+        return;
+    }
+    if (_uploading)
+    {
+        _buffer.swap(_net_ctx.buffer());
+        _uploading = false;
+    }
+    _free_buffer = false;
+    std::vector<char>().swap(_buffer);
+}
+
+void NetFile::clear(bool recursive)
 {
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
     _net_ctx.upload_cancel(this);
@@ -199,9 +229,17 @@ void NetFile::clear()
         _buffer.swap(_net_ctx.buffer());
         _uploading = false;
     }
-    _buffer.clear();
+    std::vector<char>().swap(_buffer);
     _md5hash.clear();
     _net_ctx.upload(this);
+}
+
+bool NetContext::upload_queued(NetFile* file)
+{
+    for (auto it = _upload_queue.begin(); it != _upload_queue.end(); it++)
+        if (*it == file)
+            return true;
+    return false;
 }
 
 void NetContext::upload_cancel(NetFile* file)
@@ -283,6 +321,7 @@ void NetContext::upload(NetFile* file)
                 std::clog << "Task timed out." << std::endl;
                 _task->aborted = true;
                 Task::abort();
+                std::lock_guard<std::mutex> lock(_upload_mutex);
                 file->on_uploaded();
                 file = nullptr;
             }
@@ -290,6 +329,7 @@ void NetContext::upload(NetFile* file)
                 std::clog << "Task not found." << std::endl;
                 _task->aborted = true;
                 Task::abort();
+                std::lock_guard<std::mutex> lock(_upload_mutex);
                 file->on_uploaded();
                 file = nullptr;
             }
@@ -486,16 +526,14 @@ int net_main(int argc, char *argv[])
 				return false;
 			}
 
-            std::cout << net.task_id() << std::endl;
-
 			return true;
 		});
-
 		if (!done.get())
 		{
 			std::this_thread::sleep_for(std::chrono::minutes(1));
 			continue;
 		}
+        logging.info("%s\n", net.task_id().data());
 
         NetFile file_number(net, "number", 0);
         InputNum input;

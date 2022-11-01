@@ -18,33 +18,13 @@ using namespace arithmetic;
 
 void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* state, Logging* logging, int iterations)
 {
-    Task::init(gwstate, file, state, logging, iterations);
-    _error_check = gwnear_fft_limit(gwstate->gwdata(), 1) == TRUE;
-    _input = input;
-    _timer = getHighResTimer();
-    _transforms = -(int)gwstate->handle.fft_count;
+    InputTask::init(input, gwstate, file, state, logging, iterations);
     _success = false;
-}
-
-void Stage2::reinit_gwstate()
-{
-    double fft_count = _gwstate->handle.fft_count;
-    _gwstate->done();
-    _input->setup(*_gwstate);
-    _gwstate->handle.fft_count = fft_count;
-    std::string prefix = _logging->prefix();
-    _logging->set_prefix("");
-    _logging->error("Restarting using %s\n", _gwstate->fft_description.data());
-    _logging->set_prefix(prefix);
-    _logging->report_param("fft_desc", _gwstate->fft_description);
-    _logging->report_param("fft_len", _gwstate->fft_length);
 }
 
 void Stage2::done(const arithmetic::Giant& factor)
 {
-    _timer = (getHighResTimer() - _timer)/getHighResTimerFrequency();
-    _transforms += (int)_gwstate->handle.fft_count;
-    _logging->progress().update(1, (int)_gwstate->handle.fft_count/2);
+    InputTask::done();
     _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
     if (factor == 0 || factor == *_gwstate->N)
     {

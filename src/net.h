@@ -73,7 +73,8 @@ public:
 
     void read_buffer() override;
     void commit_writer(Writer& writer) override;
-    void clear() override;
+    void free_buffer() override;
+    void clear(bool recursive = false) override;
 
     virtual void on_upload();
     virtual void on_uploaded();
@@ -85,6 +86,7 @@ private:
     NetContext& _net_ctx;
     std::string _md5hash;
     bool _uploading = false;
+    bool _free_buffer = false;
 };
 
 class NetLogging : public Logging
@@ -93,14 +95,14 @@ public:
     class LoggingNetFile : public NetFile
     {
     public:
-        LoggingNetFile(NetContext& net) : NetFile(net, "stderr", 0) { }
+        LoggingNetFile(NetContext& net, const std::string& filename) : NetFile(net, filename, 0) { }
 
         Writer* get_writer() override;
         void on_upload() override;
     };
 
 public:
-    NetLogging(int level, int net_level, NetContext& net) : Logging(level), _net_level(net_level), _net(net), _file(net) { }
+    NetLogging(int level, int net_level, NetContext& net) : Logging(level), _net_level(net_level), _net(net), _file(net, "stderr"), _file_factors(net, "factors") { }
 
     virtual void report(const std::string& message, int level) override;
     virtual void report_factor(InputNum& input, const arithmetic::Giant& f) override;
@@ -112,6 +114,7 @@ private:
     int _net_level;
     NetContext& _net;
     LoggingNetFile _file;
+    LoggingNetFile _file_factors;
 };
 
 class NetContext
@@ -127,6 +130,7 @@ public:
     }
 
     void upload(NetFile* file);
+    bool upload_queued(NetFile* file);
     void upload_cancel(NetFile* file);
     void upload_wait();
     void done();
