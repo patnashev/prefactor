@@ -14,14 +14,11 @@ public:
     class State : public TaskState
     {
     public:
-        State() : TaskState(11) { _G = 1; }
-        void set(int iteration, arithmetic::GWNum& G) { TaskState::set(iteration); _G = G; }
-        arithmetic::Giant& G() { return _G; }
-        bool read(Reader& reader) override { return TaskState::read(reader) && reader.read(_G); }
-        void write(Writer& writer) override { TaskState::write(writer); writer.write(_G); }
+        static const char TYPE = 11;
+        static const char SUB_TYPE = 12;
+        State() : TaskState(TYPE) { }
 
     private:
-        arithmetic::Giant _G;
     };
 
 protected:
@@ -82,6 +79,8 @@ protected:
     void execute() override;
     void release() override;
     void done(const arithmetic::Giant& factor) override;
+    void write_state(Writer* writer);
+    void read_state(Reader* reader);
 
     int poly_power() { return _poly_power; }
     bool poly_check() { return _poly_check; }
@@ -117,6 +116,7 @@ protected:
     std::vector<std::vector<arithmetic::Poly>> _poly_mod;
     std::vector<std::vector<std::vector<arithmetic::Poly>>> _smallpoly_mod;
     std::vector<arithmetic::Poly> _smallpoly_rem;
+    std::vector<int> _element_map;
 
     std::unique_ptr<arithmetic::Poly> _modulus;
     std::unique_ptr<arithmetic::Poly> _reciprocal;
@@ -173,6 +173,7 @@ public:
 protected:
     void setup() override;
     void release() override;
+    void write_state() override;
 
 private:
     arithmetic::Giant _P;
@@ -211,6 +212,7 @@ protected:
     void setup() override;
     void execute() override;
     void release() override;
+    void write_state() override;
 
 private:
     arithmetic::Giant _X;

@@ -45,6 +45,8 @@ int main(int argc, char *argv[])
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT, sigterm_handler);
 
+    File::FILE_APPID = 1;
+
     int i, j;
     GWState gwstate;
     GWArithmetic gw(gwstate);
@@ -57,6 +59,7 @@ int main(int argc, char *argv[])
     int polyThreads = 1;
     int polyMemModel = 0;
     bool polyCheck = true;
+    bool polyWrite = false;
     double sievingDepth = 0;
     uint64_t maxMem = 2048*1048576ULL;
     std::unique_ptr<PM1Params> params_pm1;
@@ -240,6 +243,11 @@ int main(int argc, char *argv[])
                     {
                         i++;
                         polyCheck = true;
+                    }
+                    else if (i < argc - 1 && strcmp(argv[i + 1], "write") == 0)
+                    {
+                        i++;
+                        polyWrite = true;
                     }
                     else
                         break;
@@ -514,7 +522,7 @@ int main(int argc, char *argv[])
                     stage2.reset(new PP1Stage2(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, logging));
                 else
                     stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, polyThreads, polyMemModel, polyCheck));
-                dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), false);
+                dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, params_pp1->PolyPower == 0 || polyWrite ? &file2 : nullptr, &logging, interstate->V(), false);
                 stage2->run();
                 success = stage2->success();
             }
@@ -606,7 +614,7 @@ int main(int argc, char *argv[])
                     stage2.reset(new EdECMStage2(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, logging));
                 else
                     stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, polyThreads, polyMemModel, polyCheck));
-                dynamic_cast<IEdECMStage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
+                dynamic_cast<IEdECMStage2*>(stage2.get())->init(&input, &gwstate, params_edecm->PolyPower == 0 || polyWrite ? &file2 : nullptr, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                 stage2->run();
                 success = stage2->success();
             }

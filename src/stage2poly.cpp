@@ -17,6 +17,7 @@ using namespace arithmetic;
 
 #ifdef _DEBUG
 //#define DEBUG_STAGE2POLY_FAST
+#define DEBUG_STAGE2POLY_INV
 #define DEBUG_STAGE2POLY_MOD
 #define DEBUG_STAGE2POLY_REM
 #define DEBUG_STAGE2POLY_ROOT
@@ -24,6 +25,7 @@ using namespace arithmetic;
 #define DEBUG_STAGE2POLY_CONVERT 0
 #else
 //#define DEBUG_STAGE2POLY_FAST
+//#define DEBUG_STAGE2POLY_INV
 #define DEBUG_STAGE2POLY_CONVERT 0
 #endif
 
@@ -80,8 +82,8 @@ void Stage2Poly<Element>::init(InputNum* input, GWState* gwstate, File* file, Ta
 
     //_state_update_period = poly_degree();
     logging->info("B2 = %" PRId64, _B2);
-    //if (state() != nullptr)
-    //    logging->info(", restarting at %.1f%%", 100.0*state()->iteration()/iterations());
+    if (this->state() != nullptr)
+        logging->info(", restarting at %.1f%%", 100.0*this->state()->iteration()/iterations());
     logging->info(".\n");
     logging->info("polynomial mode, D = %d, degree %d/%d, %d steps in batches of %d.\n", _D, 1 << poly_power(), 1 << _tinypoly_power, _last_D - _first_D + 1, 1 << _smallpoly_power);
     if ((_last_D - _first_D + 1) < _poly_mod_degree)
@@ -519,6 +521,7 @@ void Stage2Poly<Element>::setup()
     _gwarrays.resize(poly_power() + 1);
     _gwarrays_tmp.resize(poly_power() + 1);
     _poly_mod.resize(poly_power() + 1);
+    _element_map.resize(_poly_mod_degree);
 
     smallpoly_init(_poly_mod_degree);
     _gwarrays[0] = gwalloc_array(_poly_mult[0].gw().gwdata(), _poly_mod_degree);
@@ -586,7 +589,7 @@ void Stage2Poly<Element>::setup()
             GWASSERT(_poly_mod[poly_power()][0].eval(tmp) == 0);
         }
         else
-            GWASSERT(_poly_mod[poly_power()][0].eval((GWNum&)poly.at(i)) == 0);
+            GWASSERT((_poly_mult[poly_power()].gw().popg() = _poly_mod[poly_power()][0].eval((GWNum&)poly.at(i)))%_poly_mult[poly_power()].gw().N() == 0);
     }
 #endif
 #ifdef DEBUG_STAGE2POLY_REM
@@ -737,6 +740,7 @@ void Stage2Poly<Element>::execute()
     int count = iterations() - state()->iteration();
     while (count > 0)
     {
+        _logging->debug("%d steps left.\n", count);
         std::unique_lock<std::mutex> lock(_work_mutex);
         _smallpoly_alloc = std::move(_smallpoly);
         if (!_accumulator)
@@ -834,6 +838,7 @@ void Stage2Poly<Element>::execute()
             _accumulator.reset(new Poly(std::move(poly_prod[poly_power()][0])));
         else
         {
+            _logging->debug("merging.\n");
             timer = getHighResTimer();
             if (!_accumulator)
                 _accumulator.reset(new Poly(pm, 0, true));
@@ -858,8 +863,10 @@ void Stage2Poly<Element>::execute()
 
             count_merges++;
             timer_merges += (getHighResTimer() - timer)/getHighResTimerFrequency();
-            _logging->debug("merged.\n");
         }
+
+        if (_file != nullptr)
+            set_state<State>(iterations() - count);
     }
     poly_prod.clear();
     _logging->info("merges: %d, time: %.3f s.\n", count_merges, timer_merges);
@@ -1074,7 +1081,6 @@ void Stage2Poly<Element>::release()
     }
     _workqueue.clear();
     _workers.clear();
-    GWASSERT(gw().gwdata()->array_list == nullptr);
 
     _smallpoly.clear();
     _smallpoly_alloc.clear();
@@ -1088,6 +1094,9 @@ void Stage2Poly<Element>::release()
 
     _poly_mult.clear();
     _poly_gw.clear();
+
+    if (_file != nullptr)
+        _state.reset(::read_state<State>(_file));
 }
 
 template<class Element>
@@ -1140,6 +1149,8 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
     std::vector<std::unique_ptr<Element>> elements;
     elements.reserve((size_t)1 << power);
     int elements_count = 0;
+    std::vector<int> element_map;
+    element_map.resize((size_t)1 << power);
     std::vector<std::vector<Poly>> poly_tree;
     std::vector<Poly> poly_rem;
     poly_rem.reserve((size_t)1 << (power - tiny_power));
@@ -1169,6 +1180,8 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
 
                 if (!poly_tree.empty() && workitem_done)
                 {
+                    if (workstage == 1)
+                        std::copy(element_map.begin(), element_map.begin() + degree, _stage2._element_map.begin() + (index << power));
                     _stage2._smallpoly[index] = std::move(poly_tree);
                     _stage2._smallpoly_count--;
                     workitem_done = false;
@@ -1259,7 +1272,10 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                 std::swap(Xn, Xn1);
                 std::swap(Xn1, Xtmp);
                 if (workstage > 1 || gcd(_stage2.D(), n) == 1)
+                {
+                    element_map[elements_count] = n;
                     elements_count++;
+                }
                 count--;
                 n += distance;
             }
@@ -1300,7 +1316,7 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                     roots[i] = poly_tree[0][i >> tiny_power].data()[i & ((1 << tiny_power) - 1)];
                 elements_to_gwnums(elements, elements_count, roots.data());
                 elements_count = 0;
-
+                
                 if (tiny_power > 0)
                     for (k = 0; k < poly_tree[0].size(); k++)
                         build_tree_tinypoly(poly_tree, k, tiny_power, _poly_mult, 0, [&](int j) { return workstage == 1 && (j - 1)%_stage2._poly_optmem_small == 0; }, gwarrays, 1 << power, gwarrays_tmp, check_root ? check_root.get() : nullptr, check_root ? _check.get() : nullptr);
@@ -1398,7 +1414,7 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
 #endif
             if (check_root)
             {
-                if (gw().cmp(*check_root, (GWNum&)poly_rem[(_stage2._poly_check_index & ((1 << power) - 1)) >> tiny_power].at(_stage2._poly_check_index & ((1 << tiny_power) - 1))) != 0)
+                if ((gw().popg() = *check_root)%gw().N() != (gw().popg() = poly_rem[(_stage2._poly_check_index & ((1 << power) - 1)) >> tiny_power].at(_stage2._poly_check_index & ((1 << tiny_power) - 1)))%gw().N())
                 {
                     _stage2._logging->error("check failed.\n");
 #ifdef DEBUG_STAGE2POLY_REM
@@ -1448,11 +1464,91 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
     }
 }
 
+template<class Element>
+void Stage2Poly<Element>::write_state(Writer* writer)
+{
+    int i, j, k;
+    Giant tmp;
+    if (poly_check())
+    {
+        GWNum check(gw());
+        check = *_workers[0]->check();
+        for (i = 1; i < _workers.size(); i++)
+            check *= *_workers[i]->check();
+        writer->write(_element_map[_poly_check_index]);
+        writer->write(tmp = check);
+    }
+    else
+    {
+        writer->write(0);
+        writer->write(0);
+    }
+
+    int count = (1 << _smallpoly_power);
+    int files = ((int)_accumulator->size() + count - 1)/count;
+    writer->write(_accumulator->monic() ? -files : files);
+    for (i = 0, k = 0; k < files; k++)
+    {
+        File* subf = _file->add_child(std::to_string(k), File::unique_fingerprint(_file->fingerprint(), std::to_string(state()->iteration())));
+        std::unique_ptr<Writer> subwriter(subf->get_writer(State::SUB_TYPE, 0));
+        count = (1 << _smallpoly_power);
+        if (i + count > _accumulator->size())
+            count = _accumulator->size() - i;
+        subwriter->write(count);
+        for (j = 0; j < count; j++, i++)
+            subwriter->write(tmp = _accumulator->at(i));
+        subf->commit_writer(*subwriter);
+        subf->free_buffer();
+    }
+}
+
+template<class Element>
+void Stage2Poly<Element>::read_state(Reader* reader)
+{
+    int i, j, k;
+    Giant tmp;
+    reader->read(j);
+    if (poly_check() && j != 0)
+        for (_poly_check_index = 0; _poly_check_index < _element_map.size() && _element_map[_poly_check_index] != j; _poly_check_index++);
+    reader->read(tmp);
+    if (poly_check() && tmp != 0)
+        *_workers[0]->check() = tmp;
+    _logging->info("%d, %x\n", _poly_check_index, _element_map[_poly_check_index]);
+    //execute();
+    
+    bool monic = false;
+    int files = 0;
+    reader->read(files);
+    if (files <= 0)
+    {
+        monic = true;
+        files *= -1;
+    }
+    PolyMult& pm = _poly_mult[poly_power()];
+    Poly& res = _poly_mod[poly_power()][0];
+    for (i = 0, k = 0; k < files; k++)
+    {
+        File* subf = _file->add_child(std::to_string(k), File::unique_fingerprint(_file->fingerprint(), std::to_string(state()->iteration())));
+        std::unique_ptr<Reader> subreader(subf->get_reader());
+        int count;
+        subreader->read(count);
+        for (j = 0; j < count; j++, i++)
+        {
+            subreader->read(tmp);
+            (GWNum&)res.at(i) = tmp;
+        }
+        subf->free_buffer();
+    }
+    _accumulator.reset(new Poly(pm));
+    pm.init(res.data(), i, false, monic, *_accumulator);
+    pm.free(res);
+}
+
 
 void PP1Stage2Poly::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, Giant& P, bool minus1)
 {
     logging->set_prefix(input->display_text() + (minus1 ? ", P-1 stage 2, " : ", P+1 stage 2, "));
-    Stage2Poly::init(input, gwstate, file, /*read_state<State>(file)*/nullptr, logging);
+    Stage2Poly::init(input, gwstate, file, ::read_state<State>(file), logging);
     _lucas.reset(new LucasVArithmetic());
     _P = P;
 }
@@ -1463,6 +1559,40 @@ void PP1Stage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_
 {
     for (int i = 0; i < count; i++)
         gw().unfft(elements[i]->V(), (GWNum&)GWNumWrapper(gw(), data[i]));
+}
+
+void PP1Stage2Poly::write_state()
+{
+    if (_file == nullptr || state() == nullptr || state()->iteration() == 0)
+        return;
+    _logging->debug("saving state to disk.\n");
+    Giant tmp;
+    std::unique_ptr<Writer> writer(_file->get_writer(state()->type(), state()->version()));
+    auto write_LucasV = [&](std::unique_ptr<LucasV>& p)
+    {
+        if (p)
+            writer->write(tmp = p->V());
+        else
+            writer->write(0);
+    };
+
+    writer->write(state()->iteration());
+    writer->write((int)_workqueue.size());
+    for (auto it = _workqueue.begin(); it != _workqueue.end(); it++)
+    {
+        writer->write(it->n);
+        writer->write(it->count);
+        writer->write(it->distance);
+        write_LucasV(it->Xn);
+        write_LucasV(it->Xn1);
+        write_LucasV(it->Xdn);
+        write_LucasV(it->Xdn1);
+    }
+
+    Stage2Poly::write_state(writer.get());
+    _file->commit_writer(*writer);
+    state()->set_written();
+    _logging->debug("state saved.\n");
 }
 
 void PP1Stage2Poly::setup()
@@ -1497,10 +1627,8 @@ void PP1Stage2Poly::setup()
         Stage2Poly::setup();
     }
 
-    if (state() == nullptr)
-        reset_state<State>();
-    int v = state()->iteration() + _first_D;
-    int count = iterations() - state()->iteration();
+    int v;
+    int count = iterations();
     int distance = (count >> _smallpoly_power)/_poly_threads;
     if (distance == 0)
         distance = 1;
@@ -1516,90 +1644,136 @@ void PP1Stage2Poly::setup()
     _Xd = _Wd.get();
     std::unique_ptr<LucasV> Wdist;
 
-    _workqueue.emplace_back();
-    _workqueue.back().n = v;
-    _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
-    _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
-
-    LucasV Pn(arithmetic());
-    LucasV Pn1(arithmetic());
-    if (v > 1)
-        arithmetic().mul(*_W, v, Pn, Pn1);
-    else if (v > 0)
+    if (state() != nullptr)
     {
-        Pn = *_W;
-        arithmetic().dbl(Pn, Pn1);
-    }
-    else
-    {
-        arithmetic().init(Pn);
-        Pn1 = *_W;
-    }
-    _workqueue.back().Xn.reset(new LucasV(Pn));
-    if (_workqueue.back().count > 1)
-        _workqueue.back().Xn1.reset(new LucasV(Pn1));
-
-    if (_workqueue.back().distance > (1 << _smallpoly_power))
-    {
-        arithmetic().mul(*_W, v + (1 << _smallpoly_power), Pn, Pn1);
-        _workqueue.back().Xdn.reset(new LucasV(Pn));
-        if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
-            _workqueue.back().Xdn1.reset(new LucasV(Pn1));
-    }
-
-    int total = _workqueue.back().distance;
-    while (total < count)
-    {
-        _workqueue.emplace_back();
-        _workqueue.back().n = v + total;
-        _workqueue.back().count = count - total >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count - total;
-        _workqueue.back().distance = count - total >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count - total;
-        total += _workqueue.back().distance;
-
-        if (_workqueue.size() > 2)
+        std::unique_ptr<Reader> reader(_file->get_reader());
+        reader->read(v);
+        reader->read(count);
+        Giant tmp;
+        for (; count > 0; count--)
         {
-            if (!Wdist)
+            _workqueue.emplace_back();
+            reader->read(_workqueue.back().n);
+            reader->read(_workqueue.back().count);
+            reader->read(_workqueue.back().distance);
+            reader->read(tmp);
+            if (tmp != 0)
             {
-                Wdist.reset(new LucasV(arithmetic()));
-                arithmetic().mul(*_Wd, distance, *Wdist);
+                _workqueue.back().Xn.reset(new LucasV(arithmetic()));
+                _workqueue.back().Xn->V() = tmp;
             }
-            _workqueue.back().Xn.reset(new LucasV(arithmetic()));
-            arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xn, *_workqueue[_workqueue.size() - 3].Xn, *_workqueue.back().Xn);
-            if (_workqueue.back().count > 1)
+            reader->read(tmp);
+            if (tmp != 0)
             {
                 _workqueue.back().Xn1.reset(new LucasV(arithmetic()));
-                arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xn1, *_workqueue[_workqueue.size() - 3].Xn1, *_workqueue.back().Xn1);
+                _workqueue.back().Xn1->V() = tmp;
             }
-
-            if (_workqueue.back().distance > (1 << _smallpoly_power))
+            reader->read(tmp);
+            if (tmp != 0)
             {
                 _workqueue.back().Xdn.reset(new LucasV(arithmetic()));
-                arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xdn, *_workqueue[_workqueue.size() - 3].Xdn, *_workqueue.back().Xdn);
-                if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
-                {
-                    _workqueue.back().Xdn1.reset(new LucasV(arithmetic()));
-                    arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xdn1, *_workqueue[_workqueue.size() - 3].Xdn1, *_workqueue.back().Xdn1);
-                }
+                _workqueue.back().Xdn->V() = tmp;
             }
+            reader->read(tmp);
+            if (tmp != 0)
+            {
+                _workqueue.back().Xdn1.reset(new LucasV(arithmetic()));
+                _workqueue.back().Xdn1->V() = tmp;
+            }
+        }
+        read_state(reader.get());
+    }
+
+    if (state() == nullptr)
+    {
+        reset_state<State>();
+        v = _first_D;
+
+        _workqueue.emplace_back();
+        _workqueue.back().n = v;
+        _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
+        _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
+
+        LucasV Pn(arithmetic());
+        LucasV Pn1(arithmetic());
+        if (v > 1)
+            arithmetic().mul(*_W, v, Pn, Pn1);
+        else if (v > 0)
+        {
+            Pn = *_W;
+            arithmetic().dbl(Pn, Pn1);
         }
         else
         {
-            arithmetic().mul(*_W, _workqueue.back().n, Pn, Pn1);
-            _workqueue.back().Xn.reset(new LucasV(Pn));
-            if (_workqueue.back().count > 1)
-                _workqueue.back().Xn1.reset(new LucasV(Pn1));
+            arithmetic().init(Pn);
+            Pn1 = *_W;
+        }
+        _workqueue.back().Xn.reset(new LucasV(Pn));
+        if (_workqueue.back().count > 1)
+            _workqueue.back().Xn1.reset(new LucasV(Pn1));
 
-            if (_workqueue.back().distance > (1 << _smallpoly_power))
+        if (_workqueue.back().distance > (1 << _smallpoly_power))
+        {
+            arithmetic().mul(*_W, v + (1 << _smallpoly_power), Pn, Pn1);
+            _workqueue.back().Xdn.reset(new LucasV(Pn));
+            if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
+                _workqueue.back().Xdn1.reset(new LucasV(Pn1));
+        }
+
+        int total = _workqueue.back().distance;
+        while (total < count)
+        {
+            _workqueue.emplace_back();
+            _workqueue.back().n = v + total;
+            _workqueue.back().count = count - total >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count - total;
+            _workqueue.back().distance = count - total >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count - total;
+            total += _workqueue.back().distance;
+
+            if (_workqueue.size() > 2)
             {
-                arithmetic().mul(*_W, _workqueue.back().n + (1 << _smallpoly_power), Pn, Pn1);
-                _workqueue.back().Xdn.reset(new LucasV(Pn));
-                if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
-                    _workqueue.back().Xdn1.reset(new LucasV(Pn1));
+                if (!Wdist)
+                {
+                    Wdist.reset(new LucasV(arithmetic()));
+                    arithmetic().mul(*_Wd, distance, *Wdist);
+                }
+                _workqueue.back().Xn.reset(new LucasV(arithmetic()));
+                arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xn, *_workqueue[_workqueue.size() - 3].Xn, *_workqueue.back().Xn);
+                if (_workqueue.back().count > 1)
+                {
+                    _workqueue.back().Xn1.reset(new LucasV(arithmetic()));
+                    arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xn1, *_workqueue[_workqueue.size() - 3].Xn1, *_workqueue.back().Xn1);
+                }
+
+                if (_workqueue.back().distance > (1 << _smallpoly_power))
+                {
+                    _workqueue.back().Xdn.reset(new LucasV(arithmetic()));
+                    arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xdn, *_workqueue[_workqueue.size() - 3].Xdn, *_workqueue.back().Xdn);
+                    if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
+                    {
+                        _workqueue.back().Xdn1.reset(new LucasV(arithmetic()));
+                        arithmetic().add(*Wdist, *_workqueue[_workqueue.size() - 2].Xdn1, *_workqueue[_workqueue.size() - 3].Xdn1, *_workqueue.back().Xdn1);
+                    }
+                }
+            }
+            else
+            {
+                arithmetic().mul(*_W, _workqueue.back().n, Pn, Pn1);
+                _workqueue.back().Xn.reset(new LucasV(Pn));
+                if (_workqueue.back().count > 1)
+                    _workqueue.back().Xn1.reset(new LucasV(Pn1));
+
+                if (_workqueue.back().distance > (1 << _smallpoly_power))
+                {
+                    arithmetic().mul(*_W, _workqueue.back().n + (1 << _smallpoly_power), Pn, Pn1);
+                    _workqueue.back().Xdn.reset(new LucasV(Pn));
+                    if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
+                        _workqueue.back().Xdn1.reset(new LucasV(Pn1));
+                }
             }
         }
-    }
 
-    commit_setup();
+        commit_setup();
+    }
 }
 
 void PP1Stage2Poly::release()
@@ -1616,7 +1790,7 @@ template void Stage2Poly<LucasV>::execute();
 void EdECMStage2Poly::init(InputNum* input, GWState* gwstate, File* file, Logging* logging, arithmetic::Giant& X, arithmetic::Giant& Y, arithmetic::Giant& Z, arithmetic::Giant& T, arithmetic::Giant& EdD)
 {
     logging->set_prefix(input->display_text() + ", EdECM stage 2, ");
-    Stage2Poly::init(input, gwstate, file, /*read_state<State>(file)*/nullptr, logging);
+    Stage2Poly::init(input, gwstate, file, ::read_state<State>(file), logging);
     _X = X;
     _Y = Y;
     _Z = Z;
@@ -1644,7 +1818,19 @@ void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::uniqu
         gw().mul(*elements[i - 1]->ZpY, *elements[i]->Z, *elements[i]->ZpY, GWMUL_STARTNEXTFFT_IF(i + 1 < count));
     try
     {
+#ifdef DEBUG_STAGE2POLY_INV
+        GWNum test(gw());
+        test = *elements[count - 1]->ZpY;
+#endif
         gw().inv(*elements[count - 1]->ZpY, *elements[count - 1]->ZpY);
+#ifdef DEBUG_STAGE2POLY_INV
+        gw().carefully().mul(*elements[count - 1]->ZpY, test, test);
+        if ((gw().popg() = test)%gw().N() != 1)
+        {
+            static_cast<EdECMStage2Poly&>(_stage2)._logging->error("invg() failure.\n");
+            throw TaskAbortException();
+        }
+#endif
     }
     catch (const ArithmeticException&)
     {
@@ -1662,6 +1848,52 @@ void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::uniqu
         if (elements[i]->Y)
             gw().mul(*elements[i]->ZpY, *elements[i]->Y, (GWNum&)GWNumWrapper(gw(), data[i]), 0);
     }
+}
+
+void EdECMStage2Poly::write_state()
+{
+    if (_file == nullptr || state() == nullptr || state()->iteration() == 0)
+        return;
+    _logging->debug("saving state to disk.\n");
+    Giant tmp;
+    std::unique_ptr<Writer> writer(_file->get_writer(state()->type(), state()->version()));
+    auto write_EdY = [&](std::unique_ptr<EdY>& p)
+    {
+        if (p)
+        {
+            writer->write((tmp = *p->Y));
+            if (p->Z)
+                writer->write((tmp = *p->Z));
+            else
+            {
+                writer->write(1);
+                writer->write(1);
+            }
+        }
+        else
+        {
+            writer->write(0);
+            writer->write(0);
+        }
+    };
+
+    writer->write(state()->iteration());
+    writer->write((int)_workqueue.size());
+    for (auto it = _workqueue.begin(); it != _workqueue.end(); it++)
+    {
+        writer->write(it->n);
+        writer->write(it->count);
+        writer->write(it->distance);
+        write_EdY(it->Xn);
+        write_EdY(it->Xn1);
+        write_EdY(it->Xdn);
+        write_EdY(it->Xdn1);
+    }
+
+    Stage2Poly::write_state(writer.get());
+    _file->commit_writer(*writer);
+    state()->set_written();
+    _logging->debug("state saved.\n");
 }
 
 /*EdY* to_EdY(MontgomeryArithmetic& arithmetic, EdPoint& a)
@@ -1724,10 +1956,7 @@ void EdECMStage2Poly::setup()
             Stage2Poly::setup();
         }
 
-        if (state() == nullptr)
-            reset_state<State>();
-        v = state()->iteration() + _first_D;
-        count = iterations() - state()->iteration();
+        count = iterations();
         distance = (count >> _smallpoly_power)/_poly_threads;
         if (distance == 0)
             distance = 1;
@@ -1755,111 +1984,162 @@ void EdECMStage2Poly::setup()
         return;
     }
 
-    _workqueue.emplace_back();
-    _workqueue.back().n = v;
-    _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
-    _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
-
-    *EdP.X = 0;
-    *EdP.Y = 1;
-    EdP.Z.reset();
-    if (v > 1)
+    if (state() != nullptr)
     {
-        if (v == (1 << _smallpoly_power))
-            EdP = EdWd;
-        else if (v == (distance << _smallpoly_power))
-            EdP = EdWdist;
-        else if (v == 2)
-            ed.dbl(EdW, EdP);
-        else
+        std::unique_ptr<Reader> reader(_file->get_reader());
+        reader->read(v);
+        reader->read(count);
+        Giant Y, Z;
+        for (; count > 0; count--)
         {
-            tmp = v;
-            ed.mul(EdW, tmp, EdP);
+            _workqueue.emplace_back();
+            reader->read(_workqueue.back().n);
+            reader->read(_workqueue.back().count);
+            reader->read(_workqueue.back().distance);
+            reader->read(Y);
+            reader->read(Z);
+            if (Y != 0)
+            {
+                _workqueue.back().Xn.reset(new EdY(arithmetic()));
+                _workqueue.back().Xn->deserialize(Y, Z);
+            }
+            reader->read(Y);
+            reader->read(Z);
+            if (Y != 0)
+            {
+                _workqueue.back().Xn1.reset(new EdY(arithmetic()));
+                _workqueue.back().Xn1->deserialize(Y, Z);
+            }
+            reader->read(Y);
+            reader->read(Z);
+            if (Y != 0)
+            {
+                _workqueue.back().Xdn.reset(new EdY(arithmetic()));
+                _workqueue.back().Xdn->deserialize(Y, Z);
+            }
+            reader->read(Y);
+            reader->read(Z);
+            if (Y != 0)
+            {
+                _workqueue.back().Xdn1.reset(new EdY(arithmetic()));
+                _workqueue.back().Xdn1->deserialize(Y, Z);
+            }
         }
-        ed.add(EdP, EdW, EdP1, ed.ED_PROJECTIVE);
-    }
-    else if (v > 0)
-    {
-        EdP = EdW;
-        ed.dbl(EdP, EdP1, ed.ED_PROJECTIVE);
-    }
-    else
-        EdP1 = EdW;
-    _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
-    if (_workqueue.back().count > 1)
-        _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
-
-    if (_workqueue.back().distance > (1 << _smallpoly_power))
-    {
-        if (v == 0)
-            EdP1 = EdWd;
-        else if (v == ((distance - 1) << _smallpoly_power))
-            EdP1 = EdWdist;
-        else if (v == (1 << _smallpoly_power))
-            ed.dbl(EdWd, EdP1);
-        else
-            ed.add(EdP, EdWd, EdP1);
-        _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
-
-        if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
-        {
-            ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
-            _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
-        }
+        read_state(reader.get());
     }
 
-    int total = _workqueue.back().distance;
-    while (total < count)
+    if (state() == nullptr)
     {
+        reset_state<State>();
+        v = _first_D;
+
         _workqueue.emplace_back();
-        _workqueue.back().n = v + total;
-        _workqueue.back().count = count - total >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count - total;
-        _workqueue.back().distance = count - total >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count - total;
-        total += _workqueue.back().distance;
+        _workqueue.back().n = v;
+        _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
+        _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
 
-        if (_workqueue.back().n == (1 << _smallpoly_power))
-            EdP = EdWd;
-        else if (_workqueue.back().n == (distance << _smallpoly_power))
-            EdP = EdWdist;
-        else if (_workqueue.back().n == 2*(distance << _smallpoly_power))
-            ed.dbl(EdWdist, EdP);
-        else
-            ed.add(EdP, EdWdist, EdP);
-        _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
-
-        if (_workqueue.back().count > 1)
+        *EdP.X = 0;
+        *EdP.Y = 1;
+        EdP.Z.reset();
+        if (v > 1)
         {
+            if (v == (1 << _smallpoly_power))
+                EdP = EdWd;
+            else if (v == (distance << _smallpoly_power))
+                EdP = EdWdist;
+            else if (v == 2)
+                ed.dbl(EdW, EdP);
+            else
+            {
+                tmp = v;
+                ed.mul(EdW, tmp, EdP);
+            }
             ed.add(EdP, EdW, EdP1, ed.ED_PROJECTIVE);
-            _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
         }
+        else if (v > 0)
+        {
+            EdP = EdW;
+            ed.dbl(EdP, EdP1, ed.ED_PROJECTIVE);
+        }
+        else
+            EdP1 = EdW;
+        _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
+        if (_workqueue.back().count > 1)
+            _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
 
         if (_workqueue.back().distance > (1 << _smallpoly_power))
         {
-            if (_workqueue.back().n == (1 << _smallpoly_power))
+            if (v == 0)
+                EdP1 = EdWd;
+            else if (v == ((distance - 1) << _smallpoly_power))
+                EdP1 = EdWdist;
+            else if (v == (1 << _smallpoly_power))
                 ed.dbl(EdWd, EdP1);
             else
                 ed.add(EdP, EdWd, EdP1);
             _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
-            
+
             if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
             {
                 ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
                 _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
             }
         }
-    }
+
+        int total = _workqueue.back().distance;
+        while (total < count)
+        {
+            _workqueue.emplace_back();
+            _workqueue.back().n = v + total;
+            _workqueue.back().count = count - total >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count - total;
+            _workqueue.back().distance = count - total >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count - total;
+            total += _workqueue.back().distance;
+
+            if (_workqueue.back().n == (1 << _smallpoly_power))
+                EdP = EdWd;
+            else if (_workqueue.back().n == (distance << _smallpoly_power))
+                EdP = EdWdist;
+            else if (_workqueue.back().n == 2*(distance << _smallpoly_power))
+                ed.dbl(EdWdist, EdP);
+            else
+                ed.add(EdP, EdWdist, EdP);
+            _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
+
+            if (_workqueue.back().count > 1)
+            {
+                ed.add(EdP, EdW, EdP1, ed.ED_PROJECTIVE);
+                _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
+            }
+
+            if (_workqueue.back().distance > (1 << _smallpoly_power))
+            {
+                if (_workqueue.back().n == (1 << _smallpoly_power))
+                    ed.dbl(EdWd, EdP1);
+                else
+                    ed.add(EdP, EdWd, EdP1);
+                _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
+
+                if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
+                {
+                    ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
+                    _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
+                }
+            }
+        }
+
 #ifdef DEBUG_STAGE2POLY_QUEUE
-    GWASSERT(total == count);
-    EdY P1(arithmetic());
-    P1.deserialize(_Y, _Z);
-    arithmetic().mul(P1, _D, P1);
-    GWASSERT(P1 == *_X1);
-    P1.deserialize(_Y, _Z);
-    arithmetic().mul(P1, _D << _smallpoly_power, P1);
-    GWASSERT(P1 == *_Xd);
+        GWASSERT(total == count);
+        EdY P1(arithmetic());
+        P1.deserialize(_Y, _Z);
+        arithmetic().mul(P1, _D, P1);
+        GWASSERT(P1 == *_X1);
+        P1.deserialize(_Y, _Z);
+        arithmetic().mul(P1, _D << _smallpoly_power, P1);
+        GWASSERT(P1 == *_Xd);
 #endif
 
-    commit_setup();
+        commit_setup();
+    }
 }
 
 void EdECMStage2Poly::release()

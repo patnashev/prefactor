@@ -497,7 +497,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int mem_model, int check, File& file_results)
+std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int mem_model, int check, File* file_state, File& file_results)
 {
     int i = 0;
     std::string res64;
@@ -524,6 +524,8 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     _logging.progress().update(i/(double)_points.size(), i);
 
     compute_d(true);
+    std::vector<File*> files;
+    std::string unique_id = std::to_string(_seed) + "." + std::to_string(_B1) + "." + std::to_string(B2) + "." + std::to_string(params_edecm.D) + "." + std::to_string(params_edecm.PolyPower) + ".";
     time_t last_write = time(NULL);
     time_t last_progress = time(NULL);
     if (Task::PROGRESS_TIME > 30)
@@ -531,9 +533,12 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     while (i < _points.size())
     {
         _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
+        File* file_stage2 = nullptr;
+        if (file_state != nullptr)
+            files.push_back(file_stage2 = file_state->add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, unique_id + std::to_string(i))));
         if (params_edecm.PolyPower > 0)
             dynamic_cast<EdECMStage2Poly*>(stage2.get())->set_check(i < check);
-        dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, nullptr, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
+        dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, file_stage2, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
         try
         {
             stage2->run();
@@ -564,6 +569,9 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
             writer->write(results->buffer().data(), (int)results->buffer().size());
             file_results.commit_writer(*writer);
             last_write = time(NULL);
+            for (auto it = files.begin(); it != files.end(); it++)
+                (*it)->clear(true);
+            files.clear();
         }
     }
 
@@ -584,6 +592,7 @@ int factoring_main(int argc, char *argv[])
     int polyThreads = 1;
     int polyMemModel = 0;
     int polyCheck = 0;
+    bool polyWrite = false;
     int seed = 0;
     int count = 0;
     std::string filename;
@@ -730,6 +739,11 @@ int factoring_main(int argc, char *argv[])
                             i++;
                             polyCheck = 1;
                         }
+                    }
+                    else if (i < argc - 1 && strcmp(argv[i + 1], "write") == 0)
+                    {
+                        i++;
+                        polyWrite = true;
                     }
                     else
                         break;
@@ -952,10 +966,14 @@ int factoring_main(int argc, char *argv[])
             std::string filename_state = filename + ".tmp";
             File file_state(filename_state, 0);
             file_state.hash = false;
+            std::string filename_res = filename + ".res";
+            File file_res(filename_res, 0);
+            file_res.hash = false;
             logging.progress().add_stage((int)factoring.points().size());
-            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, polyMemModel, polyCheck, file_state);
+            std::string reshash = factoring.stage2(B2, maxMem, poly, polyThreads, polyMemModel, polyCheck, polyWrite ? &file_state : nullptr, file_res);
             logging.progress().next_stage();
-            file_state.clear();
+            file_state.clear(true);
+            file_res.clear();
             logging.info("RES64 hash: %s\n", reshash.data());
         }
 

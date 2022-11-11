@@ -222,6 +222,10 @@ void NetFile::free_buffer()
 
 void NetFile::clear(bool recursive)
 {
+    if (recursive)
+        for (auto it = _children.begin(); it != _children.end(); it++)
+            (*it)->clear(true);
+
     std::lock_guard<std::mutex> lock(_net_ctx.upload_mutex());
     _net_ctx.upload_cancel(this);
     if (_uploading)
@@ -229,6 +233,7 @@ void NetFile::clear(bool recursive)
         _buffer.swap(_net_ctx.buffer());
         _uploading = false;
     }
+    _free_buffer = false;
     std::vector<char>().swap(_buffer);
     _md5hash.clear();
     _net_ctx.upload(this);
@@ -458,6 +463,8 @@ int net_main(int argc, char *argv[])
             else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
             {
                 i++;
+                if (strcmp(argv[i], "debug_internal") == 0)
+                    log_level = Logging::LEVEL_DEBUG - 1;
                 if (strcmp(argv[i], "debug") == 0)
                     log_level = Logging::LEVEL_DEBUG;
                 if (strcmp(argv[i], "info") == 0)
@@ -642,8 +649,9 @@ int net_main(int argc, char *argv[])
                     if (!dhash.empty())
                         dhash += "-";
                     NetFile& file_results = files.emplace_back(net, "results", 0);
+                    NetFile& file_checkpoint = files.emplace_back(net, "checkpoint", 0);
                     logging.progress().add_stage((int)factoring.points().size());
-                    dhash += factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyMemModel, polyCheck, file_results);
+                    dhash += factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyMemModel, polyCheck, &file_checkpoint, file_results);
                     logging.progress().next_stage();
                 }
             }
