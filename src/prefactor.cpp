@@ -44,6 +44,11 @@ int main(int argc, char *argv[])
 {
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT, sigterm_handler);
+    setvbuf(stdout, NULL, _IONBF, 0);
+#if defined(_MSC_VER) && !defined(_DEBUG)
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(0, _CALL_REPORTFAULT);
+#endif
 
     File::FILE_APPID = 1;
 
@@ -295,7 +300,13 @@ int main(int argc, char *argv[])
             }
             else if (strcmp(argv[i], "-v") == 0)
             {
-                printf("Prefactor version " PREFACTOR_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
+                printf("Prefactor version " PREFACTOR_VERSION ", GWnum library version " GWNUM_VERSION);
+#ifdef GMP
+                GMPArithmetic* gmp = dynamic_cast<GMPArithmetic*>(&GiantsArithmetic::default_arithmetic());
+                if (gmp != nullptr)
+                    printf(", GMP library version %s", gmp->version().data());
+#endif
+                printf("\n");
                 return 0;
             }
         }
