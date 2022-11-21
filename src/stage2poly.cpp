@@ -1503,14 +1503,16 @@ void Stage2Poly<Element>::write_state(Writer* writer)
 }
 
 template<class Element>
-void Stage2Poly<Element>::read_state(Reader* reader)
+bool Stage2Poly<Element>::read_state(Reader* reader)
 {
     int i, j, k;
     Giant tmp;
-    reader->read(j);
+    if (!reader->read(j))
+        return false;
     if (poly_check() && j != 0)
         for (_poly_check_index = 0; _poly_check_index < _element_map.size() && _element_map[_poly_check_index] != j; _poly_check_index++);
-    reader->read(tmp);
+    if (!reader->read(tmp))
+        return false;
     if (poly_check() && tmp != 0)
         *_workers[0]->check() = tmp;
     _logging->info("%d, %x\n", _poly_check_index, _element_map[_poly_check_index]);
@@ -1518,7 +1520,8 @@ void Stage2Poly<Element>::read_state(Reader* reader)
     
     bool monic = false;
     int files = 0;
-    reader->read(files);
+    if (!reader->read(files))
+        return false;
     if (files <= 0)
     {
         monic = true;
@@ -1530,18 +1533,33 @@ void Stage2Poly<Element>::read_state(Reader* reader)
     {
         File* subf = _file->add_child(std::to_string(k), File::unique_fingerprint(_file->fingerprint(), std::to_string(state()->iteration())));
         std::unique_ptr<Reader> subreader(subf->get_reader());
+        if (!subreader)
+            break;
         int count;
-        subreader->read(count);
+        if (!subreader->read(count))
+            break;
         for (j = 0; j < count; j++, i++)
         {
-            subreader->read(tmp);
+            if (!subreader->read(tmp))
+                break;
             (GWNum&)res.at(i) = tmp;
         }
+        if (j < count)
+            break;
         subf->free_buffer();
+    }
+    if (k < files)
+    {
+        if (i == 0)
+            return false;
+        Poly one(pm, 0, true);
+        pm.mul(*_modulus, one, res, POLYMULT_NEXTFFT);
+        return false;
     }
     _accumulator.reset(new Poly(pm));
     pm.init(res.data(), i, false, monic, *_accumulator);
     pm.free(res);
+    return true;
 }
 
 
@@ -1986,46 +2004,71 @@ void EdECMStage2Poly::setup()
 
     if (state() != nullptr)
     {
-        std::unique_ptr<Reader> reader(_file->get_reader());
-        reader->read(v);
-        reader->read(count);
-        Giant Y, Z;
-        for (; count > 0; count--)
+        auto read_files = [&]()
         {
-            _workqueue.emplace_back();
-            reader->read(_workqueue.back().n);
-            reader->read(_workqueue.back().count);
-            reader->read(_workqueue.back().distance);
-            reader->read(Y);
-            reader->read(Z);
-            if (Y != 0)
+            std::unique_ptr<Reader> reader(_file->get_reader());
+            if (!reader)
+                return false;
+            if (!reader->read(v))
+                return false;
+            if (!reader->read(count))
+                return false;
+            Giant Y, Z;
+            for (; count > 0; count--)
             {
-                _workqueue.back().Xn.reset(new EdY(arithmetic()));
-                _workqueue.back().Xn->deserialize(Y, Z);
+                _workqueue.emplace_back();
+                reader->read(_workqueue.back().n);
+                reader->read(_workqueue.back().count);
+                reader->read(_workqueue.back().distance);
+                if (!reader->read(Y))
+                    return false;
+                if (!reader->read(Z))
+                    return false;
+                if (Y != 0)
+                {
+                    _workqueue.back().Xn.reset(new EdY(arithmetic()));
+                    _workqueue.back().Xn->deserialize(Y, Z);
+                }
+                if (!reader->read(Y))
+                    return false;
+                if (!reader->read(Z))
+                    return false;
+                if (Y != 0)
+                {
+                    _workqueue.back().Xn1.reset(new EdY(arithmetic()));
+                    _workqueue.back().Xn1->deserialize(Y, Z);
+                }
+                if (!reader->read(Y))
+                    return false;
+                if (!reader->read(Z))
+                    return false;
+                if (Y != 0)
+                {
+                    _workqueue.back().Xdn.reset(new EdY(arithmetic()));
+                    _workqueue.back().Xdn->deserialize(Y, Z);
+                }
+                if (!reader->read(Y))
+                    return false;
+                if (!reader->read(Z))
+                    return false;
+                if (Y != 0)
+                {
+                    _workqueue.back().Xdn1.reset(new EdY(arithmetic()));
+                    _workqueue.back().Xdn1->deserialize(Y, Z);
+                }
             }
-            reader->read(Y);
-            reader->read(Z);
-            if (Y != 0)
-            {
-                _workqueue.back().Xn1.reset(new EdY(arithmetic()));
-                _workqueue.back().Xn1->deserialize(Y, Z);
-            }
-            reader->read(Y);
-            reader->read(Z);
-            if (Y != 0)
-            {
-                _workqueue.back().Xdn.reset(new EdY(arithmetic()));
-                _workqueue.back().Xdn->deserialize(Y, Z);
-            }
-            reader->read(Y);
-            reader->read(Z);
-            if (Y != 0)
-            {
-                _workqueue.back().Xdn1.reset(new EdY(arithmetic()));
-                _workqueue.back().Xdn1->deserialize(Y, Z);
-            }
+            return read_state(reader.get());
+        };
+        if (!read_files())
+        {
+            _logging->warning("restart failed.\n");
+            _state.reset();
+            _workqueue.clear();
+            _accumulator.reset();
+            if (poly_check())
+                *_workers[0]->check() = 1;
+            count = iterations();
         }
-        read_state(reader.get());
     }
 
     if (state() == nullptr)

@@ -80,7 +80,7 @@ protected:
     void release() override;
     void done(const arithmetic::Giant& factor) override;
     void write_state(Writer* writer);
-    void read_state(Reader* reader);
+    bool read_state(Reader* reader);
 
     int poly_power() { return _poly_power; }
     bool poly_check() { return _poly_check; }
