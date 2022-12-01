@@ -986,7 +986,7 @@ void Stage2Poly<Element>::execute()
             for (i = 0; i < tree[0].size(); i++)
                 tree[0][i] = std::move(_poly_mod[base_level][k*base_size + i]);
 
-            build_tree(tree, _poly_mult, base_level, true, [](int j) { return true; }, _gwarrays, level_size, _gwarrays_tmp);
+            build_tree(tree, _poly_mult, base_level, true, [](int) { return true; }, _gwarrays, level_size, _gwarrays_tmp);
 
             std::vector<Poly> rem;
             rem.reserve(tree[0].size());
@@ -1397,9 +1397,9 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
             poly_tree.resize(power);
             if (tiny_power > 0)
                 for (k = 0; k < poly_tree[0].size(); k++)
-                    build_tree_tinypoly(poly_tree, k, tiny_power, _poly_mult, 0, [](int j) { return true; }, gwarrays, 1 << power, gwarrays_tmp, nullptr, nullptr);
+                    build_tree_tinypoly(poly_tree, k, tiny_power, _poly_mult, 0, [](int) { return true; }, gwarrays, 1 << power, gwarrays_tmp, nullptr, nullptr);
             if (tiny_power < power - 1)
-                build_tree(poly_tree, _poly_mult, tiny_power, false, [](int j) { return true; }, gwarrays, 1 << power, gwarrays_tmp);
+                build_tree(poly_tree, _poly_mult, tiny_power, false, [](int) { return true; }, gwarrays, 1 << power, gwarrays_tmp);
             if (tiny_power < power)
                 rem_tree(poly_rem, 0, poly_tree, _poly_mult, power - 1, 0, tiny_power, gwarrays_down, 1 << power);
             if (tiny_power > 0)
@@ -1575,7 +1575,7 @@ template void Stage2Poly<LucasV>::done(const arithmetic::Giant& factor);
 void PP1Stage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, int count, gwnum* data)
 {
     for (int i = 0; i < count; i++)
-        gw().unfft(elements[i]->V(), (GWNum&)GWNumWrapper(gw(), data[i]));
+        gw().unfft(elements[i]->V(), (GWNum&)gw().wrap(data[i]));
 }
 
 void PP1Stage2Poly::write_state()
@@ -1863,7 +1863,7 @@ void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::uniqu
             gw().mul(*elements[i]->Z, *elements[i - 1]->ZpY, *elements[i - 1]->ZpY, GWMUL_STARTNEXTFFT);
         }
         if (elements[i]->Y)
-            gw().mul(*elements[i]->ZpY, *elements[i]->Y, (GWNum&)GWNumWrapper(gw(), data[i]), 0);
+            gw().mul(*elements[i]->ZpY, *elements[i]->Y, (GWNum&)gw().wrap(data[i]), 0);
     }
 }
 
