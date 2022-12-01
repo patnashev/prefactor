@@ -9,7 +9,6 @@
 #include "cpuid.h"
 #include "stage2poly.h"
 #include "exception.h"
-#include "windows.h"
 
 using namespace arithmetic;
 
