@@ -2,7 +2,7 @@
 
 EXE       = prefactor
 EXE_F     = prefactor_f
-LIB_GWNUM = ../../framework/gwnum/linux64/gwnum.a
+LIB_GWNUM = ../../framework/gwnum/linux64/gwnum.a ../../framework/gwnum/linux64/polymult.a
 
 COMPOBJS_COMMON = md5.o arithmetic.o edwards.o giant.o lucas.o montgomery.o poly.o inputnum.o integer.o logging.o file.o task.o stage1.o stage2.o stage2poly.o prob.o params.o
 COMPOBJS   = $(COMPOBJS_COMMON) group.o   prefactor.o
@@ -15,19 +15,21 @@ VPATH     = ..:../../framework:../../framework/arithmetic
 # insert proper dummy file to get _GWDATA data segment aligned
 # on a 32 byte boundary.  Use proper dummyNN.o to do the alignment
 
-DUMMY2 = ../gwnum/linux64/gwnum.ld
+DUMMY2 = ../../framework/gwnum/linux64/gwnum.ld
 LIBS2  = -lm -lpthread -lstdc++ -lgmp -static
 
 CC  = gcc
 CXX = g++
 CFLAGS   = -I.. -I../../framework/gwnum                                                          -DGMP -DX86_64 -O2 -std=c99     -Wall -Wextra
-CXXFLAGS = -I.. -I../../framework -I../../framework/arithmetic -I../../framework/gwnum -DEXT_DAC -DGMP -DX86_64 -O2 -std=gnu++17 -Wall -Wextra
+CXXFLAGS = -I.. -I../../framework -I../../framework/arithmetic -I../../framework/gwnum -DEXT_DAC -DGMP -DX86_64 -O2 -std=gnu++17 -Wall -Wextra -Wno-sign-compare
 
 #########################################################################
 
 all: $(EXE)
 
-factoring: $(EXE_F)
+all_f: $(EXE_F)
+
+.PHONY: all all_f
 
 $(EXE): $(COMPOBJS)
 	$(CC) -o $@ $(COMPOBJS) $(LIB_GWNUM) $(DUMMY2) $(LIBS2)

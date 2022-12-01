@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
+#include <functional>
 #include <string.h>
 
 #include "gwnum.h"
