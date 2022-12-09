@@ -30,7 +30,8 @@ protected:
         virtual ~SmallPolyWorker();
 
         void run();
-        virtual void elements_to_gwnums(std::vector<std::unique_ptr<Element>>& elements, int count, gwnum* data) = 0;
+        virtual void element_copy(Element& a, Element& res) = 0;
+        virtual void elements_to_gwnums(std::vector<Element>& elements, int count, gwnum* data) = 0;
 
         virtual typename Element::Arithmetic& arithmetic() = 0;
         arithmetic::GWArithmetic& gw() { return _gw; }
@@ -43,13 +44,19 @@ protected:
         bool _main = false;
         Stage2Poly<Element>& _stage2;
         arithmetic::GWState _gwstate;
-        arithmetic::ThreadSafeGWArithmetic _gw;
+        arithmetic::GWArithmetic _gw;
         std::unique_ptr<arithmetic::GWNum> _G;
         std::unique_ptr<arithmetic::GWNum> _check;
 
         std::deque<arithmetic::GWState> _poly_gwstate;
         std::deque<arithmetic::GWArithmetic> _poly_gw;
         std::vector<arithmetic::PolyMult> _poly_mult;
+
+        std::vector<gwarray> gwarrays;
+        std::vector<gwarray> gwarrays_tmp;
+        std::vector<gwarray> gwarrays_down;
+        std::vector<Element> elements;
+        gwarray gwarray_elements = nullptr;
     };
 
 protected:
@@ -79,8 +86,11 @@ protected:
     void execute() override;
     void release() override;
     void done(const arithmetic::Giant& factor) override;
-    void write_state(Writer* writer);
-    bool read_state(Reader* reader);
+
+    void write_state() override;
+    void read_state();
+    virtual void element_write(Writer* writer, std::unique_ptr<Element>& a) = 0;
+    virtual bool element_read(Reader* reader, std::unique_ptr<Element>& a) = 0;
 
     int poly_power() { return _poly_power; }
     bool poly_check() { return _poly_check; }
@@ -152,9 +162,10 @@ public:
     class SmallPolyWorker : public Stage2Poly<arithmetic::LucasV>::SmallPolyWorker
     {
     public:
-        SmallPolyWorker(PP1Stage2Poly& stage2) : Stage2Poly<arithmetic::LucasV>::SmallPolyWorker(stage2), _lucas(_gw) { }
+        SmallPolyWorker(PP1Stage2Poly& stage2);
 
-        virtual void elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, int count, gwnum* data) override;
+        virtual void element_copy(arithmetic::LucasV& a, arithmetic::LucasV& res) override;
+        virtual void elements_to_gwnums(std::vector<arithmetic::LucasV>& elements, int count, gwnum* data) override;
         virtual arithmetic::LucasVArithmetic& arithmetic() override { return _lucas; }
 
     protected:
@@ -173,12 +184,12 @@ public:
 protected:
     void setup() override;
     void release() override;
-    void write_state() override;
+    void element_write(Writer* writer, std::unique_ptr<arithmetic::LucasV>& a) override;
+    bool element_read(Reader* reader, std::unique_ptr<arithmetic::LucasV>& a) override;
 
 private:
     arithmetic::Giant _P;
 
-    std::unique_ptr<arithmetic::ThreadSafeGWArithmetic> _safe_gw;
     std::unique_ptr<arithmetic::LucasVArithmetic> _lucas;
     std::unique_ptr<arithmetic::LucasV> _W;
     std::unique_ptr<arithmetic::LucasV> _Wd;
@@ -190,9 +201,10 @@ public:
     class SmallPolyWorker : public Stage2Poly<arithmetic::EdY>::SmallPolyWorker
     {
     public:
-        SmallPolyWorker(EdECMStage2Poly& stage2) : Stage2Poly<arithmetic::EdY>::SmallPolyWorker(stage2), _montgomery(_gw, *stage2._ed_d) { }
+        SmallPolyWorker(EdECMStage2Poly& stage2);
 
-        virtual void elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::EdY>>& elements, int count, gwnum* data) override;
+        virtual void element_copy(arithmetic::EdY& a, arithmetic::EdY& res) override;
+        virtual void elements_to_gwnums(std::vector<arithmetic::EdY>& elements, int count, gwnum* data) override;
         virtual arithmetic::MontgomeryArithmetic& arithmetic() override { return _montgomery; }
 
     protected:
@@ -212,7 +224,8 @@ protected:
     void setup() override;
     void execute() override;
     void release() override;
-    void write_state() override;
+    void element_write(Writer* writer, std::unique_ptr<arithmetic::EdY>& a) override;
+    bool element_read(Reader* reader, std::unique_ptr<arithmetic::EdY>& a) override;
 
 private:
     arithmetic::Giant _X;
@@ -222,7 +235,6 @@ private:
     arithmetic::Giant _EdD;
 
     std::unique_ptr<arithmetic::GWNum> _ed_d;
-    std::unique_ptr<arithmetic::ThreadSafeGWArithmetic> _safe_gw;
     std::unique_ptr<arithmetic::MontgomeryArithmetic> _montgomery;
     std::unique_ptr<arithmetic::EdY> _W;
     std::unique_ptr<arithmetic::EdY> _Wd;

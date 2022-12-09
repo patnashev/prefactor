@@ -99,6 +99,13 @@ int main(int argc, char *argv[])
                     gwstate.thread_count = 1;
                 continue;
 
+            case 'l':
+                if (!argv[i][2])
+                    gwstate.large_pages = true;
+                else
+                    break;
+                continue;
+
             case 'q':
                 if (argv[i][2] != '\"' && !isdigit(argv[i][2]))
                     break;
@@ -501,7 +508,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             file1.clear();
             file12.clear();
-            file2.clear();
+            file2.clear(true);
         }
         if (params_pp1 && !success)
         {
@@ -540,7 +547,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             file1.clear();
             file12.clear();
-            file2.clear();
+            file2.clear(true);
         }
         if (params_edecm && !success)
         {
@@ -632,7 +639,7 @@ int main(int argc, char *argv[])
             logging.progress().next_stage();
             file1.clear();
             file12.clear();
-            file2.clear();
+            file2.clear(true);
         }
         if (!success)
         {

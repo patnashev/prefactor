@@ -384,6 +384,13 @@ int net_main(int argc, char *argv[])
                     gwstate.thread_count = 1;
                 continue;
 
+            case 'l':
+                if (!argv[i][2])
+                    gwstate.large_pages = true;
+                else
+                    break;
+                continue;
+
             case 'M':
                 if (argv[i][2] && isdigit(argv[i][2]))
                     maxMem = InputNum::parse_numeral(argv[i] + 2);

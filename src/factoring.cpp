@@ -634,6 +634,13 @@ int factoring_main(int argc, char *argv[])
                     gwstate.thread_count = 1;
                 continue;
 
+            case 'l':
+                if (!argv[i][2])
+                    gwstate.large_pages = true;
+                else
+                    break;
+                continue;
+
             case 'q':
                 if (argv[i][2] != '\"' && !isdigit(argv[i][2]))
                     break;

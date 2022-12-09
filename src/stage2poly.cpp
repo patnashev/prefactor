@@ -33,6 +33,7 @@ template<class Element>
 void Stage2Poly<Element>::init(InputNum* input, GWState* gwstate, File* file, TaskState* state, Logging* logging)
 {
 #ifdef _DEBUG
+    //_smallpoly_power = _tinypoly_power + 1;
     //_tinypoly_power = 0;
     //_poly_check = false;
 #endif
@@ -213,9 +214,9 @@ void build_tree_tinypoly(std::vector<std::vector<Poly>>& tree, int k, int tiny_p
             pm_next.init(gwarrays[j] + (k << tiny_power), cur.size(), false, cur.monic(), next);
         }
         else if (!next.empty())
-            pm_next.alloc(next, cur.size());
+            pm_next.alloc(next, (int)cur.size());
         else
-            pm.init(cur.data(), cur.size(), false, cur.monic(), next);
+            pm.init(cur.data(), (int)cur.size(), false, cur.monic(), next);
         if (convert && preserve)
         {
             if (gwarrays_tmp[j - 1] == nullptr)
@@ -238,7 +239,7 @@ void build_tree_tinypoly(std::vector<std::vector<Poly>>& tree, int k, int tiny_p
                         gwcopy(pm.gw().gwdata(), cur.data()[i], res.data()[i]);
                 continue;
             }
-            int sb = offset + 2*degree <= cur.size() ? degree : cur.size() - offset - degree;
+            int sb = offset + 2*degree <= (int)cur.size() ? degree : (int)cur.size() - offset - degree;
             if (degree == 1)
             {
                 if (preserve)
@@ -344,7 +345,7 @@ void rem_tree_tinypoly(std::vector<Poly>& poly_rem, int k, std::vector<std::vect
     int i, j;
     GWNum a0(poly_mult[0].gw());
     Poly& rem = poly_rem[k];
-    int size = rem.size();
+    int size = (int)rem.size();
     for (j = tiny_power - 1; gwarrays_down[j] == nullptr; j++);
     gwarray last_gwarray = gwarrays_down[j] + (k << tiny_power);
     for (; last_gwarray[0] != rem.data()[0]; last_gwarray++);
@@ -570,10 +571,10 @@ void Stage2Poly<Element>::setup()
 #endif
 
 #ifdef DEBUG_STAGE2POLY_MOD
-    std::vector<std::unique_ptr<Element>> elements;
+    std::vector<Element> elements;
     for (i = 1, j = 0; i < _D/2; i++)
         if (gcd(_D, i) == 1)
-            arithmetic().mul(X1, i, *elements.emplace_back(new Element(arithmetic())));
+            arithmetic().mul(X1, i, elements.emplace_back(arithmetic()));
     GWASSERT(elements.size() == _poly_mod_degree);
     Poly poly(_poly_mult[0], _poly_mod_degree, false);
     _workers[0]->elements_to_gwnums(elements, elements.size(), poly.data());
@@ -598,13 +599,13 @@ void Stage2Poly<Element>::setup()
     arithmetic().mul(Xd, _first_D, Xn, Xn1);
     for (i = _first_D; i <= _last_D; i++)
     {
-        elements.emplace_back(new Element(arithmetic()));
+        elements.emplace_back(arithmetic());
         if (i > 0)
-            arithmetic().add(Xd, Xn1, Xn, *elements.back());
+            arithmetic().add(Xd, Xn1, Xn, elements.back());
         else
-            arithmetic().dbl(Xn1, *elements.back());
+            arithmetic().dbl(Xn1, elements.back());
         swap(Xn, Xn1);
-        swap(Xn1, *elements.back());
+        swap(Xn1, elements.back());
     }
     Poly poly_roots(_poly_mult[0], elements.size(), false);
     _workers[0]->elements_to_gwnums(elements, elements.size(), poly_roots.data());
@@ -738,6 +739,7 @@ void Stage2Poly<Element>::execute()
 
     std::vector<std::vector<arithmetic::Poly>> poly_prod(poly_power() + 1);
     int count = iterations() - state()->iteration();
+    bool optimal = (iterations() - _poly_mod_degree)%(1 << poly_power()) == 0;
     while (count > 0)
     {
         _logging->debug("%d steps left.\n", count);
@@ -835,9 +837,15 @@ void Stage2Poly<Element>::execute()
         count -= (int)poly_prod[poly_power()][0].size();
 
         if (!_accumulator && poly_prod[poly_power()][0].degree() < _poly_mod_degree)
+        {
+            if (optimal && poly_prod[poly_power()][0].degree() < _poly_mod_degree - 1)
+                _logging->warning("non-optimal poly degree %d.\n", (int)poly_prod[poly_power()][0].size());
             _accumulator.reset(new Poly(std::move(poly_prod[poly_power()][0])));
+        }
         else
         {
+            if (optimal && (int)poly_prod[poly_power()][0].size() < (1 << poly_power()))
+                _logging->warning("non-optimal poly degree %d.\n", (int)poly_prod[poly_power()][0].size());
             _logging->debug("merging.\n");
             timer = getHighResTimer();
             if (!_accumulator)
@@ -938,7 +946,7 @@ void Stage2Poly<Element>::execute()
             rems.emplace_back(std::move(_smallpoly_mod[k][_smallpoly_power][0]));
 #endif
         std::unique_lock<std::mutex> lock(_work_mutex);
-        _smallpoly_count = _smallpoly_mod.size();
+        _smallpoly_count = (int)_smallpoly_mod.size();
         _smallpoly.clear();
         _smallpoly.resize(_smallpoly_mod.size());
         _smallpoly_alloc = std::move(_smallpoly_mod);
@@ -1024,7 +1032,7 @@ void Stage2Poly<Element>::execute()
 
     {
         std::unique_lock<std::mutex> lock(_work_mutex);
-        _smallpoly_count = _smallpoly_mod.size();
+        _smallpoly_count = (int)_smallpoly_mod.size();
         _smallpoly_rem = std::move(poly_rem);
         GWASSERT(_smallpoly_rem.size() == _smallpoly_mod.size());
 
@@ -1126,11 +1134,34 @@ Stage2Poly<Element>::SmallPolyWorker::SmallPolyWorker(Stage2Poly<Element>& stage
         else
             _poly_mult.emplace_back(_poly_mult[i - 1].gw(), 1);
     }
+
+    gwarrays.resize(power + 1);
+    gwarrays_tmp.resize(power + 1);
+    gwarrays_down.resize(power + 1);
 }
 
 template<class Element>
 Stage2Poly<Element>::SmallPolyWorker::~SmallPolyWorker()
 {
+    int j;
+    for (j = 0; j < gwarrays.size(); j++)
+        if (gwarrays[j] != nullptr)
+            gwfree_array(_poly_mult[j].gw().gwdata(), gwarrays[j]);
+    gwarrays.clear();
+    for (j = 0; j < gwarrays_tmp.size(); j++)
+        if (gwarrays_tmp[j] != nullptr)
+            gwfree_array(_poly_mult[j].gw().gwdata(), gwarrays_tmp[j]);
+    gwarrays_tmp.clear();
+    for (j = 0; j < gwarrays_down.size(); j++)
+        if (gwarrays_down[j] != nullptr)
+            gwfree_array(_poly_mult[j].gw().gwdata(), gwarrays_down[j]);
+    gwarrays_down.clear();
+
+    elements.clear();
+    if (gwarray_elements != nullptr)
+        gwfree_array(gw().gwdata(), gwarray_elements);
+    gwarray_elements = nullptr;
+
     _poly_mult.clear();
     _poly_gw.clear();
     _poly_gwstate.clear();
@@ -1146,26 +1177,21 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
     int power = _stage2._smallpoly_power;
     int tiny_power = _stage2._tinypoly_power;
     int degree, index;
-    std::vector<std::unique_ptr<Element>> elements;
-    elements.reserve((size_t)1 << power);
     int elements_count = 0;
     std::vector<int> element_map;
-    element_map.resize((size_t)1 << power);
     std::vector<std::vector<Poly>> poly_tree;
     std::vector<Poly> poly_rem;
-    poly_rem.reserve((size_t)1 << (power - tiny_power));
     bool workitem_done = false;
-    std::vector<gwarray> gwarrays(power + 1);
-    std::vector<gwarray> gwarrays_tmp(power + 1);
-    std::vector<gwarray> gwarrays_down(power + 1);
     std::unique_ptr<GWNum> check_root;
 
     try
     {
+        if (workstage <= 1)
+            element_map.resize((size_t)1 << power);
         while (workstage <= 2)
         {
-            std::unique_ptr<Element> Xn;
-            std::unique_ptr<Element> Xn1;
+            Element& Xn = elements[elements.size() - 1];
+            Element& Xn1 = elements[elements.size() - 2];
             std::unique_ptr<Element> TXn;
             std::unique_ptr<Element> TXn1;
             std::unique_ptr<Element> TXdn;
@@ -1198,57 +1224,54 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                 {
                     poly_tree = std::move(_stage2._smallpoly_alloc.back());
                     _stage2._smallpoly_alloc.pop_back();
-                    degree = poly_tree[0].size() << tiny_power;
-                    index = _stage2._smallpoly_alloc.size();
+                    degree = (int)poly_tree[0].size() << tiny_power;
+                    index = (int)_stage2._smallpoly_alloc.size();
                 }
 
                 _stage2._workqueue_signal.wait(lock, [&] {return (workstage = _stage2._workstage) > 2 || !_stage2._workqueue.empty(); });
                 if (workstage > 2)
                     break;
-                Xn = std::move(_stage2._workqueue.back().Xn);
-                Xn1 = std::move(_stage2._workqueue.back().Xn1);
-                TXdn = std::move(_stage2._workqueue.back().Xdn);
-                TXdn1 = std::move(_stage2._workqueue.back().Xdn1);
-                count = _stage2._workqueue.back().count;
-                n = _stage2._workqueue.back().n;
-                distance = _stage2._workqueue.back().distance;
-                _stage2._workqueue.pop_back();
+                TXn = std::move(_stage2._workqueue.front().Xn);
+                TXn1 = std::move(_stage2._workqueue.front().Xn1);
+                TXdn = std::move(_stage2._workqueue.front().Xdn);
+                TXdn1 = std::move(_stage2._workqueue.front().Xdn1);
+                count = _stage2._workqueue.front().count;
+                n = _stage2._workqueue.front().n;
+                distance = _stage2._workqueue.front().distance;
+                _stage2._workqueue.pop_front();
             }
+            element_copy(*TXn, Xn);
+            if (count > 1)
+                element_copy(*TXn1, Xn1);
+
             if (workstage == 2 && distance > (1 << power))
             {
-                TXn.reset(new Element(arithmetic()));
-                TXn1.reset(new Element(arithmetic()));
-                *TXn = *Xn;
-                *TXn1 = *Xn1;
-                std::swap(TXn, Xn);
-                std::swap(TXn1, Xn1);
-
                 distance -= (1 << power);
                 std::swap(TXn, TXdn);
                 std::swap(TXn1, TXdn1);
                 if (distance > (1 << power))
                 {
                     if (n > 0)
-                        arithmetic().add(*_stage2._Xd, *TXn, *Xn, *TXdn);
+                        arithmetic().add(*_stage2._Xd, *TXn, Xn, *TXdn);
                     else
                         arithmetic().dbl(*TXn, *TXdn);
                 }
                 else
                     TXdn.reset();
                 if (distance > (1 << power) + 1)
-                    arithmetic().add(*_stage2._Xd, *TXn1, *Xn1, *TXdn1);
+                    arithmetic().add(*_stage2._Xd, *TXn1, Xn1, *TXdn1);
                 else
                     TXdn1.reset();
 
                 std::unique_lock<std::mutex> lock(_stage2._work_mutex);
-                _stage2._workqueue.emplace_front();
-                _stage2._workqueue.front().Xn = std::move(TXn);
-                _stage2._workqueue.front().Xn1 = std::move(TXn1);
-                _stage2._workqueue.front().Xdn = std::move(TXdn);
-                _stage2._workqueue.front().Xdn1 = std::move(TXdn1);
-                _stage2._workqueue.front().count = distance >= (1 << power) ? (1 << power) : distance;
-                _stage2._workqueue.front().n = n + (1 << power);
-                _stage2._workqueue.front().distance = distance;
+                _stage2._workqueue.emplace_back();
+                _stage2._workqueue.back().Xn = std::move(TXn);
+                _stage2._workqueue.back().Xn1 = std::move(TXn1);
+                _stage2._workqueue.back().Xdn = std::move(TXdn);
+                _stage2._workqueue.back().Xdn1 = std::move(TXdn1);
+                _stage2._workqueue.back().count = distance >= (1 << power) ? (1 << power) : distance;
+                _stage2._workqueue.back().n = n + (1 << power);
+                _stage2._workqueue.back().distance = distance;
                 lock.unlock();
                 _stage2._workqueue_signal.notify_one();
 
@@ -1259,21 +1282,20 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
             
             while (elements_count < degree && count > 0)
             {
-                if (elements_count >= elements.size())
-                    elements.emplace_back(new Element(arithmetic()));
-                std::unique_ptr<Element>& Xtmp = elements[elements_count];
+                Element& Xtmp = elements[elements_count];
                 if (count > 2)
                 {
                     if (n > 0)
-                        arithmetic().add(*_stage2._X1, *Xn1, *Xn, *Xtmp);
+                        arithmetic().add(*_stage2._X1, Xn1, Xn, Xtmp);
                     else
-                        arithmetic().dbl(*Xn1, *Xtmp);
+                        arithmetic().dbl(Xn1, Xtmp);
                 }
-                std::swap(Xn, Xn1);
-                std::swap(Xn1, Xtmp);
+                swap(Xn, Xn1);
+                swap(Xn1, Xtmp);
                 if (workstage > 1 || gcd(_stage2.D(), n) == 1)
                 {
-                    element_map[elements_count] = n;
+                    if (workstage == 1)
+                        element_map[elements_count] = n;
                     elements_count++;
                 }
                 count--;
@@ -1281,10 +1303,21 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
             }
             if (count > 0)
             {
+                if (!TXn)
+                    TXn.reset(new Element(arithmetic()));
+                *TXn = Xn;
+                if (count > 1)
+                {
+                    if (!TXn1)
+                        TXn1.reset(new Element(arithmetic()));
+                    *TXn1 = Xn1;
+                }
+                else
+                    TXn1.reset();
                 std::unique_lock<std::mutex> lock(_stage2._work_mutex);
                 _stage2._workqueue.emplace_back();
-                _stage2._workqueue.back().Xn = std::move(Xn);
-                _stage2._workqueue.back().Xn1 = std::move(Xn1);
+                _stage2._workqueue.back().Xn = std::move(TXn);
+                _stage2._workqueue.back().Xn1 = std::move(TXn1);
                 _stage2._workqueue.back().count = count;
                 _stage2._workqueue.back().n = n;
                 _stage2._workqueue.back().distance = distance;
@@ -1325,7 +1358,13 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                 workitem_done = true;
             }
         }
-        elements.clear();
+        if (workstage > 2)
+        {
+            elements.clear();
+            if (gwarray_elements != nullptr)
+                gwfree_array(gw().gwdata(), gwarray_elements);
+            gwarray_elements = nullptr;
+        }
 
         workitem_done = false;
         while (workstage == 3)
@@ -1349,8 +1388,8 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                     break;
                 poly_tree = std::move(_stage2._smallpoly_alloc.back());
                 _stage2._smallpoly_alloc.pop_back();
-                degree = poly_tree[0].size() << tiny_power;
-                index = _stage2._smallpoly_alloc.size();
+                degree = (int)poly_tree[0].size() << tiny_power;
+                index = (int)_stage2._smallpoly_alloc.size();
             }
 
             if (tiny_power > 0)
@@ -1363,6 +1402,8 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
 
         check_root.reset();
         workitem_done = false;
+        if (workstage == 4)
+            poly_rem.reserve((size_t)1 << (power - tiny_power));
         while (workstage == 4)
         {
             {
@@ -1435,19 +1476,6 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
         }
 
         gwarrays_down[power - 1] = nullptr;
-        for (j = 0; j < gwarrays.size(); j++)
-            if (gwarrays[j] != nullptr)
-                gwfree_array(_poly_mult[j].gw().gwdata(), gwarrays[j]);
-        gwarrays.clear();
-        for (j = 0; j < gwarrays_tmp.size(); j++)
-            if (gwarrays_tmp[j] != nullptr)
-                gwfree_array(_poly_mult[j].gw().gwdata(), gwarrays_tmp[j]);
-        gwarrays_tmp.clear();
-        for (j = 0; j < gwarrays_down.size(); j++)
-            if (gwarrays_down[j] != nullptr)
-                gwfree_array(_poly_mult[j].gw().gwdata(), gwarrays_down[j]);
-        gwarrays_down.clear();
-        GWASSERT(gw().gwdata()->array_list == nullptr);
     }
     catch (const std::exception&)
     {
@@ -1465,10 +1493,30 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
 }
 
 template<class Element>
-void Stage2Poly<Element>::write_state(Writer* writer)
+void Stage2Poly<Element>::write_state()
 {
+    if (_file == nullptr || state() == nullptr || state()->iteration() == 0)
+        return;
+
     int i, j, k;
     Giant tmp;
+
+    _logging->debug("saving state to disk.\n");
+    std::unique_ptr<Writer> writer(_file->get_writer(state()->type(), state()->version()));
+
+    writer->write(state()->iteration());
+    writer->write((int)_workqueue.size());
+    for (auto it = _workqueue.begin(); it != _workqueue.end(); it++)
+    {
+        writer->write(it->n);
+        writer->write(it->count);
+        writer->write(it->distance);
+        element_write(writer.get(), it->Xn);
+        element_write(writer.get(), it->Xn1);
+        element_write(writer.get(), it->Xdn);
+        element_write(writer.get(), it->Xdn1);
+    }
+
     if (poly_check())
     {
         GWNum check(gw());
@@ -1493,73 +1541,112 @@ void Stage2Poly<Element>::write_state(Writer* writer)
         std::unique_ptr<Writer> subwriter(subf->get_writer(State::SUB_TYPE, 0));
         count = (1 << _smallpoly_power);
         if (i + count > _accumulator->size())
-            count = _accumulator->size() - i;
+            count = (int)_accumulator->size() - i;
         subwriter->write(count);
         for (j = 0; j < count; j++, i++)
             subwriter->write(tmp = _accumulator->at(i));
         subf->commit_writer(*subwriter);
         subf->free_buffer();
     }
+
+    _file->commit_writer(*writer);
+    state()->set_written();
+    _logging->debug("state saved.\n");
 }
 
 template<class Element>
-bool Stage2Poly<Element>::read_state(Reader* reader)
+void Stage2Poly<Element>::read_state()
 {
-    int i, j, k;
-    Giant tmp;
-    if (!reader->read(j))
-        return false;
-    if (poly_check() && j != 0)
-        for (_poly_check_index = 0; _poly_check_index < _element_map.size() && _element_map[_poly_check_index] != j; _poly_check_index++);
-    if (!reader->read(tmp))
-        return false;
-    if (poly_check() && tmp != 0)
-        *_workers[0]->check() = tmp;
-    _logging->info("%d, %x\n", _poly_check_index, _element_map[_poly_check_index]);
-    //execute();
-    
-    bool monic = false;
-    int files = 0;
-    if (!reader->read(files))
-        return false;
-    if (files <= 0)
+    auto read_files = [&]()
     {
-        monic = true;
-        files *= -1;
-    }
-    PolyMult& pm = _poly_mult[poly_power()];
-    Poly& res = _poly_mod[poly_power()][0];
-    for (i = 0, k = 0; k < files; k++)
-    {
-        File* subf = _file->add_child(std::to_string(k), File::unique_fingerprint(_file->fingerprint(), std::to_string(state()->iteration())));
-        std::unique_ptr<Reader> subreader(subf->get_reader());
-        if (!subreader)
-            break;
-        int count;
-        if (!subreader->read(count))
-            break;
-        for (j = 0; j < count; j++, i++)
-        {
-            if (!subreader->read(tmp))
-                break;
-            (GWNum&)res.at(i) = tmp;
-        }
-        if (j < count)
-            break;
-        subf->free_buffer();
-    }
-    if (k < files)
-    {
-        if (i == 0)
+        int i, j, k;
+        Giant tmp;
+
+        std::unique_ptr<Reader> reader(_file->get_reader());
+        if (!reader)
             return false;
-        Poly one(pm, 0, true);
-        pm.mul(*_modulus, one, res, POLYMULT_NEXTFFT);
-        return false;
+        if (!reader->read(i) || state()->iteration() != i)
+            return false;
+        if (!reader->read(k))
+            return false;
+
+        for (; k > 0; k--)
+        {
+            _workqueue.emplace_back();
+            if (!reader->read(_workqueue.back().n))
+                return false;
+            if (!reader->read(_workqueue.back().count))
+                return false;
+            if (!reader->read(_workqueue.back().distance))
+                return false;
+            element_read(reader.get(), _workqueue.back().Xn);
+            element_read(reader.get(), _workqueue.back().Xn1);
+            element_read(reader.get(), _workqueue.back().Xdn);
+            element_read(reader.get(), _workqueue.back().Xdn1);
+        }
+
+        if (!reader->read(j))
+            return false;
+        if (poly_check() && j != 0)
+            for (_poly_check_index = 0; _poly_check_index < _element_map.size() && _element_map[_poly_check_index] != j; _poly_check_index++);
+        if (!reader->read(tmp))
+            return false;
+        if (poly_check() && tmp != 0)
+            *_workers[0]->check() = tmp;
+
+        bool monic = false;
+        int files = 0;
+        if (!reader->read(files))
+            return false;
+        if (files <= 0)
+        {
+            monic = true;
+            files *= -1;
+        }
+        PolyMult& pm = _poly_mult[poly_power()];
+        Poly& res = _poly_mod[poly_power()][0];
+        for (i = 0, k = 0; k < files; k++)
+        {
+            File* subf = _file->add_child(std::to_string(k), File::unique_fingerprint(_file->fingerprint(), std::to_string(state()->iteration())));
+            std::unique_ptr<Reader> subreader(subf->get_reader());
+            if (!subreader)
+                break;
+            int count;
+            if (!subreader->read(count))
+                break;
+            for (j = 0; j < count; j++, i++)
+            {
+                if (!subreader->read(tmp))
+                    break;
+                (GWNum&)res.at(i) = tmp;
+            }
+            if (j < count)
+                break;
+            subf->free_buffer();
+        }
+        if (k < files)
+        {
+            if (i == 0)
+                return false;
+            Poly one(pm, 0, true);
+            pm.mul(*_modulus, one, res, POLYMULT_NEXTFFT);
+            return false;
+        }
+        _accumulator.reset(new Poly(pm));
+        pm.init(res.data(), i, false, monic, *_accumulator);
+        pm.free(res);
+        return true;
+    };
+
+    _logging->debug("reading state.\n");
+    if (!read_files())
+    {
+        _logging->warning("restart failed.\n");
+        _state.reset();
+        _workqueue.clear();
+        if (poly_check())
+            *_workers[0]->check() = 1;
     }
-    _accumulator.reset(new Poly(pm));
-    pm.init(res.data(), i, false, monic, *_accumulator);
-    pm.free(res);
-    return true;
 }
 
 
@@ -1573,53 +1660,55 @@ void PP1Stage2Poly::init(InputNum* input, GWState* gwstate, File* file, Logging*
 
 template void Stage2Poly<LucasV>::done(const arithmetic::Giant& factor);
 
-void PP1Stage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::LucasV>>& elements, int count, gwnum* data)
+PP1Stage2Poly::SmallPolyWorker::SmallPolyWorker(PP1Stage2Poly& stage2) : Stage2Poly<arithmetic::LucasV>::SmallPolyWorker(stage2), _lucas(_gw)
 {
+    int count = (1 << stage2._smallpoly_power) + 2;
+    gwarray_elements = gwalloc_array(gw().gwdata(), count);
+    elements.reserve(count);
     for (int i = 0; i < count; i++)
-        gw().unfft(elements[i]->V(), (GWNum&)gw().wrap(data[i]));
+        elements.emplace_back(arithmetic(), gwarray_elements[i]);
 }
 
-void PP1Stage2Poly::write_state()
+void PP1Stage2Poly::SmallPolyWorker::element_copy(arithmetic::LucasV& a, arithmetic::LucasV& res)
 {
-    if (_file == nullptr || state() == nullptr || state()->iteration() == 0)
-        return;
-    _logging->debug("saving state to disk.\n");
-    Giant tmp;
-    std::unique_ptr<Writer> writer(_file->get_writer(state()->type(), state()->version()));
-    auto write_LucasV = [&](std::unique_ptr<LucasV>& p)
-    {
-        if (p)
-            writer->write(tmp = p->V());
-        else
-            writer->write(0);
-    };
+    res = a;
+}
 
-    writer->write(state()->iteration());
-    writer->write((int)_workqueue.size());
-    for (auto it = _workqueue.begin(); it != _workqueue.end(); it++)
+void PP1Stage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<arithmetic::LucasV>& elements, int count, gwnum* data)
+{
+    for (int i = 0; i < count; i++)
+        gw().unfft(elements[i].V(), (GWNum&)gw().wrap(data[i]));
+}
+
+template void Stage2Poly<LucasV>::write_state();
+template void Stage2Poly<LucasV>::read_state();
+
+void PP1Stage2Poly::element_write(Writer* writer, std::unique_ptr<LucasV>& a)
+{
+    if (a)
+        writer->write(gw().popg() = a->V());
+    else
+        writer->write(0);
+}
+
+bool PP1Stage2Poly::element_read(Reader* reader, std::unique_ptr<LucasV>& a)
+{
+    Giant tmp = gw().popg();
+    if (!reader->read(tmp))
+        return false;
+    if (tmp != 0)
     {
-        writer->write(it->n);
-        writer->write(it->count);
-        writer->write(it->distance);
-        write_LucasV(it->Xn);
-        write_LucasV(it->Xn1);
-        write_LucasV(it->Xdn);
-        write_LucasV(it->Xdn1);
+        a.reset(new LucasV(arithmetic()));
+        a->V() = tmp;
     }
-
-    Stage2Poly::write_state(writer.get());
-    _file->commit_writer(*writer);
-    state()->set_written();
-    _logging->debug("state saved.\n");
+    return true;
 }
 
 void PP1Stage2Poly::setup()
 {
     if (!_lucas)
         _lucas.reset(new LucasVArithmetic());
-    if (!_safe_gw)
-        _safe_gw.reset(new ThreadSafeGWArithmetic(*_gwstate));
-    _lucas->set_gw(*_safe_gw);
+    _lucas->set_gw(gw());
     if (!_W)
         _W.reset(new LucasV(arithmetic()));
     if (!_Wd)
@@ -1635,8 +1724,6 @@ void PP1Stage2Poly::setup()
         _threads.emplace_back(&SmallPolyWorker::run, _workers.back().get());
     }
 
-    _gwstate->gwdata()->gwnum_max_free_count = ((1 << _smallpoly_power) + 4) + 16;
-
     if (!_modulus)
     {
         _W->V() = _P;
@@ -1647,6 +1734,7 @@ void PP1Stage2Poly::setup()
 
     int v;
     int count = iterations();
+    int tail = count%(1 << _smallpoly_power);
     int distance = (count >> _smallpoly_power)/_poly_threads;
     if (distance == 0)
         distance = 1;
@@ -1663,44 +1751,7 @@ void PP1Stage2Poly::setup()
     std::unique_ptr<LucasV> Wdist;
 
     if (state() != nullptr)
-    {
-        std::unique_ptr<Reader> reader(_file->get_reader());
-        reader->read(v);
-        reader->read(count);
-        Giant tmp;
-        for (; count > 0; count--)
-        {
-            _workqueue.emplace_back();
-            reader->read(_workqueue.back().n);
-            reader->read(_workqueue.back().count);
-            reader->read(_workqueue.back().distance);
-            reader->read(tmp);
-            if (tmp != 0)
-            {
-                _workqueue.back().Xn.reset(new LucasV(arithmetic()));
-                _workqueue.back().Xn->V() = tmp;
-            }
-            reader->read(tmp);
-            if (tmp != 0)
-            {
-                _workqueue.back().Xn1.reset(new LucasV(arithmetic()));
-                _workqueue.back().Xn1->V() = tmp;
-            }
-            reader->read(tmp);
-            if (tmp != 0)
-            {
-                _workqueue.back().Xdn.reset(new LucasV(arithmetic()));
-                _workqueue.back().Xdn->V() = tmp;
-            }
-            reader->read(tmp);
-            if (tmp != 0)
-            {
-                _workqueue.back().Xdn1.reset(new LucasV(arithmetic()));
-                _workqueue.back().Xdn1->V() = tmp;
-            }
-        }
-        read_state(reader.get());
-    }
+        read_state();
 
     if (state() == nullptr)
     {
@@ -1709,8 +1760,16 @@ void PP1Stage2Poly::setup()
 
         _workqueue.emplace_back();
         _workqueue.back().n = v;
-        _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
-        _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
+        if (tail != 0)
+        {
+            _workqueue.back().count = tail;
+            _workqueue.back().distance = tail;
+        }
+        else
+        {
+            _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
+            _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
+        }
 
         LucasV Pn(arithmetic());
         LucasV Pn1(arithmetic());
@@ -1747,7 +1806,7 @@ void PP1Stage2Poly::setup()
             _workqueue.back().distance = count - total >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count - total;
             total += _workqueue.back().distance;
 
-            if (_workqueue.size() > 2)
+            if (_workqueue.size() > (tail != 0 ? 3 : 2))
             {
                 if (!Wdist)
                 {
@@ -1800,7 +1859,7 @@ void PP1Stage2Poly::release()
     _Wd.reset();
     _W.reset();
     _lucas.reset();
-    _safe_gw.reset();
+    gwfree_cached(_gwstate->gwdata());
 }
 
 template void Stage2Poly<LucasV>::execute();
@@ -1818,31 +1877,62 @@ void EdECMStage2Poly::init(InputNum* input, GWState* gwstate, File* file, Loggin
 
 template void Stage2Poly<EdY>::done(const arithmetic::Giant& factor);
 
-void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::unique_ptr<arithmetic::EdY>>& elements, int count, gwnum* data)
+EdECMStage2Poly::SmallPolyWorker::SmallPolyWorker(EdECMStage2Poly& stage2) : Stage2Poly<arithmetic::EdY>::SmallPolyWorker(stage2), _montgomery(_gw, *stage2._ed_d)
+{
+    int count = (1 << stage2._smallpoly_power) + 2;
+    gwarray_elements = gwalloc_array(gw().gwdata(), 4*count);
+    elements.reserve(count);
+    for (int i = 0; i < count; i++)
+    {
+        elements.emplace_back(arithmetic());
+        elements.back().Y.reset(new GWNumWrapper(gw(), gwarray_elements[i*4 + 0]));
+        elements.back().Z.reset(new GWNumWrapper(gw(), gwarray_elements[i*4 + 1]));
+        elements.back().ZpY.reset(new GWNumWrapper(gw(), gwarray_elements[i*4 + 2]));
+        elements.back().ZmY.reset(new GWNumWrapper(gw(), gwarray_elements[i*4 + 3]));
+    }
+}
+
+void EdECMStage2Poly::SmallPolyWorker::element_copy(arithmetic::EdY& a, arithmetic::EdY& res)
+{
+    *res.Y = *a.Y;
+    if (a.Z)
+        *res.Z = *a.Z;
+    else
+        *res.Z = 1;
+    if (a.ZpY && a.ZmY)
+    {
+        *res.ZpY = *a.ZpY;
+        *res.ZmY = *a.ZmY;
+    }
+    else
+        gw().addsub(*res.Z, *res.Y, *res.ZpY, *res.ZmY, GWADD_DELAYNORM_IF(mul_safe(gw().gwdata(), 1, 1)));
+}
+
+void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<arithmetic::EdY>& elements, int count, gwnum* data)
 {
     int i;
     for (i = 0; i < count; i++)
     {
-        if (!elements[i]->Z)
+        if (!elements[i].Z)
         {
-            elements[i]->Z.reset(new GWNum(gw()));
-            *elements[i]->Z = 1;
+            elements[i].Z.reset(new GWNum(gw()));
+            *elements[i].Z = 1;
         }
-        if (!elements[i]->ZpY)
-            elements[i]->ZpY.reset(new GWNum(gw()));
+        if (!elements[i].ZpY)
+            elements[i].ZpY.reset(new GWNum(gw()));
     }
-    std::swap(elements[0]->ZpY, elements[0]->Z);
+    std::swap(elements[0].ZpY, elements[0].Z);
     for (i = 1; i < count; i++)
-        gw().mul(*elements[i - 1]->ZpY, *elements[i]->Z, *elements[i]->ZpY, GWMUL_STARTNEXTFFT_IF(i + 1 < count));
+        gw().mul(*elements[i - 1].ZpY, *elements[i].Z, *elements[i].ZpY, GWMUL_STARTNEXTFFT_IF(i + 1 < count));
     try
     {
 #ifdef DEBUG_STAGE2POLY_INV
         GWNum test(gw());
-        test = *elements[count - 1]->ZpY;
+        test = *elements[count - 1].ZpY;
 #endif
-        gw().inv(*elements[count - 1]->ZpY, *elements[count - 1]->ZpY);
+        gw().inv(*elements[count - 1].ZpY, *elements[count - 1].ZpY);
 #ifdef DEBUG_STAGE2POLY_INV
-        gw().carefully().mul(*elements[count - 1]->ZpY, test, test);
+        gw().carefully().mul(*elements[count - 1].ZpY, test, test);
         if ((gw().popg() = test)%gw().N() != 1)
         {
             static_cast<EdECMStage2Poly&>(_stage2)._logging->error("invg() failure.\n");
@@ -1852,80 +1942,60 @@ void EdECMStage2Poly::SmallPolyWorker::elements_to_gwnums(std::vector<std::uniqu
     }
     catch (const ArithmeticException&)
     {
-        std::swap(elements[0]->ZpY, elements[0]->Z);
+        std::swap(elements[0].ZpY, elements[0].Z);
         throw;
     }
     for (i = count - 1; i >= 0; i--)
     {
         if (i > 0)
         {
-            gw().mul(*elements[i]->ZpY, *elements[i - 1]->ZpY, *elements[i - 1]->ZpY, GWMUL_STARTNEXTFFT);
-            std::swap(elements[i]->ZpY, elements[i - 1]->ZpY);
-            gw().mul(*elements[i]->Z, *elements[i - 1]->ZpY, *elements[i - 1]->ZpY, GWMUL_STARTNEXTFFT);
+            gw().mul(*elements[i].ZpY, *elements[i - 1].ZpY, *elements[i - 1].ZpY, GWMUL_STARTNEXTFFT);
+            std::swap(elements[i].ZpY, elements[i - 1].ZpY);
+            gw().mul(*elements[i].Z, *elements[i - 1].ZpY, *elements[i - 1].ZpY, GWMUL_STARTNEXTFFT);
         }
-        if (elements[i]->Y)
-            gw().mul(*elements[i]->ZpY, *elements[i]->Y, (GWNum&)gw().wrap(data[i]), 0);
+        if (elements[i].Y)
+            gw().mul(*elements[i].ZpY, *elements[i].Y, (GWNum&)gw().wrap(data[i]), 0);
     }
 }
 
-void EdECMStage2Poly::write_state()
+template void Stage2Poly<EdY>::write_state();
+template void Stage2Poly<EdY>::read_state();
+
+void EdECMStage2Poly::element_write(Writer* writer, std::unique_ptr<EdY>& a)
 {
-    if (_file == nullptr || state() == nullptr || state()->iteration() == 0)
-        return;
-    _logging->debug("saving state to disk.\n");
-    Giant tmp;
-    std::unique_ptr<Writer> writer(_file->get_writer(state()->type(), state()->version()));
-    auto write_EdY = [&](std::unique_ptr<EdY>& p)
+    if (a)
     {
-        if (p)
-        {
-            writer->write((tmp = *p->Y));
-            if (p->Z)
-                writer->write((tmp = *p->Z));
-            else
-            {
-                writer->write(1);
-                writer->write(1);
-            }
-        }
+        writer->write((gw().popg() = *a->Y));
+        if (a->Z)
+            writer->write((gw().popg() = *a->Z));
         else
         {
-            writer->write(0);
-            writer->write(0);
+            writer->write(1);
+            writer->write(1);
         }
-    };
-
-    writer->write(state()->iteration());
-    writer->write((int)_workqueue.size());
-    for (auto it = _workqueue.begin(); it != _workqueue.end(); it++)
-    {
-        writer->write(it->n);
-        writer->write(it->count);
-        writer->write(it->distance);
-        write_EdY(it->Xn);
-        write_EdY(it->Xn1);
-        write_EdY(it->Xdn);
-        write_EdY(it->Xdn1);
     }
-
-    Stage2Poly::write_state(writer.get());
-    _file->commit_writer(*writer);
-    state()->set_written();
-    _logging->debug("state saved.\n");
+    else
+    {
+        writer->write(0);
+        writer->write(0);
+    }
 }
 
-/*EdY* to_EdY(MontgomeryArithmetic& arithmetic, EdPoint& a)
+bool EdECMStage2Poly::element_read(Reader* reader, std::unique_ptr<EdY>& a)
 {
-    std::unique_ptr<EdY> res(new EdY(arithmetic, a));
-    if (!res->Z)
+    Giant Y = gw().popg();
+    Giant Z = gw().popg();
+    if (!reader->read(Y))
+        return false;
+    if (!reader->read(Z))
+        return false;
+    if (Y != 0)
     {
-        res->Z.reset(new GWNum(arithmetic.gw()));
-        *res->Z = 1;
+        a.reset(new EdY(arithmetic()));
+        a->deserialize(Y, Z);
     }
-    arithmetic.optimize(*res);
-    return res.release();
-}*/
-#define to_EdY new EdY
+    return true;
+}
 
 void EdECMStage2Poly::setup()
 {
@@ -1936,9 +2006,7 @@ void EdECMStage2Poly::setup()
     }
     if (!_montgomery)
         _montgomery.reset(new MontgomeryArithmetic(*_ed_d));
-    if (!_safe_gw)
-        _safe_gw.reset(new ThreadSafeGWArithmetic(*_gwstate));
-    _montgomery->set_gw(*_safe_gw);
+    _montgomery->set_gw(gw());
     if (!_W)
         _W.reset(new EdY(arithmetic()));
     if (!_Wd)
@@ -1951,7 +2019,7 @@ void EdECMStage2Poly::setup()
     EdPoint EdW(ed);
     EdPoint EdWd(ed);
     EdPoint EdWdist(ed);
-    int v, count, distance;
+    int v, count, distance, tail;
 
     _workstage = 0;
     _workers.reserve(_poly_threads);
@@ -1963,8 +2031,6 @@ void EdECMStage2Poly::setup()
         _threads.emplace_back(&SmallPolyWorker::run, _workers.back().get());
     }
 
-    _gwstate->gwdata()->gwnum_max_free_count = 4*((1 << _smallpoly_power) + 4) + 16;
-
     try
     {
         if (!_modulus)
@@ -1975,6 +2041,7 @@ void EdECMStage2Poly::setup()
         }
 
         count = iterations();
+        tail = count%(1 << _smallpoly_power);
         distance = (count >> _smallpoly_power)/_poly_threads;
         if (distance == 0)
             distance = 1;
@@ -2003,73 +2070,7 @@ void EdECMStage2Poly::setup()
     }
 
     if (state() != nullptr)
-    {
-        auto read_files = [&]()
-        {
-            std::unique_ptr<Reader> reader(_file->get_reader());
-            if (!reader)
-                return false;
-            if (!reader->read(v))
-                return false;
-            if (!reader->read(count))
-                return false;
-            Giant Y, Z;
-            for (; count > 0; count--)
-            {
-                _workqueue.emplace_back();
-                reader->read(_workqueue.back().n);
-                reader->read(_workqueue.back().count);
-                reader->read(_workqueue.back().distance);
-                if (!reader->read(Y))
-                    return false;
-                if (!reader->read(Z))
-                    return false;
-                if (Y != 0)
-                {
-                    _workqueue.back().Xn.reset(new EdY(arithmetic()));
-                    _workqueue.back().Xn->deserialize(Y, Z);
-                }
-                if (!reader->read(Y))
-                    return false;
-                if (!reader->read(Z))
-                    return false;
-                if (Y != 0)
-                {
-                    _workqueue.back().Xn1.reset(new EdY(arithmetic()));
-                    _workqueue.back().Xn1->deserialize(Y, Z);
-                }
-                if (!reader->read(Y))
-                    return false;
-                if (!reader->read(Z))
-                    return false;
-                if (Y != 0)
-                {
-                    _workqueue.back().Xdn.reset(new EdY(arithmetic()));
-                    _workqueue.back().Xdn->deserialize(Y, Z);
-                }
-                if (!reader->read(Y))
-                    return false;
-                if (!reader->read(Z))
-                    return false;
-                if (Y != 0)
-                {
-                    _workqueue.back().Xdn1.reset(new EdY(arithmetic()));
-                    _workqueue.back().Xdn1->deserialize(Y, Z);
-                }
-            }
-            return read_state(reader.get());
-        };
-        if (!read_files())
-        {
-            _logging->warning("restart failed.\n");
-            _state.reset();
-            _workqueue.clear();
-            _accumulator.reset();
-            if (poly_check())
-                *_workers[0]->check() = 1;
-            count = iterations();
-        }
-    }
+        read_state();
 
     if (state() == nullptr)
     {
@@ -2078,8 +2079,16 @@ void EdECMStage2Poly::setup()
 
         _workqueue.emplace_back();
         _workqueue.back().n = v;
-        _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
-        _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
+        if (tail != 0)
+        {
+            _workqueue.back().count = tail;
+            _workqueue.back().distance = tail;
+        }
+        else
+        {
+            _workqueue.back().count = count >= (1 << _smallpoly_power) ? (1 << _smallpoly_power) : count;
+            _workqueue.back().distance = count >= (distance << _smallpoly_power) ? (distance << _smallpoly_power) : count;
+        }
 
         *EdP.X = 0;
         *EdP.Y = 1;
@@ -2106,9 +2115,9 @@ void EdECMStage2Poly::setup()
         }
         else
             EdP1 = EdW;
-        _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
+        _workqueue.back().Xn.reset(new EdY(arithmetic(), EdP));
         if (_workqueue.back().count > 1)
-            _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
+            _workqueue.back().Xn1.reset(new EdY(arithmetic(), EdP1));
 
         if (_workqueue.back().distance > (1 << _smallpoly_power))
         {
@@ -2120,12 +2129,12 @@ void EdECMStage2Poly::setup()
                 ed.dbl(EdWd, EdP1);
             else
                 ed.add(EdP, EdWd, EdP1);
-            _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
+            _workqueue.back().Xdn.reset(new EdY(arithmetic(), EdP1));
 
             if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
             {
                 ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
-                _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
+                _workqueue.back().Xdn1.reset(new EdY(arithmetic(), EdP1));
             }
         }
 
@@ -2144,14 +2153,19 @@ void EdECMStage2Poly::setup()
                 EdP = EdWdist;
             else if (_workqueue.back().n == 2*(distance << _smallpoly_power))
                 ed.dbl(EdWdist, EdP);
-            else
+            else if (_workqueue[_workqueue.size() - 2].distance == (distance << _smallpoly_power))
                 ed.add(EdP, EdWdist, EdP);
-            _workqueue.back().Xn.reset(to_EdY(arithmetic(), EdP));
+            else
+            {
+                tmp = _workqueue.back().n;
+                ed.mul(EdW, tmp, EdP);
+            }
+            _workqueue.back().Xn.reset(new EdY(arithmetic(), EdP));
 
             if (_workqueue.back().count > 1)
             {
                 ed.add(EdP, EdW, EdP1, ed.ED_PROJECTIVE);
-                _workqueue.back().Xn1.reset(to_EdY(arithmetic(), EdP1));
+                _workqueue.back().Xn1.reset(new EdY(arithmetic(), EdP1));
             }
 
             if (_workqueue.back().distance > (1 << _smallpoly_power))
@@ -2160,12 +2174,12 @@ void EdECMStage2Poly::setup()
                     ed.dbl(EdWd, EdP1);
                 else
                     ed.add(EdP, EdWd, EdP1);
-                _workqueue.back().Xdn.reset(to_EdY(arithmetic(), EdP1));
+                _workqueue.back().Xdn.reset(new EdY(arithmetic(), EdP1));
 
                 if (_workqueue.back().distance > (1 << _smallpoly_power) + 1)
                 {
                     ed.add(EdP1, EdW, EdP1, ed.ED_PROJECTIVE);
-                    _workqueue.back().Xdn1.reset(to_EdY(arithmetic(), EdP1));
+                    _workqueue.back().Xdn1.reset(new EdY(arithmetic(), EdP1));
                 }
             }
         }
@@ -2191,8 +2205,8 @@ void EdECMStage2Poly::release()
     _W.reset();
     _Wd.reset();
     _montgomery.reset();
-    _safe_gw.reset();
     _ed_d.reset();
+    gwfree_cached(_gwstate->gwdata());
 }
 
 void EdECMStage2Poly::execute()
