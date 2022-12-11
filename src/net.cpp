@@ -580,9 +580,9 @@ int net_main(int argc, char *argv[])
         bool poly = false;
         if (net.task()->options.find("poly") != net.task()->options.end())
             poly = net.task()->options["poly"] == "true";
-        int polyCheck = 0;
+        bool polyCheck = true;
         if (net.task()->options.find("poly_check") != net.task()->options.end())
-            polyCheck = std::stoi(net.task()->options["poly_check"]);
+            polyCheck = net.task()->options["poly_check"] != "false";
         if (net.task()->options.find("write_time") != net.task()->options.end())
             Task::DISK_WRITE_TIME = std::stoi(net.task()->options["write_time"]);
         else
@@ -697,7 +697,7 @@ int net_main(int argc, char *argv[])
                         if (params_pm1->PolyPower == 0)
                             stage2.reset(new PP1Stage2(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->A, params_pm1->L, logging));
                         else
-                            stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, polyThreads, polyMemModel, polyCheck > 0));
+                            stage2.reset(new PP1Stage2Poly(params_pm1->B1, params_pm1->B2, params_pm1->D, params_pm1->PolyPower, polyThreads, polyMemModel, polyCheck));
                         dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), true);
                         stage2->run();
                     }
@@ -735,7 +735,7 @@ int net_main(int argc, char *argv[])
                         if (params_pp1->PolyPower == 0)
                             stage2.reset(new PP1Stage2(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->A, params_pp1->L, logging));
                         else
-                            stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, polyThreads, polyMemModel, polyCheck > 0));
+                            stage2.reset(new PP1Stage2Poly(params_pp1->B1, params_pp1->B2, params_pp1->D, params_pp1->PolyPower, polyThreads, polyMemModel, polyCheck));
                         dynamic_cast<IPP1Stage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->V(), false);
                         stage2->run();
                     }
@@ -820,7 +820,7 @@ int net_main(int argc, char *argv[])
                         if (params_edecm->PolyPower == 0)
                             stage2.reset(new EdECMStage2(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->L, params_edecm->LN, logging));
                         else
-                            stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, polyThreads, polyMemModel, polyCheck > 0));
+                            stage2.reset(new EdECMStage2Poly(params_edecm->B1, params_edecm->B2, params_edecm->D, params_edecm->PolyPower, polyThreads, polyMemModel, polyCheck));
                         dynamic_cast<IEdECMStage2*>(stage2.get())->init(&input, &gwstate, &file2, &logging, interstate->X(), interstate->Y(), interstate->Z(), interstate->T(), EdD);
                         stage2->run();
                     }

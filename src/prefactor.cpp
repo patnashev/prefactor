@@ -251,10 +251,10 @@ int main(int argc, char *argv[])
                         if (strcmp(argv[i], "highest") == 0)
                             polyMemModel = 2;
                     }
-                    else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
+                    else if (i < argc - 1 && strcmp(argv[i + 1], "nocheck") == 0)
                     {
                         i++;
-                        polyCheck = true;
+                        polyCheck = false;
                     }
                     else if (i < argc - 1 && strcmp(argv[i + 1], "write") == 0)
                     {

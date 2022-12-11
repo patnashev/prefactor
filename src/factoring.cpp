@@ -433,7 +433,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _state.reserve(_points.size());
     std::string unique_id = std::to_string(_seed) + "." + std::to_string(_B1) + "." + std::to_string(B1next) + "." + std::to_string(B1max) + "." + std::to_string(stage1.W()) + ".";
     time_t last_write = time(NULL);
-    int last_write_count = 0;
+    int last_write_point = 0;
     time_t last_progress = time(NULL);
     if (Task::PROGRESS_TIME > 30)
         last_progress -= Task::PROGRESS_TIME - 30;
@@ -454,7 +454,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
         }
         catch (const TaskAbortException&)
         {
-            if (last_write_count < _state.size())
+            if (last_write_point < _state.size())
             {
                 _logging.progress_save();
                 write_file(file_state, 1, B1next, _state);
@@ -484,7 +484,7 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
             _logging.progress_save();
             write_file(file_state, 1, B1next, _state);
             last_write = time(NULL);
-            last_write_count = (int)_state.size();
+            last_write_point = (int)_state.size();
         }
     }
     if (_points.size() > 1)
@@ -497,15 +497,16 @@ void Factoring::stage1(uint64_t B1next, uint64_t B1max, uint64_t maxMem, File& f
     _points = std::move(_state);
 }
 
-std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int mem_model, int check, File* file_state, File& file_results)
+std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threads, int mem_model, bool check, File* file_state, File& file_results)
 {
-    int i = 0;
+    int i;
+    int cur_point = 0;
     std::string res64;
     std::string prefix = _logging.prefix();
 
     std::unique_ptr<TextReader> reader(file_results.get_textreader());
     while (reader->read_textline(res64))
-        i++;
+        cur_point++;
     std::unique_ptr<Writer> results(new Writer(std::move(file_results.buffer())));
 
     int maxSize = (int)(maxMem/(gwnum_size(_gwstate.gwdata())));
@@ -514,66 +515,85 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     if (params_edecm.PolyPower == 0)
         stage2.reset(new EdECMStage2(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.L, params_edecm.LN, _logging));
     else
-        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, threads, mem_model, false));
+        stage2.reset(new EdECMStage2Poly(params_edecm.B1, params_edecm.B2, params_edecm.D, params_edecm.PolyPower, threads, mem_model, check));
     _logging.report_param("D", params_edecm.D);
     _logging.report_param("degree", 1 << params_edecm.PolyPower);
     _logging.info("stage 2, B2 = %" PRId64 ", D = %d, degree %d.\n", B2, params_edecm.D, 1 << params_edecm.PolyPower);
 
-    SubLogging logging(_logging, _logging.level() + 1);
-    logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
-    _logging.progress().update(i/(double)_points.size(), i);
+    SubLogging sub_logging(_logging, _logging.level() + 1);
+    for (i = 0; i < _points.size(); i++)
+        _logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
+    for (i = 0; i < cur_point; i++)
+        _logging.progress().next_stage();
+    if (_points.size() > 1)
+    {
+        _logging.progress().update(0, 0);
+        sub_logging.progress().add_stage((int)((params_edecm.B2 - params_edecm.B1)/params_edecm.D));
+    }
 
     compute_d(true);
     std::vector<File*> files;
     std::string unique_id = std::to_string(_seed) + "." + std::to_string(_B1) + "." + std::to_string(B2) + "." + std::to_string(params_edecm.D) + "." + std::to_string(params_edecm.PolyPower) + ".";
     time_t last_write = time(NULL);
+    int last_write_point = 0;
     time_t last_progress = time(NULL);
     if (Task::PROGRESS_TIME > 30)
         last_progress -= Task::PROGRESS_TIME - 30;
-    while (i < _points.size())
+    while (cur_point < _points.size())
     {
-        _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
+        i = cur_point;
+        if (_points.size() > 1)
+            _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         File* file_stage2 = nullptr;
         if (file_state != nullptr)
             files.push_back(file_stage2 = file_state->add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, unique_id + std::to_string(i))));
-        if (params_edecm.PolyPower > 0)
-            dynamic_cast<EdECMStage2Poly*>(stage2.get())->set_check(i < check);
-        dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, file_stage2, &logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
+        dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, file_stage2, _points.size() > 1 ? &sub_logging : &_logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
+        if (_points.size() == 1)
+            _logging.set_prefix(prefix);
+        if (stage2->state() != nullptr)
+            last_write = 0;
         try
         {
             stage2->run();
         }
         catch (const TaskAbortException&)
         {
-            _logging.progress_save();
-            file_results.commit_writer(*results);
+            if (last_write_point < cur_point)
+            {
+                _logging.progress_save();
+                file_results.commit_writer(*results);
+            }
             throw;
         }
         _logging.set_prefix(prefix);
 
         results->write_textline(stage2->res64());
-        i++;
+        cur_point++;
 
-        if (time(NULL) - last_progress > Task::PROGRESS_TIME && i < _points.size())
+        if (_points.size() > 1)
+            _logging.progress().update(1, 1);
+        if (time(NULL) - last_progress > Task::PROGRESS_TIME && cur_point < _points.size())
         {
-            _logging.progress().update(i/(double)_points.size(), i);
             _logging.report_progress();
             last_progress = time(NULL);
         }
+        _logging.progress().next_stage();
 
-        if (time(NULL) - last_write > Task::DISK_WRITE_TIME || i == _points.size())
+        if (time(NULL) - last_write > Task::DISK_WRITE_TIME || cur_point == _points.size())
         {
-            _logging.progress().update(i/(double)_points.size(), i);
             _logging.progress_save();
             std::unique_ptr<Writer> writer(file_results.get_writer());
             writer->write(results->buffer().data(), (int)results->buffer().size());
             file_results.commit_writer(*writer);
             last_write = time(NULL);
+            last_write_point = cur_point;
             for (auto it = files.begin(); it != files.end(); it++)
                 (*it)->clear(true);
             files.clear();
         }
     }
+    if (_points.size() > 1)
+        _logging.report_progress();
 
     return results->hash_str();
 }
@@ -591,7 +611,7 @@ int factoring_main(int argc, char *argv[])
     bool poly = false;
     int polyThreads = 1;
     int polyMemModel = 0;
-    int polyCheck = 0;
+    bool polyCheck = true;
     bool polyWrite = false;
     int seed = 0;
     int count = 0;
@@ -737,15 +757,10 @@ int factoring_main(int argc, char *argv[])
                         if (strcmp(argv[i], "highest") == 0)
                             polyMemModel = 2;
                     }
-                    else if (i < argc - 1 && strcmp(argv[i + 1], "check") == 0)
+                    else if (i < argc - 1 && strcmp(argv[i + 1], "nocheck") == 0)
                     {
                         i++;
-                        polyCheck = 1000000;
-                        if (i < argc - 1 && strcmp(argv[i + 1], "one") == 0)
-                        {
-                            i++;
-                            polyCheck = 1;
-                        }
+                        polyCheck = false;
                     }
                     else if (i < argc - 1 && strcmp(argv[i + 1], "write") == 0)
                     {
