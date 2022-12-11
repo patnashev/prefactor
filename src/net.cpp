@@ -657,9 +657,7 @@ int net_main(int argc, char *argv[])
                         dhash += "-";
                     NetFile& file_results = files.emplace_back(net, "results", 0);
                     NetFile& file_checkpoint = files.emplace_back(net, "checkpoint", 0);
-                    logging.progress().add_stage((int)factoring.points().size());
                     dhash += factoring.stage2(net.task()->b2, maxMem, poly, polyThreads, polyMemModel, polyCheck, &file_checkpoint, file_results);
-                    logging.progress().next_stage();
                 }
             }
             else
