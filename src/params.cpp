@@ -90,6 +90,7 @@ EdECMParams::EdECMParams(uint64_t B1_, uint64_t B2_, int max_size, bool poly, in
         L = 5;
         LN = 16;
         pairing = 1;
+        PolyPower = 0;
     }
 }
 

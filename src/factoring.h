@@ -10,8 +10,6 @@
 
 #define FACTORING_APPID 3
 
-int factoring_main(int argc, char *argv[]);
-
 class Factoring
 {
 public:

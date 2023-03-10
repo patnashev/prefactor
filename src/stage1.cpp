@@ -204,14 +204,14 @@ void PP1Stage1::execute()
     uint64_t sqrtB1 = (uint64_t)sqrt(_B1);
     while (*it <= _B1)
     {
-        lucas.mul(V, *it, it.pos(), V);
+        lucas.mul(V, *it, (int)it.pos(), V);
         if (*it <= sqrtB1)
         {
             uint64_t j = *it;
             uint64_t k = _B1/(*it);
             while (j <= k)
             {
-                lucas.mul(V, *it, it.pos(), V);
+                lucas.mul(V, *it, (int)it.pos(), V);
                 j *= *it;
             }
         }

@@ -1,4 +1,3 @@
-#define NET_PREFACTOR_VERSION "0.10.0"
 #define _SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING
 
 #include <stdio.h>
@@ -6,15 +5,20 @@
 #include "gwnum.h"
 #include "cpuid.h"
 
-#include "net.h"
 #include "factoring.h"
 #include "md5.h"
 #include "task.h"
 #include "exception.h"
+#include "config.h"
 #include "stage1.h"
 #include "stage2.h"
 #include "stage2poly.h"
 #include "params.h"
+#include "version.h"
+
+#ifdef NETPF
+
+#include "net.h"
 
 void get_edecm_stage1_params(int B1, int maxSize, int *W);
 void get_stage2_params(int B1, int B2, int maxSize, int *D, int *A, int *L, double *pairing);
@@ -41,7 +45,7 @@ void NetLogging::LoggingNetFile::on_upload()
 void NetLogging::report(const std::string& message, int level)
 {
     Logging::report(message, level);
-    if (level >= _net_level && level != LEVEL_RESULT)
+    if (level >= _net_level && level != LEVEL_RESULT && level != LEVEL_PROGRESS)
         _file.write_text(message);
     if (level == LEVEL_RESULT)
         _file_factors.write_text(_prefix + message);
@@ -306,6 +310,7 @@ void NetContext::upload(NetFile* file)
                     .Put(put_url)
                     .Argument("md5", md5)
                     .Argument("workerID", worker_id())
+                    .Argument("version", PREFACTOR_VERSION "." VERSION_BUILD)
                     .Argument("uptime", uptime())
                     .Argument("fft_desc", _task->fft_desc)
                     .Argument("fft_len", _task->fft_len)
@@ -354,144 +359,66 @@ void NetContext::done()
 
 int net_main(int argc, char *argv[])
 {
-    int i;
     GWState gwstate;
     std::string url;
     std::string worker_id;
     int log_level = Logging::LEVEL_INFO;
     int net_log_level = Logging::LEVEL_WARNING;
+    std::string log_file;
     uint64_t maxMem = 2048*1048576ULL;
     int polyThreads = 1;
     int polyMemModel = 0;
     int disk_write_time = Task::DISK_WRITE_TIME;
 
-    for (i = 1; i < argc; i++)
-        if (argv[i][0] == '-' && argv[i][1])
-        {
-            switch (argv[i][1])
-            {
-            case 't':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    gwstate.thread_count = atoi(argv[i] + 2);
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    gwstate.thread_count = atoi(argv[i]);
-                }
+    Config cnfg;
+    cnfg.ignore("-net")
+        .value_number("-t", 0, gwstate.thread_count, 1, 256)
+        .value_number("-t", ' ', gwstate.thread_count, 1, 256)
+        .value_number("-spin", ' ', gwstate.spin_threads, 1, 256)
+        .value_enum("-cpu", ' ', gwstate.instructions, Enum<std::string>().add("SSE2", "SSE2").add("AVX", "AVX").add("FMA3", "FMA3").add("AVX512F", "AVX512F"))
+        .value_number("-M", ' ', maxMem)
+        .value_number("-L3", ' ', PolyMult::L3_CACHE_MB, 0, INT_MAX)
+        .group("-poly")
+            .value_number("t", 0, polyThreads, 1, 256)
+            .value_number("t", ' ', polyThreads, 1, 256)
+            .value_number("threads", ' ', polyThreads, 1, 256)
+            .value_enum("mem", ' ', polyMemModel, Enum<int>().add("lowest", -2).add("low", -1).add("normal", 0).add("high", 1).add("highest", 2))
+            .end()
+        .group("-time")
+            .value_number("write", ' ', disk_write_time, 1, INT_MAX)
+            .value_number("progress", ' ', Task::PROGRESS_TIME, 1, INT_MAX)
+            .end()
+        .group("-log")
+            .exclusive()
+                .ex_case().check("debug_internal", log_level, Logging::LEVEL_DEBUG - 1).end()
+                .ex_case().check("debug", log_level, Logging::LEVEL_DEBUG).end()
+                .ex_case().check("info", log_level, Logging::LEVEL_INFO).end()
+                .ex_case().check("warning", log_level, Logging::LEVEL_WARNING).end()
+                .ex_case().check("error", log_level, Logging::LEVEL_ERROR).end()
+                .end()
+            .value_string("file", ' ', log_file)
+            .end()
+        .check("-d", log_level, Logging::LEVEL_INFO)
+        .value_code("-ini", ' ', [&](const char* param) {
+                File ini_file(param, 0);
+                ini_file.read_buffer();
+                if (ini_file.buffer().empty())
+                    printf("ini file not found: %s.\n", param);
                 else
-                    break;
-                if (gwstate.thread_count == 0 || gwstate.thread_count > 64)
-                    gwstate.thread_count = 1;
-                continue;
-
-            case 'l':
-                if (!argv[i][2])
-                    gwstate.large_pages = true;
+                    cnfg.parse_ini(ini_file);
+                return true;
+            })
+        .value_string("-i", 0, worker_id)
+        .value_string("-i", ' ', worker_id)
+        .default_code([&](const char* param) {
+                if (strncmp(param, "http://", 7) != 0)
+                    printf("Unknown option %s.\n", param);
                 else
-                    break;
-                continue;
+                    url = param;
+            })
+        .parse_args(argc, argv);
 
-            case 'M':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    maxMem = InputNum::parse_numeral(argv[i] + 2);
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    maxMem = InputNum::parse_numeral(argv[i]);
-                }
-                else
-                    break;
-                continue;
-
-            case 'i':
-                if (argv[i][2])
-                    worker_id = argv[i] + 2;
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    worker_id = argv[i];
-                }
-                else
-                    break;
-                continue;
-            }
-
-            if (i < argc - 1 && strcmp(argv[i], "-L3") == 0)
-            {
-                i++;
-                PolyMult::L3_CACHE_MB = atoi(argv[i]);
-            }
-            else if (strcmp(argv[i], "-poly") == 0)
-            {
-                while (true)
-                    if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
-                    {
-                        i += 2;
-                        polyThreads = atoi(argv[i]);
-                    }
-                    else if (i < argc - 1 && argv[i + 1][0] == 't')
-                    {
-                        i++;
-                        polyThreads = atoi(argv[i] + 1);
-                    }
-                    else if (i < argc - 2 && strcmp(argv[i + 1], "mem") == 0)
-                    {
-                        i += 2;
-                        if (strcmp(argv[i], "lowest") == 0)
-                            polyMemModel = -2;
-                        if (strcmp(argv[i], "low") == 0)
-                            polyMemModel = -1;
-                        if (strcmp(argv[i], "normal") == 0)
-                            polyMemModel = 0;
-                        if (strcmp(argv[i], "high") == 0)
-                            polyMemModel = 1;
-                        if (strcmp(argv[i], "highest") == 0)
-                            polyMemModel = 2;
-                    }
-                    else
-                        break;
-            }
-            else if (strcmp(argv[i], "-time") == 0)
-            {
-                while (true)
-                    if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
-                    {
-                        i += 2;
-                        disk_write_time = atoi(argv[i]);
-                    }
-                    else if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
-                    {
-                        i += 2;
-                        Task::PROGRESS_TIME = atoi(argv[i]);
-                    }
-                    else
-                        break;
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
-            {
-                i++;
-                if (strcmp(argv[i], "debug_internal") == 0)
-                    log_level = Logging::LEVEL_DEBUG - 1;
-                if (strcmp(argv[i], "debug") == 0)
-                    log_level = Logging::LEVEL_DEBUG;
-                if (strcmp(argv[i], "info") == 0)
-                    log_level = Logging::LEVEL_INFO;
-                if (strcmp(argv[i], "warning") == 0)
-                    log_level = Logging::LEVEL_WARNING;
-                if (strcmp(argv[i], "error") == 0)
-                    log_level = Logging::LEVEL_ERROR;
-            }
-            else if (strcmp(argv[i], "-v") == 0)
-            {
-                printf("Net-Prefactor version " NET_PREFACTOR_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
-                return 0;
-            }
-        }
-        else
-        {
-            url = argv[i];
-        }
-    if (url.empty() || url.find("http://") != 0 || worker_id.empty())
+    if (url.empty() || worker_id.empty())
     {
         printf("Usage: prefactor -net -i WorkerID http://host:port/api/\n");
         return 0;
@@ -499,6 +426,8 @@ int net_main(int argc, char *argv[])
 
     NetContext net(url, worker_id, log_level, net_log_level);
     Logging& logging = net.logging();
+    if (!log_file.empty())
+        logging.file_log(log_file);
 
 	// Set the log-level to a reasonable value
 	boost::log::core::get()->set_filter
@@ -529,7 +458,7 @@ int net_main(int argc, char *argv[])
 					.Post(net.url() + "pf/new")
 					.Argument("workerID", net.worker_id())
 					.Argument("uptime", net.uptime())
-					.Argument("version", NET_PREFACTOR_VERSION)
+					.Argument("version", PREFACTOR_VERSION "." VERSION_BUILD)
 
 					// Send the request
 					.Execute()
@@ -860,7 +789,7 @@ int net_main(int argc, char *argv[])
                         .Argument("result", net.task()->factor)
                         .Argument("dhash", dhash)
                         .Argument("time", std::to_string(logging.progress().time_total()))
-                        .Argument("version", NET_PREFACTOR_VERSION)
+                        .Argument("version", PREFACTOR_VERSION "." VERSION_BUILD)
 
 						// Send the request
 						.Execute();
@@ -880,3 +809,4 @@ int net_main(int argc, char *argv[])
     return 0;
 }
 
+#endif

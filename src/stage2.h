@@ -30,8 +30,6 @@ protected:
     uint64_t _B2;
     int _D;
 
-    double _timer = 0;
-    int _transforms = 0;
     bool _success = false;
     std::string _res64;
 };
@@ -90,18 +88,9 @@ protected:
     int precompute(arithmetic::DifferentialGroupArithmetic<Element>& arithmetic, Element& X1, Element& XD, Element& XDA, std::vector<std::unique_ptr<Element>>& precomp);
 
 protected:
-    uint64_t _B1;
-    uint64_t _B2;
-    int _D;
     int _A;
     int _L;
     Pairing _pairing;
-
-    InputNum* _input = nullptr;
-    double _timer = 0;
-    int _transforms = 0;
-    bool _success = false;
-    std::string _res64;
 };
 
 class IPP1Stage2

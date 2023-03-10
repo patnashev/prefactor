@@ -1,4 +1,3 @@
-#define PREFACTOR_FACTORING_VERSION "0.10.0"
 
 #include <iostream>
 #include <cmath>
@@ -6,13 +5,18 @@
 #include <stdlib.h>
 #include "gwnum.h"
 #include "cpuid.h"
-#include "factoring.h"
 #include "exception.h"
+#include "config.h"
 #include "task.h"
 #include "params.h"
 #include "stage1.h"
 #include "stage2.h"
 #include "stage2poly.h"
+#include "version.h"
+
+#ifdef FACTORING
+
+#include "factoring.h"
 
 using namespace arithmetic;
 
@@ -600,7 +604,6 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
 
 int factoring_main(int argc, char *argv[])
 {
-    int i;
     GWState gwstate;
     GWArithmetic gw(gwstate);
     EdwardsArithmetic ed(gw);
@@ -632,62 +635,41 @@ int factoring_main(int argc, char *argv[])
     int merge = 0;
     std::string mergeName;
     int log_level = Logging::LEVEL_INFO;
+    std::string log_file;
     InputNum input;
     Giant tmp;
 
-    for (i = 1; i < argc; i++)
-        if (argv[i][0] == '-' && argv[i][1])
+    auto known_factor_handler = [&](const char* factor) {
+        if (gwstate.known_factors.empty())
+            gwstate.known_factors = factor;
+        else
         {
-            switch (argv[i][1])
-            {
-            case 't':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    gwstate.thread_count = atoi(argv[i] + 2);
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    gwstate.thread_count = atoi(argv[i]);
-                }
-                else
-                    break;
-                if (gwstate.thread_count == 0 || gwstate.thread_count > 64)
-                    gwstate.thread_count = 1;
-                continue;
+            Giant f;
+            f = factor;
+            gwstate.known_factors *= f;
+        }
+        return true;
+    };
+    int fermat_n;
 
-            case 'l':
-                if (!argv[i][2])
-                    gwstate.large_pages = true;
-                else
-                    break;
-                continue;
-
-            case 'q':
-                if (argv[i][2] != '\"' && !isdigit(argv[i][2]))
-                    break;
-                if (!input.parse(argv[i] + 2))
-                {
-                    printf("Invalid number format.\n");
-                    return 1;
-                }
-                continue;
-
-            case 'f':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    gwstate.known_factors = argv[i] + 2;
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    gwstate.known_factors = argv[i];
-                }
-                else
-                    break;
-                continue;
-            }
-
-            if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
-            {
-                i++;
-                std::string sB1 = argv[i];
+    Config cnfg;
+    cnfg.ignore("-factoring")
+        .value_number("-t", 0, gwstate.thread_count, 1, 256)
+        .value_number("-t", ' ', gwstate.thread_count, 1, 256)
+        .value_number("-spin", ' ', gwstate.spin_threads, 1, 256)
+        .value_enum("-cpu", ' ', gwstate.instructions, Enum<std::string>().add("SSE2", "SSE2").add("AVX", "AVX").add("FMA3", "FMA3").add("AVX512F", "AVX512F"))
+        .value_number("-fft", '+', gwstate.next_fft_count, 0, 5)
+        .group("-fft")
+            .value_number("+", 0, gwstate.next_fft_count, 0, 5)
+            .value_number("safety", ' ', gwstate.safety_margin, -10.0, 10.0)
+            .check("generic", gwstate.force_general_mod, true)
+            .end()
+        .value_number("-M", ' ', maxMem)
+        .value_number("-L3", ' ', PolyMult::L3_CACHE_MB, 0, INT_MAX)
+        .value_code("-f", 0, known_factor_handler)
+        .value_code("-f", ' ', known_factor_handler)
+        .value_code("-B1", ' ', [&](const char* param) {
+                std::string sB1 = param;
                 size_t sep = sB1.find("/");
                 if (sep != std::string::npos)
                 {
@@ -699,224 +681,135 @@ int factoring_main(int argc, char *argv[])
                     B1next = InputNum::parse_numeral(sB1);
                     B1max = B1next;
                 }
-                //if (B1 < 100)
-                //    B1 = 100;
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-B2") == 0)
-            {
-                i++;
-                B2 = InputNum::parse_numeral(argv[i]);
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
-            {
-                i++;
-                maxMem = InputNum::parse_numeral(argv[i]);
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-L3") == 0)
-            {
-                i++;
-                PolyMult::L3_CACHE_MB = atoi(argv[i]);
-            }
-            else if (strncmp(argv[i], "-fft", 4) == 0 && ((!argv[i][4] && i < argc - 1) || argv[i][4] == '+'))
-            {
-                if (argv[i][4] == '+')
-                    gwstate.next_fft_count = atoi(argv[i] + 5);
-                else if (argv[i + 1][0] == '+')
-                {
-                    i++;
-                    gwstate.next_fft_count = atoi(argv[i] + 1);
-                }
-            }
-            else if (strcmp(argv[i], "-generic") == 0)
-                gwstate.force_general_mod = true;
-            else if (strcmp(argv[i], "-poly") == 0)
-            {
-                poly = true;
-                while (true)
-                    if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
-                    {
-                        i += 2;
-                        polyThreads = atoi(argv[i]);
-                    }
-                    else if (i < argc - 1 && argv[i + 1][0] == 't')
-                    {
-                        i++;
-                        polyThreads = atoi(argv[i] + 1);
-                    }
-                    else if (i < argc - 2 && strcmp(argv[i + 1], "mem") == 0)
-                    {
-                        i += 2;
-                        if (strcmp(argv[i], "lowest") == 0)
-                            polyMemModel = -2;
-                        if (strcmp(argv[i], "low") == 0)
-                            polyMemModel = -1;
-                        if (strcmp(argv[i], "normal") == 0)
-                            polyMemModel = 0;
-                        if (strcmp(argv[i], "high") == 0)
-                            polyMemModel = 1;
-                        if (strcmp(argv[i], "highest") == 0)
-                            polyMemModel = 2;
-                    }
-                    else if (i < argc - 1 && strcmp(argv[i + 1], "nocheck") == 0)
-                    {
-                        i++;
-                        polyCheck = false;
-                    }
-                    else if (i < argc - 1 && strcmp(argv[i + 1], "write") == 0)
-                    {
-                        i++;
-                        polyWrite = true;
-                    }
-                    else
-                        break;
-            }
-            else if (strcmp(argv[i], "-time") == 0)
-            {
-                while (true)
-                    if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
-                    {
-                        i += 2;
-                        Task::DISK_WRITE_TIME = atoi(argv[i]);
-                    }
-                    else if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
-                    {
-                        i += 2;
-                        Task::PROGRESS_TIME = atoi(argv[i]);
-                    }
-                    else
-                        break;
-            }
-            else if (i < argc - 2 && strcmp(argv[i], "-generate") == 0)
-            {
-                generate = 1;
-                i++;
-                seed = atoi(argv[i]);
-                i++;
-                count = atoi(argv[i]);
-            }
-            else if (strcmp(argv[i], "-verify") == 0)
-            {
-                verify = 1;
-                if (i < argc - 1 && strcmp(argv[i + 1], "curve") == 0)
-                {
-                    verifyCurve = 1;
-                    i++;
-                }
-            }
-            else if (strcmp(argv[i], "-mod") == 0)
-            {
-                modulus = 1;
-                if (i < argc - 2 && strcmp(argv[i + 1], "curve") == 0)
-                {
-                    modCurve = atoi(argv[i + 2]);
-                    i += 2;
-                }
-            }
-            else if (i < argc - 2 && strcmp(argv[i], "-range") == 0)
-            {
-                range = true;
-                i++;
-                rangeOffset = atoi(argv[i]);
-                i++;
-                rangeCount = atoi(argv[i]);
-            }
-            else if (i < argc - 3 && strcmp(argv[i], "-split") == 0)
-            {
-                split = 1;
-                i++;
-                if (strcmp(argv[i], "curve") == 0)
-                {
-                    i++;
-                    splitCurve = atoi(argv[i]);
-                    i++;
-                    splitCount = 1;
-                }
+                return B1next != 0 && B1max != 0;
+            })
+        .value_number("-B2", ' ', B2)
+        .list("-generate", ' ', ' ')
+            .value_number(seed, 1, INT_MAX)
+            .value_number(count, 1, INT_MAX)
+            .end()
+            .on_check(generate, 1)
+        .group("-verify")
+            .check("curve", verifyCurve, 1)
+            .end()
+            .on_check(verify, 1)
+        .group("-mod")
+            .value_number("curve", ' ', modCurve, 1, INT_MAX)
+            .end()
+            .on_check(modulus, 1)
+        .list("-range", ' ', ' ')
+            .value_number(rangeOffset, 0, INT_MAX)
+            .value_number(rangeCount, 1, INT_MAX)
+            .end()
+            .on_check(range, true)
+        .group("-split")
+            .exclusive()
+                .ex_case()
+                    .list("curve", ' ', ' ')
+                        .value_number(splitCurve, 1, INT_MAX)
+                        .value_string(splitName)
+                        .end()
+                        .on_check(splitCount, 1)
+                    .end()
+                .ex_case()
+                    .list("range", ' ', ' ')
+                        .value_number(splitOffset, 0, INT_MAX)
+                        .value_number(splitCount, 1, INT_MAX)
+                        .value_string(splitName)
+                        .end()
+                    .end()
+                .end()
+                .on_check(split, 1)
+            .end()
+        .value_string("-merge", ' ', mergeName)
+            .on_check(merge, 1)
+        .group("-poly")
+            .value_number("t", 0, polyThreads, 1, 256)
+            .value_number("t", ' ', polyThreads, 1, 256)
+            .value_number("threads", ' ', polyThreads, 1, 256)
+            .value_enum("mem", ' ', polyMemModel, Enum<int>().add("lowest", -2).add("low", -1).add("normal", 0).add("high", 1).add("highest", 2))
+            .check("nocheck", polyCheck, false)
+            .check("write", polyWrite, true)
+            .end()
+        .group("-time")
+            .value_number("write", ' ', Task::DISK_WRITE_TIME, 1, INT_MAX)
+            .value_number("progress", ' ', Task::PROGRESS_TIME, 1, INT_MAX)
+            .end()
+        .group("-log")
+            .exclusive()
+                .ex_case().check("debug_internal", log_level, Logging::LEVEL_DEBUG - 1).end()
+                .ex_case().check("debug", log_level, Logging::LEVEL_DEBUG).end()
+                .ex_case().check("info", log_level, Logging::LEVEL_INFO).end()
+                .ex_case().check("warning", log_level, Logging::LEVEL_WARNING).end()
+                .ex_case().check("error", log_level, Logging::LEVEL_ERROR).end()
+                .end()
+            .value_string("file", ' ', log_file)
+            .end()
+        .check("-d", log_level, Logging::LEVEL_INFO)
+        .value_code("-ini", ' ', [&](const char* param) {
+                File ini_file(param, 0);
+                ini_file.read_buffer();
+                if (ini_file.buffer().empty())
+                    printf("ini file not found: %s.\n", param);
                 else
+                    cnfg.parse_ini(ini_file);
+                return true;
+            })
+        .check("-p54", gwstate.known_factors, "568630647535356955169033410940867804839360742060818433")
+        .value_number("fermat", ' ', fermat_n, 1, 30)
+            .on_code([&] {
+                    input.init(1, 2, 1 << fermat_n, 1);
+                    if (fermat_n == 12)
+                        gwstate.known_factors = "45477879701734570611058964078361695337745924097";
+                    if (fermat_n == 13)
+                        gwstate.known_factors = "8314626596650587038214450998145116566054205961594349402971227571059785400321";
+                    if (fermat_n == 15)
+                        gwstate.known_factors = "476875482933546652582154243389358929222507544696763973633";
+                    if (fermat_n == 16)
+                        gwstate.known_factors = "156052367171184321737113706005266433";
+                    if (fermat_n == 17)
+                        gwstate.known_factors = "31065037602817";
+                    if (fermat_n == 18)
+                        gwstate.known_factors = "1107895052308076834874643709953";
+                    if (fermat_n == 19)
+                        gwstate.known_factors = "1714509847183606156843894401498451927424901089206317613057";
+                    if (fermat_n == 21)
+                        gwstate.known_factors = "4485296422913";
+                    if (fermat_n == 22)
+                        gwstate.known_factors = "64658705994591851009055774868504577";
+                    if (fermat_n == 23)
+                        gwstate.known_factors = "167772161";
+                })
+        .value_code("-q", 0, [&](const char* param) {
+                if (param[0] != '\"' && !isdigit(param[0]))
+                    return false;
+                if (!input.parse(param))
+                    return false;
+                return true;
+            })
+        .default_code([&](const char* param) {
+                if (!input.empty())
+                    filename = param;
+                else if (!input.parse(param))
                 {
-                    splitOffset = atoi(argv[i]);
-                    i++;
-                    splitCount = atoi(argv[i]);
-                    i++;
+                    File file(param, 0);
+                    if (!input.read(file))
+                        filename = param;
                 }
-                splitName = argv[i];
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-merge") == 0)
-            {
-                merge = 1;
-                i++;
-                mergeName = argv[i];
-            }
-            else if (strcmp(argv[i], "-p54") == 0)
-            {
-                tmp = "568630647535356955169033410940867804839360742060818433";
-                gwstate.known_factors *= tmp;
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
-            {
-                i++;
-                if (strcmp(argv[i], "debug_internal") == 0)
-                    log_level = Logging::LEVEL_DEBUG - 1;
-                if (strcmp(argv[i], "debug") == 0)
-                    log_level = Logging::LEVEL_DEBUG;
-                if (strcmp(argv[i], "info") == 0)
-                    log_level = Logging::LEVEL_INFO;
-                if (strcmp(argv[i], "warning") == 0)
-                    log_level = Logging::LEVEL_WARNING;
-                if (strcmp(argv[i], "error") == 0)
-                    log_level = Logging::LEVEL_ERROR;
-            }
-            else if (strcmp(argv[i], "-v") == 0)
-            {
-                printf("Prefactor-Factoring version " PREFACTOR_FACTORING_VERSION ", Gwnum library version " GWNUM_VERSION "\n");
-                return 0;
-            }
-        }
-        else
-        {
-            if (i < argc - 1 && strcmp(argv[i], "fermat") == 0)
-            {
-                i++;
-                int fermat_n = atoi(argv[i]);
-                input.init(1, 2, 1 << fermat_n, 1);
-                if (fermat_n == 12)
-                    gwstate.known_factors = "45477879701734570611058964078361695337745924097";
-                if (fermat_n == 13)
-                    gwstate.known_factors = "8314626596650587038214450998145116566054205961594349402971227571059785400321";
-                if (fermat_n == 15)
-                    gwstate.known_factors = "476875482933546652582154243389358929222507544696763973633";
-                if (fermat_n == 16)
-                    gwstate.known_factors = "156052367171184321737113706005266433";
-                if (fermat_n == 17)
-                    gwstate.known_factors = "31065037602817";
-                if (fermat_n == 18)
-                    gwstate.known_factors = "1107895052308076834874643709953";
-                if (fermat_n == 19)
-                    gwstate.known_factors = "1714509847183606156843894401498451927424901089206317613057";
-                if (fermat_n == 21)
-                    gwstate.known_factors = "4485296422913";
-                if (fermat_n == 22)
-                    gwstate.known_factors = "64658705994591851009055774868504577";
-                if (fermat_n == 23)
-                    gwstate.known_factors = "167772161";
-            }
-            else if (!input.empty())
-                filename = argv[i];
-            else if (!input.parse(argv[i]))
-            {
-                File file(argv[i], 0);
-                if (!input.read(file))
-                {
-                    filename = argv[i];
-                }
-            }
-        }
+            })
+        .parse_args(argc, argv);
+
     if (input.empty() || filename.empty())
     {
         printf("Usage: prefactor -factoring {\"NUMBER\" | FILE | fermat N} [-generate CURVE COUNT] [-B1 10000] [-mod [curve CURVE]] [-verify [curve]] [-split {OFFSET COUNT | curve CURVE} FILE] [-merge FILE] [-f FACTOR] FILE\n");
         return 0;
     }
 
+    gwstate.maxmulbyconst = 8;
+
     Logging logging(log_level);
+    if (!log_file.empty())
+        logging.file_log(log_file);
     input.setup(gwstate);
     logging.info("Using %s.\n", gwstate.fft_description.data());
 
@@ -1060,3 +953,5 @@ int factoring_main(int argc, char *argv[])
 
     return 0;
 }
+
+#endif

@@ -159,7 +159,7 @@ void build_tree(std::vector<std::vector<Poly>>& tree, std::vector<arithmetic::Po
         if (convert && preserve)
         {
             if (gwarrays_tmp[j - 1] == nullptr)
-                gwarrays_tmp[j - 1] = gwalloc_array(pm.gw().gwdata(), 1 << j);
+                gwarrays_tmp[j - 1] = gwalloc_array(pm.gw().gwdata(), (size_t)1 << j);
             pm.init(gwarrays_tmp[j - 1], (size_t)1 << j, false, false, tmp);
         }
         for (i = 0; i < next.size(); i++)
@@ -220,7 +220,7 @@ void build_tree_tinypoly(std::vector<std::vector<Poly>>& tree, int k, int tiny_p
         if (convert && preserve)
         {
             if (gwarrays_tmp[j - 1] == nullptr)
-                gwarrays_tmp[j - 1] = gwalloc_array(pm.gw().gwdata(), 1 << tiny_power);
+                gwarrays_tmp[j - 1] = gwalloc_array(pm.gw().gwdata(), (size_t)1 << tiny_power);
             pm.init(gwarrays_tmp[j - 1], cur.size(), false, cur.monic(), tmp);
         }
         else if (convert)
@@ -611,7 +611,7 @@ void Stage2Poly<Element>::setup()
     _workers[0]->elements_to_gwnums(elements, elements.size(), poly_roots.data());
     elements.clear();
 
-    _gwarrays_tmp[0] = gwalloc_array(gw().gwdata(), 1 << poly_power());
+    _gwarrays_tmp[0] = gwalloc_array(gw().gwdata(), (size_t)1 << poly_power());
     for (k = 0; k < _smallpoly_mod.size(); k++)
     {
         Poly poly_rem(_poly_mult[0]);
@@ -630,7 +630,7 @@ void Stage2Poly<Element>::setup()
     PolyMult& pm = _poly_mult[poly_power()];
     Poly& modulus = _poly_mod[poly_power()][0];
     Poly reciprocal(pm);
-    _gwarrays.push_back(gwalloc_array(pm.gw().gwdata(), 1 << poly_power()));
+    _gwarrays.push_back(gwalloc_array(pm.gw().gwdata(), (size_t)1 << poly_power()));
     pm.init(_gwarrays.back(), (1 << poly_power()) - 1, false, true, reciprocal);
     pm.reciprocal(modulus, reciprocal, POLYMULT_NEXTFFT);
     int degree = (1 << (poly_power() + 1)) - modulus.degree();
@@ -712,7 +712,7 @@ void Stage2Poly<Element>::execute()
         if (j == 0 || &_poly_mult[j].gw() != &_poly_mult[j - 1].gw())
         {
             if (last_gwarray == nullptr)
-                gwarrays_up[j] = gwalloc_array(_poly_mult[j].gw().gwdata(), 1 << poly_power());
+                gwarrays_up[j] = gwalloc_array(_poly_mult[j].gw().gwdata(), (size_t)1 << poly_power());
             else
             {
                 gwarrays_up[j] = last_gwarray;
@@ -729,7 +729,7 @@ void Stage2Poly<Element>::execute()
         {
             for (i = j - 1; i > 0 && gwarrays_up[i] == nullptr; i--);
             if (gwarrays_up[i] == nullptr)
-                gwarrays_down[j - 1] = gwalloc_array(_poly_mult[j - 1].gw().gwdata(), 1 << poly_power());
+                gwarrays_down[j - 1] = gwalloc_array(_poly_mult[j - 1].gw().gwdata(), (size_t)1 << poly_power());
             else
                 gwarrays_down[j - 1] = gwarrays_up[i];
             j = i + 1;
@@ -1331,7 +1331,7 @@ void Stage2Poly<Element>::SmallPolyWorker::run()
                 if (poly_tree[0][0].empty())
                 {
                     if (gwarrays[0] == nullptr)
-                        gwarrays[0] = gwalloc_array(_poly_mult[0].gw().gwdata(), 1 << power);
+                        gwarrays[0] = gwalloc_array(_poly_mult[0].gw().gwdata(), (size_t)1 << power);
                     for (k = 0; k < poly_tree[0].size(); k++)
                         _poly_mult[0].init(gwarrays[0] + (k << tiny_power), (size_t)1 << tiny_power, false, true, poly_tree[0][k]);
                 }

@@ -520,7 +520,7 @@ int Stage2Pairing::precompute(DifferentialGroupArithmetic<Element>& arithmetic, 
     }
     // Cleanup
     for (j = 0; j < (_L == 1 ? _D/4 : _D/2); j++)
-        if (precomp[j] && gcd(2*j + 1, _D) != 1)
+        if (precomp[j] && gcd(2*j + 1, _D/_A) != 1)
         {
             precomp[j].reset();
             precomp_size--;

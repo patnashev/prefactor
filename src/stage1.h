@@ -38,8 +38,6 @@ protected:
     int _squarings = 0;
     int _exp_len = 0;
 
-    double _timer = 0;
-    int _transforms = 0;
     bool _success = false;
     bool _check_success = true;
 };

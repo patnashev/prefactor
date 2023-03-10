@@ -1,4 +1,3 @@
-#define PREFACTOR_VERSION "0.10.0"
 
 #include <ctype.h>
 #include <string.h>
@@ -15,6 +14,7 @@
 #include "cpuid.h"
 #include "arithmetic.h"
 #include "exception.h"
+#include "config.h"
 #include "inputnum.h"
 #include "stage1.h"
 #include "stage2.h"
@@ -24,8 +24,10 @@
 #include "params.h"
 #include "poly.h"
 #include "stage2poly.h"
+#include "version.h"
+
 #ifdef FACTORING
-#include "factoring.h"
+int factoring_main(int argc, char *argv[]);
 #endif
 #ifdef NETPF
 int net_main(int argc, char *argv[]);
@@ -52,7 +54,7 @@ int main(int argc, char *argv[])
 
     File::FILE_APPID = 1;
 
-    int i, j;
+    int i;
     GWState gwstate;
     GWArithmetic gw(gwstate);
     uint64_t B1 = 0;
@@ -78,257 +80,135 @@ int main(int argc, char *argv[])
     InputNum input;
     std::string toFile;
     int log_level = Logging::LEVEL_INFO;
+    std::string log_file;
     bool success = false;
 
-    for (i = 1; i < argc; i++)
-        if (argv[i][0] == '-' && argv[i][1])
-        {
-            switch (argv[i][1])
-            {
-            case 't':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    gwstate.thread_count = atoi(argv[i] + 2);
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    gwstate.thread_count = atoi(argv[i]);
-                }
-                else
-                    break;
-                if (gwstate.thread_count == 0 || gwstate.thread_count > 64)
-                    gwstate.thread_count = 1;
-                continue;
-
-            case 'l':
-                if (!argv[i][2])
-                    gwstate.large_pages = true;
-                else
-                    break;
-                continue;
-
-            case 'q':
-                if (argv[i][2] != '\"' && !isdigit(argv[i][2]))
-                    break;
-                if (!input.parse(argv[i] + 2))
-                {
-                    printf("Invalid number format.\n");
-                    return 1;
-                }
-                continue;
-
-            case 'f':
-                if (argv[i][2] && isdigit(argv[i][2]))
-                    gwstate.known_factors = argv[i] + 2;
-                else if (!argv[i][2] && i < argc - 1)
-                {
-                    i++;
-                    gwstate.known_factors = argv[i];
-                }
-                else
-                    break;
-                continue;
-            }
-
-            if (i < argc - 1 && strcmp(argv[i], "-B1") == 0)
-            {
-                i++;
-                B1 = InputNum::parse_numeral(argv[i]);
-                //if (B1 < 100)
-                //    B1 = 100;
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-B2") == 0)
-            {
-                i++;
-                B2 = InputNum::parse_numeral(argv[i]);
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-S") == 0)
-            {
-                i++;
-                if (sscanf(argv[i], "%lf", &sievingDepth))
-                {
-                    j = (int)strlen(argv[i]);
-                    if (argv[i][j - 1] == 'P')
-                        sievingDepth *= 1e15;
-                    if (argv[i][j - 1] == 'T')
-                        sievingDepth *= 1e12;
-                    if (argv[i][j - 1] == 'G')
-                        sievingDepth *= 1e9;
-                    if (argv[i][j - 1] == 'M')
-                        sievingDepth *= 1e6;
-                }
-                if (sievingDepth > 100)
-                    sievingDepth = log2(sievingDepth);
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-M") == 0)
-            {
-                i++;
-                maxMem = InputNum::parse_numeral(argv[i]);
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-L3") == 0)
-            {
-                i++;
-                PolyMult::L3_CACHE_MB = atoi(argv[i]);
-            }
-            else if (strncmp(argv[i], "-fft", 4) == 0 && ((!argv[i][4] && i < argc - 1) || argv[i][4] == '+'))
-            {
-                if (argv[i][4] == '+')
-                    gwstate.next_fft_count = atoi(argv[i] + 5);
-                else if (argv[i + 1][0] == '+')
-                {
-                    i++;
-                    gwstate.next_fft_count = atoi(argv[i] + 1);
-                }
-            }
-            else if (strcmp(argv[i], "-generic") == 0)
-                gwstate.force_general_mod = true;
-            else if (i < argc - 1 && strcmp(argv[i], "-P") == 0)
-            {
-                i++;
-                sP = argv[i];
-                plus1 = 1;
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-curve") == 0)
-            {
-                i++;
-                if (strcmp(argv[i], "curve2x8") == 0)
-                    curveType = 0;
-                else if (strcmp(argv[i], "curve12") == 0)
-                    curveType = 1;
-                else if (strcmp(argv[i], "seed") == 0)
-                {
-                    i++;
-                    curveType = 2;
-                    curveSeed = atoi(argv[i]);
-                }
-                else if (strcmp(argv[i], "random") == 0)
-                {
-                    curveType = 2;
-                    double timer = getHighResTimer();
-                    curveSeed = *(int *)&timer;
-                }
-                else if (strcmp(argv[i], "xy") == 0)
-                {
-                    i++;
-                    curveType = 3;
-                    curveX = argv[i];
-                    i++;
-                    curveY = argv[i];
-                }
-
-                edecm = 1;
-            }
-            else if (strcmp(argv[i], "-minus") == 0 || strcmp(argv[i], "-minus1") == 0)
-                minus1 = 1;
-            else if (strcmp(argv[i], "-plus") == 0 || strcmp(argv[i], "-plus1") == 0)
-                plus1 = 1;
-            else if (strcmp(argv[i], "-ecm") == 0 || strcmp(argv[i], "-eecm") == 0 || strcmp(argv[i], "-edecm") == 0)
-                edecm = 1;
-            else if (strcmp(argv[i], "-poly") == 0)
-            {
-                poly = true;
-                while (true)
-                    if (i < argc - 2 && strcmp(argv[i + 1], "threads") == 0)
-                    {
-                        i += 2;
-                        polyThreads = atoi(argv[i]);
-                    }
-                    else if (i < argc - 1 && argv[i + 1][0] == 't')
-                    {
-                        i++;
-                        polyThreads = atoi(argv[i] + 1);
-                    }
-                    else if (i < argc - 2 && strcmp(argv[i + 1], "mem") == 0)
-                    {
-                        i += 2;
-                        if (strcmp(argv[i], "lowest") == 0)
-                            polyMemModel = -2;
-                        if (strcmp(argv[i], "low") == 0)
-                            polyMemModel = -1;
-                        if (strcmp(argv[i], "normal") == 0)
-                            polyMemModel = 0;
-                        if (strcmp(argv[i], "high") == 0)
-                            polyMemModel = 1;
-                        if (strcmp(argv[i], "highest") == 0)
-                            polyMemModel = 2;
-                    }
-                    else if (i < argc - 1 && strcmp(argv[i + 1], "nocheck") == 0)
-                    {
-                        i++;
-                        polyCheck = false;
-                    }
-                    else if (i < argc - 1 && strcmp(argv[i + 1], "write") == 0)
-                    {
-                        i++;
-                        polyWrite = true;
-                    }
-                    else
-                        break;
-            }
-            else if (strcmp(argv[i], "-time") == 0)
-            {
-                while (true)
-                    if (i < argc - 2 && strcmp(argv[i + 1], "write") == 0)
-                    {
-                        i += 2;
-                        Task::DISK_WRITE_TIME = atoi(argv[i]);
-                    }
-                    else if (i < argc - 2 && strcmp(argv[i + 1], "progress") == 0)
-                    {
-                        i += 2;
-                        Task::PROGRESS_TIME = atoi(argv[i]);
-                    }
-                    else
-                        break;
-            }
-#ifdef FACTORING
-            else if (strcmp(argv[i], "-factoring") == 0)
-                return factoring_main(argc, argv);
-#endif
-#ifdef NETPF
-            else if (strcmp(argv[i], "-net") == 0)
-                return net_main(argc, argv);
-#endif
-            else if (i < argc - 1 && strcmp(argv[i], "-file") == 0)
-            {
-                i++;
-                toFile = argv[i];
-            }
-            else if (i < argc - 1 && strcmp(argv[i], "-log") == 0)
-            {
-                i++;
-                if (strcmp(argv[i], "debug") == 0)
-                    log_level = Logging::LEVEL_DEBUG;
-                if (strcmp(argv[i], "info") == 0)
-                    log_level = Logging::LEVEL_INFO;
-                if (strcmp(argv[i], "warning") == 0)
-                    log_level = Logging::LEVEL_WARNING;
-                if (strcmp(argv[i], "error") == 0)
-                    log_level = Logging::LEVEL_ERROR;
-            }
-            else if (strcmp(argv[i], "-v") == 0)
-            {
-                printf("Prefactor version " PREFACTOR_VERSION ", GWnum library version " GWNUM_VERSION);
-#ifdef GMP
-                GMPArithmetic* gmp = dynamic_cast<GMPArithmetic*>(&GiantsArithmetic::default_arithmetic());
-                if (gmp != nullptr)
-                    printf(", GMP library version %s", gmp->version().data());
-#endif
-                printf("\n");
-                return 0;
-            }
-        }
+    auto known_factor_handler = [&](const char* factor) {
+        if (!isdigit(factor[0]))
+            return false;
+        if (gwstate.known_factors.empty())
+            gwstate.known_factors = factor;
         else
         {
-            if (!input.parse(argv[i]))
-            {
-                File file(argv[i], 0);
-                if (!input.read(file))
-                {
-                    printf("File %s is missing or corrupted.\n", argv[i]);
-                    return 1;
-                }
-            }
+            Giant f;
+            f = factor;
+            gwstate.known_factors *= f;
         }
+        return true;
+    };
+
+    Config cnfg;
+    cnfg.value_number("-t", 0, gwstate.thread_count, 1, 256)
+        .value_number("-t", ' ', gwstate.thread_count, 1, 256)
+        .value_number("-spin", ' ', gwstate.spin_threads, 1, 256)
+        .value_enum("-cpu", ' ', gwstate.instructions, Enum<std::string>().add("SSE2", "SSE2").add("AVX", "AVX").add("FMA3", "FMA3").add("AVX512F", "AVX512F"))
+        .value_number("-fft", '+', gwstate.next_fft_count, 0, 5)
+        .group("-fft")
+            .value_number("+", 0, gwstate.next_fft_count, 0, 5)
+            .value_number("safety", ' ', gwstate.safety_margin, -10.0, 10.0)
+            .check("generic", gwstate.force_general_mod, true)
+            .end()
+        .value_number("-M", ' ', maxMem)
+        .value_number("-L3", ' ', PolyMult::L3_CACHE_MB, 0, INT_MAX)
+        .value_code("-f", 0, known_factor_handler)
+        .value_code("-f", ' ', known_factor_handler)
+        .value_number("-B1", ' ', B1)
+        .value_number("-B2", ' ', B2)
+        .value_number("-S", ' ', sievingDepth, 0.0, 1e100)
+            .on_code([&] { if (sievingDepth > 100) sievingDepth = log2(sievingDepth); })
+        .check("-minus", minus1, 1)
+        .check("-minus1", minus1, 1)
+        .check("-plus", plus1, 1)
+        .check("-plus1", plus1, 1)
+        .value_string("-P", ' ', sP)
+            .on_check(plus1, 1)
+        .check("-ecm", edecm, 1)
+        .check("-eecm", edecm, 1)
+        .check("-edecm", edecm, 1)
+        .group("-curve")
+            .exclusive()
+                .ex_case().check("curve2x8", curveType, 0).end()
+                .ex_case().check("curve12", curveType, 1).end()
+                .ex_case()
+                    .value_number("seed", ' ', curveSeed, 1, INT_MAX)
+                        .on_check(curveType, 2)
+                    .end()
+                .ex_case()
+                    .check("random", curveType, 2)
+                        .on_code([&] {
+                                double timer = getHighResTimer();
+                                curveSeed = abs(*(int *)&timer);
+                            })
+                    .end()
+                .ex_case()
+                    .list("xy", ' ', ' ')
+                        .value_string(curveX)
+                        .value_string(curveY)
+                        .end()
+                        .on_check(curveType, 3)
+                    .end()
+                .end()
+                .on_check(edecm, 1)
+            .end()
+        .group("-poly")
+            .value_number("t", 0, polyThreads, 1, 256)
+            .value_number("t", ' ', polyThreads, 1, 256)
+            .value_number("threads", ' ', polyThreads, 1, 256)
+            .value_enum("mem", ' ', polyMemModel, Enum<int>().add("lowest", -2).add("low", -1).add("normal", 0).add("high", 1).add("highest", 2))
+            .check("nocheck", polyCheck, false)
+            .check("write", polyWrite, true)
+            .end()
+        .group("-time")
+            .value_number("write", ' ', Task::DISK_WRITE_TIME, 1, INT_MAX)
+            .value_number("progress", ' ', Task::PROGRESS_TIME, 1, INT_MAX)
+            .end()
+        .group("-log")
+            .exclusive()
+                .ex_case().check("debug", log_level, Logging::LEVEL_DEBUG).end()
+                .ex_case().check("info", log_level, Logging::LEVEL_INFO).end()
+                .ex_case().check("warning", log_level, Logging::LEVEL_WARNING).end()
+                .ex_case().check("error", log_level, Logging::LEVEL_ERROR).end()
+                .end()
+            .value_string("file", ' ', log_file)
+            .end()
+        .check("-d", log_level, Logging::LEVEL_INFO)
+#ifdef FACTORING
+        .check_code("-factoring", [&] { exit(factoring_main(argc, argv)); })
+#endif
+#ifdef NETPF
+        .check_code("-net", [&] { exit(net_main(argc, argv)); })
+#endif
+        .check_code("-v", [&] {
+                print_banner();
+                exit(0);
+            })
+        .value_code("-ini", ' ', [&](const char* param) {
+                File ini_file(param, 0);
+                ini_file.read_buffer();
+                if (ini_file.buffer().empty())
+                    printf("ini file not found: %s.\n", param);
+                else
+                    cnfg.parse_ini(ini_file);
+                return true;
+            })
+        .value_string("-file", ' ', toFile)
+        .value_code("-q", 0, [&](const char* param) {
+                if (param[0] != '\"' && !isdigit(param[0]))
+                    return false;
+                if (!input.parse(param))
+                    return false;
+                return true;
+            })
+        .default_code([&](const char* param) {
+                if (!input.parse(param))
+                {
+                    File file(param, 0);
+                    if (!input.read(file))
+                        printf("Unknown option %s.\n", param);
+                }
+            })
+        .parse_args(argc, argv);
+
     if (input.empty())
     {
         printf("Usage: prefactor {-B1 10000 -B2 100000 | -S sievingDepth [-B1 10000] [-B2 100000]} [-minus1] [-plus1] [-edecm] options {\"K*B^N+C\" | file}\n");
@@ -343,8 +223,12 @@ int main(int argc, char *argv[])
 
     if (!minus1 && !plus1 && !edecm)
         minus1 = 1;
+    if (edecm)
+        gwstate.maxmulbyconst = 8;
 
     Logging logging(log_level);
+    if (!log_file.empty())
+        logging.file_log(log_file);
     input.setup(gwstate);
     logging.info("Using %s.\n", gwstate.fft_description.data());
 
@@ -471,7 +355,7 @@ int main(int argc, char *argv[])
     {
         File file_progress(std::to_string(gwstate.fingerprint), gwstate.fingerprint);
         file_progress.hash = false;
-        logging.progress_file(&file_progress);
+        logging.file_progress(&file_progress);
 
         if (params_pm1 && !success)
         {
