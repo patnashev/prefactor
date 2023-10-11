@@ -4,7 +4,7 @@
 //#define NETPF
 
 #define PREFACTOR_VERSION "0.10.0"
-#define VERSION_BUILD "12"
+#define VERSION_BUILD "27"
 
 inline void print_banner()
 {

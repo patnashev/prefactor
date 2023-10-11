@@ -536,10 +536,7 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
     }
 
     compute_d(true);
-    std::vector<File*> files;
     std::string unique_id = std::to_string(_seed) + "." + std::to_string(_B1) + "." + std::to_string(B2) + "." + std::to_string(params_edecm.D) + "." + std::to_string(params_edecm.PolyPower) + ".";
-    time_t last_write = time(NULL);
-    int last_write_point = 0;
     time_t last_progress = time(NULL);
     if (Task::PROGRESS_TIME > 30)
         last_progress -= Task::PROGRESS_TIME - 30;
@@ -550,25 +547,13 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
             _logging.set_prefix(prefix + "#" + std::to_string(_seed + i) + ", ");
         File* file_stage2 = nullptr;
         if (file_state != nullptr)
-            files.push_back(file_stage2 = file_state->add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, unique_id + std::to_string(i))));
+            file_stage2 = file_state->add_child(std::to_string(i), File::unique_fingerprint(_gwstate.fingerprint, unique_id + std::to_string(i)));
         dynamic_cast<IEdECMStage2*>(stage2.get())->init(&_input, &_gwstate, file_stage2, _points.size() > 1 ? &sub_logging : &_logging, _points[i].X, _points[i].Y, _points[i].Z, _points[i].T, _points[i].D);
         if (_points.size() == 1)
             _logging.set_prefix(prefix);
-        if (stage2->state() != nullptr)
-            last_write = 0;
-        try
-        {
-            stage2->run();
-        }
-        catch (const TaskAbortException&)
-        {
-            if (last_write_point < cur_point)
-            {
-                _logging.progress_save();
-                file_results.commit_writer(*results);
-            }
-            throw;
-        }
+        stage2->run();
+        if (file_stage2 != nullptr)
+            file_stage2->clear(true);
         _logging.set_prefix(prefix);
 
         results->write_textline(stage2->res64());
@@ -583,18 +568,10 @@ std::string Factoring::stage2(uint64_t B2, uint64_t maxMem, bool poly, int threa
         }
         _logging.progress().next_stage();
 
-        if (time(NULL) - last_write > Task::DISK_WRITE_TIME || cur_point == _points.size())
-        {
-            _logging.progress_save();
-            std::unique_ptr<Writer> writer(file_results.get_writer());
-            writer->write(results->buffer().data(), (int)results->buffer().size());
-            file_results.commit_writer(*writer);
-            last_write = time(NULL);
-            last_write_point = cur_point;
-            for (auto it = files.begin(); it != files.end(); it++)
-                (*it)->clear(true);
-            files.clear();
-        }
+        _logging.progress_save();
+        std::unique_ptr<Writer> writer(file_results.get_writer());
+        writer->write(results->buffer().data(), (int)results->buffer().size());
+        file_results.commit_writer(*writer);
     }
     if (_points.size() > 1)
         _logging.report_progress();
@@ -662,7 +639,7 @@ int factoring_main(int argc, char *argv[])
         .group("-fft")
             .value_number("+", 0, gwstate.next_fft_count, 0, 5)
             .value_number("safety", ' ', gwstate.safety_margin, -10.0, 10.0)
-            .check("generic", gwstate.force_general_mod, true)
+            .check("generic", gwstate.force_mod_type, 1)
             .end()
         .value_number("-M", ' ', maxMem)
         .value_number("-L3", ' ', PolyMult::L3_CACHE_MB, 0, INT_MAX)

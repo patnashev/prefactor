@@ -37,10 +37,11 @@ void Stage2Poly<Element>::init(InputNum* input, GWState* gwstate, File* file, Ta
     //_tinypoly_power = 0;
     //_poly_check = false;
 #endif
-    if (!gwstate->polymult)
+    int fft_length = gwstate->fft_length;
+    if (gwstate->polymult_safety_margin == 0)
     {
-        gwstate->polymult = true;
         gwstate->done();
+        gwstate->polymult_safety_margin = polymult_safety_margin(1 << poly_power(), 1 << poly_power());
         input->setup(*gwstate);
     }
     if (PolyMult::max_polymult_output(*gwstate) < 2*(1 << poly_power()))
@@ -48,6 +49,9 @@ void Stage2Poly<Element>::init(InputNum* input, GWState* gwstate, File* file, Ta
         gwstate->done();
         gwstate->next_fft_count++;
         input->setup(*gwstate);
+    }
+    if (fft_length != gwstate->fft_length)
+    {
         std::string prefix = logging->prefix();
         logging->set_prefix("");
         logging->warning("Switching to %s\n", gwstate->fft_description.data());
@@ -429,7 +433,6 @@ void Stage2Poly<Element>::setup()
 {
     int i, j, k;
     double timer = getHighResTimer();
-    int transforms = -(int)_gwstate->gwdata()->fft_count;
     Element Xn(arithmetic());
     Element Xn1(arithmetic());
 #ifdef DEBUG_STAGE2POLY_MOD
@@ -664,11 +667,10 @@ void Stage2Poly<Element>::setup()
 
     for (i = 0; i < _workers.size(); i++)
         gwclone_merge_stats(_gwstate->gwdata(), _workers[i]->gw().gwdata());
-    transforms += (int)_gwstate->gwdata()->fft_count;
-    _transforms -= transforms;
     timer = (getHighResTimer() - timer)/getHighResTimerFrequency();
-    _logging->info("modulus degree %d, transforms: %d, time: %.3f s.\n", _modulus->degree(), transforms, timer);
+    _logging->info("modulus degree %d, ops: %d, time: %.3f s.\n", _modulus->degree(), ops(), timer);
     commit_setup();
+    _op_base = _gwstate->ops();
 }
 
 template<class Element>

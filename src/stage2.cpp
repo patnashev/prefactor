@@ -25,7 +25,7 @@ void Stage2::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
 void Stage2::done(const arithmetic::Giant& factor)
 {
     InputTask::done();
-    _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
+    _logging->info("ops: %d, time: %.1f s.\n", ops(), timer());
     if (factor == 0 || factor == *_gwstate->N)
     {
         _success = true;
@@ -598,7 +598,6 @@ void PP1Stage2::setup()
 
     if (_precomp.empty())
     {
-        int transforms = -(int)gw().gwdata()->fft_count;
         _Vn->V() = _P;
         std::vector<std::unique_ptr<LucasV>> precomp;
         int precomp_size = precompute<LucasV>(*lucas, *_Vn, *_W, _Wa ? *_Wa : *_Vn1, precomp);
@@ -607,9 +606,8 @@ void PP1Stage2::setup()
         commit_setup();
         _precomp = std::move(precomp);
 
-        transforms += (int)gw().gwdata()->fft_count;
-        _transforms -= transforms;
-        _logging->info("%d precomputed values (%d transforms), %d steps.\n", precomp_size, transforms, _pairing.last_D - _pairing.first_D + 1);
+        _logging->info("%d precomputed values (%d ops), %d steps.\n", precomp_size, ops(), _pairing.last_D - _pairing.first_D + 1);
+        _op_base = _gwstate->ops();
     }
 
     if (state() == nullptr)
@@ -752,7 +750,6 @@ void EdECMStage2::setup()
 
     if (_precomp.empty())
     {
-        int transforms = -(int)gw().gwdata()->fft_count;
         *_Pn = EdP;
         std::vector<std::unique_ptr<EdY>> precomp;
         int precomp_size = precompute<EdY>(*montgomery, *_Pn, *_W, *_Pn1, precomp);
@@ -774,12 +771,11 @@ void EdECMStage2::setup()
         commit_setup();
         _precomp = std::move(precomp);
 
-        transforms += (int)gw().gwdata()->fft_count;
-        _transforms -= transforms;
-        _logging->info("%d precomputed values (%d transforms), %d steps", precomp_size, transforms, _pairing.last_D - _pairing.first_D + 1);
+        _logging->info("%d precomputed values (%d ops), %d steps", precomp_size, ops(), _pairing.last_D - _pairing.first_D + 1);
         if (_LN > 0)
             _logging->info(" in batches of %d", _LN);
         _logging->info(".\n");
+        _op_base = _gwstate->ops();
     }
 
     if (state() == nullptr)

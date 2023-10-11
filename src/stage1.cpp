@@ -18,7 +18,7 @@ void Stage1::init(InputNum* input, GWState* gwstate, File* file, TaskState* stat
 void Stage1::done(const arithmetic::Giant& factor)
 {
     InputTask::done();
-    _logging->info("transforms: %d, time: %.1f s.\n", _transforms, _timer);
+    _logging->info("ops: %d, time: %.1f s.\n", ops(), timer());
     if (factor == 0 || factor == *_gwstate->N)
     {
         _success = true;
